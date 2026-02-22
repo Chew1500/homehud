@@ -90,3 +90,4 @@ home-hud/
 - [ ] Phase 6: Intent parsing (Claude API)
 - [ ] Phase 7: Wake word detection (openWakeWord)
 - [ ] Phase 8: Polish & enclosure
+
