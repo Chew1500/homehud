@@ -7,24 +7,14 @@ Wants=network-online.target
 Type=simple
 User=hud
 Group=hud
-WorkingDirectory=/opt/home-hud/src
-ExecStart=/opt/home-hud/venv/bin/python main.py
+WorkingDirectory=/opt/homehud/src
+ExecStart=/opt/homehud/venv/bin/python main.py
 Restart=on-failure
 RestartSec=30
-
-# Environment
-EnvironmentFile=/opt/home-hud/.env
-
-# Logging
+EnvironmentFile=/opt/homehud/.env
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=home-hud
-
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ReadWritePaths=/opt/home-hud/output
-PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
