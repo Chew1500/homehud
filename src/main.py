@@ -1,17 +1,40 @@
 """Home HUD - Raspberry Pi e-ink dashboard."""
 
 import logging
+import logging.handlers
 import signal
 import time
+from pathlib import Path
 
 from config import load_config
 from display import get_display
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 log = logging.getLogger("home-hud")
+
+
+def setup_logging(config: dict) -> None:
+    """Configure root logger with console and rotating file handlers."""
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    level = getattr(logging, config["log_level"].upper(), logging.INFO)
+
+    root = logging.getLogger()
+    root.setLevel(level)
+
+    # Console handler (stderr) — keeps journald working on Pi
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    # Rotating file handler
+    log_dir = Path(config["log_dir"])
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "homehud.log",
+        maxBytes=1_000_000,
+        backupCount=3,
+    )
+    file_handler.setFormatter(fmt)
+    root.addHandler(file_handler)
 
 
 def render_frame(display):
@@ -62,6 +85,7 @@ def render_frame(display):
 
 def main():
     config = load_config()
+    setup_logging(config)
     display = get_display(config)
 
     name = display.__class__.__name__

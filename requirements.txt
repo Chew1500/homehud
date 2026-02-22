@@ -1,5 +1,6 @@
 # Core
 Pillow>=10.0
+python-dotenv>=1.0
 
 # Enphase API (Phase 2)
 # httpx>=0.27

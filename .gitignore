@@ -11,6 +11,9 @@ venv/
 # Mock display output
 output/
 
+# Log files
+logs/
+
 # IDE
 .vscode/
 .idea/
