@@ -1,0 +1,99 @@
+"""Home HUD - Raspberry Pi e-ink dashboard."""
+
+import logging
+import signal
+import time
+
+from config import load_config
+from display import get_display
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+log = logging.getLogger("home-hud")
+
+
+def render_frame(display):
+    """Render a single frame to the display."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = display.size
+    img = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(img)
+
+    # -- Header --
+    draw.rectangle([(0, 0), (width, 48)], fill="black")
+    try:
+        font_lg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_md = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+    except OSError:
+        font_lg = ImageFont.load_default()
+        font_md = font_lg
+        font_sm = font_lg
+
+    draw.text((12, 10), "HOME HUD", fill="white", font=font_lg)
+
+    # -- Timestamp --
+    from datetime import datetime
+
+    now = datetime.now().strftime("%B %d, %Y  %I:%M %p")
+    draw.text((12, 60), now, fill="black", font=font_md)
+
+    # -- Placeholder panels --
+    # Solar panel (left)
+    draw.rectangle([(12, 100), (width // 2 - 6, 260)], outline="black", width=2)
+    draw.text((20, 108), "Solar Production", fill="black", font=font_md)
+    draw.text((20, 140), "-- kW", fill="black", font=font_lg)
+    draw.text((20, 180), "Waiting for Enphase...", fill="black", font=font_sm)
+
+    # Grocery list (right)
+    draw.rectangle([(width // 2 + 6, 100), (width - 12, 260)], outline="black", width=2)
+    draw.text((width // 2 + 14, 108), "Grocery List", fill="black", font=font_md)
+    draw.text((width // 2 + 14, 140), "No items yet", fill="black", font=font_sm)
+
+    # -- Footer --
+    draw.line([(12, height - 40), (width - 12, height - 40)], fill="black", width=1)
+    draw.text((12, height - 32), "home-hud v0.1.0", fill="black", font=font_sm)
+
+    display.show(img)
+
+
+def main():
+    config = load_config()
+    display = get_display(config)
+
+    name = display.__class__.__name__
+    log.info(f"Starting Home HUD with {name} ({display.size[0]}x{display.size[1]})")
+
+    # Graceful shutdown
+    running = True
+
+    def shutdown(signum, frame):
+        nonlocal running
+        log.info("Shutting down...")
+        running = False
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    refresh_interval = config.get("refresh_interval", 300)  # 5 min default
+
+    try:
+        while running:
+            render_frame(display)
+            log.info(f"Frame rendered. Next refresh in {refresh_interval}s.")
+
+            # Sleep in small increments so we can catch signals
+            for _ in range(refresh_interval):
+                if not running:
+                    break
+                time.sleep(1)
+    finally:
+        display.close()
+        log.info("Home HUD stopped.")
+
+
+if __name__ == "__main__":
+    main()
