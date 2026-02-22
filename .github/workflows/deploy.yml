@@ -17,8 +17,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Lint
         run: ruff check src/ tests/
@@ -28,20 +27,25 @@ jobs:
 
   deploy:
     needs: lint-and-test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, pi]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure SSH
+      - name: Pull latest code
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.PI_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.PI_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          sudo -u hud git -C /opt/homehud fetch origin main
+          sudo -u hud git -C /opt/homehud reset --hard origin/main
 
-      - name: Deploy to Pi
-        env:
-          PI_HOST: ${{ secrets.PI_HOST }}
-          PI_USER: ${{ secrets.PI_USER }}
-        run: bash scripts/deploy.sh
+      - name: Update dependencies
+        run: |
+          sudo -u hud /opt/homehud/venv/bin/pip install -q -r /opt/homehud/requirements.txt
+
+      - name: Smoke test
+        run: |
+          cd /opt/homehud/src
+          sudo -u hud HUD_DISPLAY_MODE=mock /opt/homehud/venv/bin/python -c "from config import load_config; print('Config OK')"
+
+      - name: Restart service
+        run: |
+          sudo systemctl restart home-hud
+          sleep 2
+          sudo systemctl status home-hud --no-pager -l
