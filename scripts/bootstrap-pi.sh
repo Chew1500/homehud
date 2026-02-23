@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-APP_DIR="/opt/home-hud"
+APP_DIR="/opt/homehud"
 APP_USER="hud"
 REPO="https://github.com/$(whoami)/home-hud.git"  # Update with your GitHub username
 
@@ -24,9 +24,18 @@ sudo apt-get install -y -qq \
     > /dev/null
 
 # Ensure Python 3.11 (tflite-runtime has no aarch64 wheels for 3.12+)
-if ! command -v python3.11 &>/dev/null; then
+PY311=""
+if command -v python3.11 &>/dev/null; then
+    PY311="python3.11"
+elif python3 -c "import sys; assert sys.version_info[:2] == (3, 11)" 2>/dev/null; then
+    PY311="python3"
+fi
+
+if [ -z "$PY311" ]; then
     echo "  Python 3.11 not found, attempting apt install..."
-    if ! sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+    if sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+        PY311="python3.11"
+    else
         echo "  apt install failed, building Python 3.11 from source..."
         sudo apt-get install -y -qq \
             build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
@@ -42,9 +51,14 @@ if ! command -v python3.11 &>/dev/null; then
         sudo make altinstall 2>&1 | tail -1
         sudo rm -rf /tmp/Python-${PY_VER} /tmp/Python-${PY_VER}.tgz
         cd -
+        PY311="python3.11"
     fi
 fi
-echo "  Python 3.11: $(python3.11 --version)"
+
+# Ensure venv module available (needed for system python3)
+sudo apt-get install -y -qq python3-venv python3.11-venv 2>/dev/null || true
+
+echo "  Using Python: $PY311 ($($PY311 --version))"
 
 # --- Enable SPI (required for e-ink display) ---
 echo "[2/6] Enabling SPI interface..."
@@ -69,18 +83,18 @@ fi
 echo "[4/6] Setting up application directory..."
 if [ -d "$APP_DIR" ]; then
     echo "  $APP_DIR already exists, pulling latest..."
-    sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only
+    sudo -H -u "$APP_USER" git -C "$APP_DIR" pull --ff-only
 else
     sudo mkdir -p "$APP_DIR"
     sudo chown "$APP_USER:$APP_USER" "$APP_DIR"
-    sudo -u "$APP_USER" git clone "$REPO" "$APP_DIR"
+    sudo -H -u "$APP_USER" git clone "$REPO" "$APP_DIR"
 fi
 
 # --- Python venv ---
 echo "[5/6] Setting up Python virtual environment..."
-sudo -u "$APP_USER" python3.11 -m venv "$APP_DIR/venv"
-sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
-sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements-pi.txt"
+sudo -H -u "$APP_USER" $PY311 -m venv "$APP_DIR/venv"
+sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
+sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements-pi.txt"
 
 # --- Install systemd service ---
 echo "[6/6] Installing systemd service..."

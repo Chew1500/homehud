@@ -32,16 +32,26 @@ jobs:
     steps:
       - name: Pull latest code
         run: |
-          sudo -u hud git -C /opt/homehud fetch origin main
-          sudo -u hud git -C /opt/homehud reset --hard origin/main
+          sudo -H -u hud git -C /opt/homehud fetch origin main
+          sudo -H -u hud git -C /opt/homehud reset --hard origin/main
 
       - name: Ensure Python 3.11 venv
         run: |
-          # Install Python 3.11 if not present
-          if ! command -v python3.11 &>/dev/null; then
+          # Find Python 3.11 — check versioned command, then system python3
+          PY311=""
+          if command -v python3.11 &>/dev/null; then
+            PY311="python3.11"
+          elif python3 -c "import sys; assert sys.version_info[:2] == (3, 11)" 2>/dev/null; then
+            PY311="python3"
+          fi
+
+          # Install if not found
+          if [ -z "$PY311" ]; then
             echo "Python 3.11 not found, attempting apt install..."
             sudo apt-get update -qq
-            if ! sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+            if sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+              PY311="python3.11"
+            else
               echo "apt install failed, building Python 3.11 from source..."
               sudo apt-get install -y -qq \
                 build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
@@ -56,29 +66,34 @@ jobs:
               make -j$(nproc) 2>&1 | tail -1
               sudo make altinstall 2>&1 | tail -1
               sudo rm -rf /tmp/Python-${PY_VER} /tmp/Python-${PY_VER}.tgz
+              PY311="python3.11"
             fi
           fi
-          python3.11 --version
 
-          # Recreate venv if not Python 3.11
-          CURRENT_PY=$(sudo -u hud /opt/homehud/venv/bin/python3 -c \
+          echo "Using Python: $PY311 ($($PY311 --version))"
+
+          # Ensure venv module available (needed for system python3)
+          sudo apt-get install -y -qq python3-venv python3.11-venv 2>/dev/null || true
+
+          # Recreate venv if missing or wrong version
+          CURRENT_PY=$(sudo -H -u hud /opt/homehud/venv/bin/python3 -c \
             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
             2>/dev/null || echo "none")
           if [ "$CURRENT_PY" != "3.11" ]; then
             echo "Venv is Python $CURRENT_PY, recreating with 3.11..."
             sudo rm -rf /opt/homehud/venv
-            sudo -u hud python3.11 -m venv /opt/homehud/venv
-            sudo -u hud /opt/homehud/venv/bin/pip install -q --upgrade pip
+            sudo -H -u hud $PY311 -m venv /opt/homehud/venv
+            sudo -H -u hud /opt/homehud/venv/bin/pip install -q --upgrade pip
           fi
 
       - name: Update dependencies
         run: |
-          sudo -u hud /opt/homehud/venv/bin/pip install -q -r /opt/homehud/requirements-pi.txt
+          sudo -H -u hud /opt/homehud/venv/bin/pip install -q -r /opt/homehud/requirements-pi.txt
 
       - name: Smoke test
         run: |
           cd /opt/homehud/src
-          sudo -u hud HUD_DISPLAY_MODE=mock /opt/homehud/venv/bin/python -c "from config import load_config; print('Config OK')"
+          sudo -H -u hud HUD_DISPLAY_MODE=mock /opt/homehud/venv/bin/python -c "from config import load_config; print('Config OK')"
 
       - name: Restart service
         run: |

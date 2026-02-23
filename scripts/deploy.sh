@@ -6,7 +6,7 @@ set -euo pipefail
 
 PI_HOST="${PI_HOST:?Set PI_HOST environment variable}"
 PI_USER="${PI_USER:-hud}"
-APP_DIR="/opt/home-hud"
+APP_DIR="/opt/homehud"
 
 echo "==> Deploying to $PI_USER@$PI_HOST..."
 
