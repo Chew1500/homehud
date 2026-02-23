@@ -34,16 +34,19 @@ def start_voice_pipeline(
 
         while running.is_set():
             try:
+                wake_detected = False
                 for chunk in audio.stream():
                     consecutive_errors = 0
                     if not running.is_set():
                         break
                     if wake.detect(chunk):
-                        pcm = audio.record(record_duration)
-                        text = stt.transcribe(pcm)
-                        log.info("Transcribed: %r", text)
-                        wake.reset()
-                        break
+                        wake_detected = True
+                        break  # stream's finally block frees the mic device
+                if wake_detected:
+                    pcm = audio.record(record_duration)
+                    text = stt.transcribe(pcm)
+                    log.info("Transcribed: %r", text)
+                    wake.reset()
             except Exception:
                 consecutive_errors += 1
                 if consecutive_errors >= max_errors:
