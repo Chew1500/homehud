@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            libportaudio2 ffmpeg libatlas-base-dev \
+            libportaudio2 portaudio19-dev ffmpeg libatlas-base-dev \
             libopenjp2-7 libtiff6 \
             2>/dev/null || true
 
