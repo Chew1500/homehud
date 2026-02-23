@@ -2,18 +2,18 @@
 
 ## Project
 
-Home HUD — a Raspberry Pi 5 e-ink dashboard with voice control. Combines solar energy monitoring, grocery lists, reminders, and spoken interaction.
+Home HUD — a Raspberry Pi 5 voice assistant with an e-ink companion display. Listens for a wake word, processes spoken commands for built-in features (grocery lists, reminders, solar monitoring), and falls back to an LLM for general queries.
 
 ## Current Focus
 
-Building the voice pipeline (wake word → speech-to-text → intent parsing → text-to-speech). The e-ink display hasn't arrived yet, so display work is deferred.
+Building the voice pipeline: audio I/O → wake word detection → speech-to-text → intent parsing → text-to-speech. The e-ink display is secondary and deferred until the voice pipeline is functional.
 
 ## Stack
 
 - Python 3.13 (Pi) / 3.11+ (local dev)
-- Pillow for image rendering
+- Voice stack: openWakeWord, Whisper, Anthropic Claude API, Kokoro/Piper
+- Pillow for e-ink rendering (secondary)
 - ruff for linting, pytest for tests
-- Planned voice stack: openWakeWord, Whisper, Anthropic Claude API, Kokoro/Piper
 
 ## Project Structure
 
@@ -49,6 +49,6 @@ make test         # pytest tests/ -v
 
 ## Conventions
 
-- New features should follow the display abstraction pattern — interfaces that can be mocked for local dev and swapped for real hardware on the Pi
+- New features should follow the abstraction pattern — interfaces that can be mocked for local dev and swapped for real hardware on the Pi. This applies to audio I/O, speech engines, and display backends alike.
 - Keep Pillow as the rendering layer; all UI is composed as PIL Images
 - Config goes through environment variables loaded in `config.py`

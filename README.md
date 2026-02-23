@@ -1,12 +1,12 @@
 # Home HUD
 
-A Raspberry Pi-powered e-ink dashboard combining solar energy monitoring, grocery lists, reminders, and voice control.
+A Raspberry Pi-powered voice assistant with an e-ink companion display. Responds to wake words, handles built-in commands (grocery lists, reminders, solar monitoring), and falls back to an LLM for general queries.
 
 ## Hardware
 
 - Raspberry Pi 5 (Pi OS Lite)
+- Waveshare USB Sound Card (speaker + mic input)
 - Waveshare 7.5" tri-color e-Paper HAT
-- Waveshare USB Sound Card + Speaker
 
 ## Local Development
 
@@ -83,11 +83,16 @@ home-hud/
 ## Roadmap
 
 - [x] Phase 1: Project scaffolding, mock display, CI/CD
-- [ ] Phase 2: Live Enphase energy data
-- [ ] Phase 3: Audio I/O setup
+- [ ] Phase 2: Audio I/O setup (mic input, speaker output)
+- [ ] Phase 3: Wake word detection (openWakeWord)
 - [ ] Phase 4: Speech-to-text (Whisper)
-- [ ] Phase 5: Text-to-speech (Kokoro/Piper)
-- [ ] Phase 6: Intent parsing (Claude API)
-- [ ] Phase 7: Wake word detection (openWakeWord)
-- [ ] Phase 8: Polish & enclosure
+- [ ] Phase 5: Intent parsing & built-in commands (Claude API)
+  - Grocery list management
+  - Reminders
+  - Solar production queries
+  - General LLM fallback for anything else
+- [ ] Phase 6: Text-to-speech (Kokoro/Piper)
+- [ ] Phase 7: Live Enphase energy data integration
+- [ ] Phase 8: E-ink display UI
+- [ ] Phase 9: Polish & enclosure
 
