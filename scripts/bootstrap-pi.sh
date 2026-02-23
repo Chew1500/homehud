@@ -19,6 +19,7 @@ sudo apt-get install -y -qq \
     python3 python3-venv python3-pip python3-dev \
     git \
     libopenjp2-7 libtiff6 libatlas-base-dev \
+    libportaudio2 ffmpeg \
     fonts-dejavu-core \
     > /dev/null
 
@@ -35,7 +36,7 @@ fi
 echo "[3/6] Setting up app user..."
 if ! id "$APP_USER" &>/dev/null; then
     sudo useradd -r -m -s /bin/bash "$APP_USER"
-    sudo usermod -aG spi,gpio "$APP_USER"
+    sudo usermod -aG spi,gpio,audio "$APP_USER"
     echo "  Created user: $APP_USER"
 else
     echo "  User $APP_USER already exists"
@@ -73,10 +74,15 @@ echo "     sudo -u $APP_USER cp $APP_DIR/.env.example $APP_DIR/.env"
 echo "     sudo -u $APP_USER nano $APP_DIR/.env"
 echo "     (set HUD_DISPLAY_MODE=eink when display is connected)"
 echo ""
-echo "  2. Reboot to activate SPI:"
+echo "  2. For voice pipeline, set in .env:"
+echo "     HUD_AUDIO_MODE=hardware"
+echo "     HUD_WAKE_MODE=oww"
+echo "     HUD_STT_MODE=whisper"
+echo ""
+echo "  3. Reboot to activate SPI and audio group:"
 echo "     sudo reboot"
 echo ""
-echo "  3. After reboot, start the service:"
+echo "  4. After reboot, start the service:"
 echo "     sudo systemctl start home-hud"
 echo "     sudo journalctl -u home-hud -f"
 echo ""

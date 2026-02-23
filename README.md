@@ -65,27 +65,40 @@ PI_HOST=<pi-ip> bash scripts/deploy.sh
 home-hud/
 ├── src/
 │   ├── main.py              # Entry point & render loop
-│   ├── config.py             # Environment-based configuration
-│   └── display/
-│       ├── base.py           # Abstract display interface
-│       ├── mock_display.py   # PNG output for local dev
-│       └── eink_display.py   # Waveshare e-ink driver
+│   ├── config.py            # Environment-based configuration
+│   ├── voice_pipeline.py    # Wake word → record → transcribe loop
+│   ├── display/
+│   │   ├── base.py          # Abstract display interface
+│   │   ├── mock_display.py  # PNG output for local dev
+│   │   └── eink_display.py  # Waveshare e-ink driver
+│   ├── audio/
+│   │   ├── base.py          # Abstract audio interface
+│   │   ├── mock_audio.py    # Silence/WAV files for local dev
+│   │   └── hardware_audio.py # Real mic/speaker via sounddevice
+│   ├── speech/
+│   │   ├── base.py          # Abstract STT interface
+│   │   ├── mock_stt.py      # Canned responses for local dev
+│   │   └── whisper_stt.py   # Local Whisper transcription
+│   └── wake/
+│       ├── base.py          # Abstract wake word interface
+│       ├── mock_wake.py     # Counter-based trigger for local dev
+│       └── oww_wake.py      # openWakeWord detection
 ├── scripts/
-│   ├── bootstrap-pi.sh       # One-time Pi setup
-│   └── deploy.sh             # Deployment script
+│   ├── bootstrap-pi.sh
+│   └── deploy.sh
 ├── systemd/
-│   └── home-hud.service      # Auto-start on boot
+│   └── home-hud.service
 ├── tests/
 └── .github/workflows/
-    └── deploy.yml             # CI/CD pipeline
+    └── deploy.yml
 ```
 
 ## Roadmap
 
 - [x] Phase 1: Project scaffolding, mock display, CI/CD
-- [ ] Phase 2: Audio I/O setup (mic input, speaker output)
-- [ ] Phase 3: Wake word detection (openWakeWord)
-- [ ] Phase 4: Speech-to-text (Whisper)
+- [x] Phase 2: Audio I/O setup (mic input, speaker output)
+- [x] Phase 3: Wake word detection (openWakeWord)
+- [x] Phase 4: Speech-to-text (Whisper)
 - [ ] Phase 5: Intent parsing & built-in commands (Claude API)
   - Grocery list management
   - Reminders

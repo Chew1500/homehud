@@ -25,4 +25,4 @@ test:
 
 # Clean generated files
 clean:
-	rm -rf output/ __pycache__ src/__pycache__ src/display/__pycache__
+	rm -rf output/ __pycache__ src/__pycache__ src/display/__pycache__ src/audio/__pycache__ src/speech/__pycache__

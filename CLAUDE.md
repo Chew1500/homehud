@@ -15,19 +15,30 @@ Building the voice pipeline: audio I/O → wake word detection → speech-to-tex
 - Pillow for e-ink rendering (secondary)
 - ruff for linting, pytest for tests
 
-## Project Structure
+## Module Map
 
 ```
-src/
-├── main.py              # Entry point & render loop
-├── config.py             # Env-based config, reads .env
-└── display/
-    ├── base.py           # Abstract display interface (800x480)
-    ├── mock_display.py   # Saves PNGs to output/ for local dev
-    └── eink_display.py   # Waveshare driver stub
+src/config.py    — All env-based configuration (single source of truth)
+src/main.py      — Entry point, render loop, signal handling
+src/display/     — Display backends (e-ink, mock) behind BaseDisplay ABC
+src/audio/       — [planned] Audio I/O (mic capture, speaker playback)
+src/wake/        — [planned] Wake word detection
+src/speech/      — [planned] STT and TTS engines
+src/intent/      — [planned] Intent parsing and command routing
+src/features/    — [planned] Built-in features (grocery, reminders, solar)
+src/llm/         — [planned] LLM fallback for general queries
+src/utils/       — [planned] Shared helpers (avoid duplicating across modules)
 ```
 
-`config.py` loads from `.env` — see `.env.example` for available vars. The display backend is selected by `HUD_DISPLAY_MODE` (mock or eink).
+## Code Principles
+
+- **DRY**: Before writing a new helper, check `src/utils/` and existing modules for prior art.
+- **File size**: Target max ~1000 lines per file. Split when approaching this.
+- **Single responsibility**: One concern per module — no god files.
+- **New subsystems**: Each gets its own package (directory with `__init__.py`).
+- **Abstraction pattern**: ABC base class → mock impl (local dev) + real impl (Pi hardware). Applies to audio, speech, display, and any new hardware interface.
+- **Shared utilities**: Common helpers go in `src/utils/`, not copied between packages.
+- **Consult `ARCHITECTURE.md`** before creating new files or modules.
 
 ## Commands
 
@@ -49,6 +60,7 @@ make test         # pytest tests/ -v
 
 ## Conventions
 
-- New features should follow the abstraction pattern — interfaces that can be mocked for local dev and swapped for real hardware on the Pi. This applies to audio I/O, speech engines, and display backends alike.
-- Keep Pillow as the rendering layer; all UI is composed as PIL Images
-- Config goes through environment variables loaded in `config.py`
+- Follow the abstraction pattern — interfaces that can be mocked for local dev and swapped for real hardware on the Pi. This applies to audio I/O, speech engines, and display backends alike.
+- Keep Pillow as the rendering layer; all UI is composed as PIL Images.
+- Config goes through environment variables loaded in `config.py`.
+- `HUD_DISPLAY_MODE` (mock or eink) selects the display backend. See `.env.example` for all vars.

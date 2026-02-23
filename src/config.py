@@ -20,6 +20,27 @@ def load_config() -> dict:
         "mock_output_dir": os.getenv("HUD_MOCK_OUTPUT_DIR", str(PROJECT_ROOT / "output")),
         "mock_show_window": os.getenv("HUD_MOCK_SHOW_WINDOW", "false").lower() == "true",
 
+        # Audio settings
+        "audio_mode": os.getenv("HUD_AUDIO_MODE", "mock"),  # "mock" or "hardware"
+        "audio_sample_rate": int(os.getenv("HUD_AUDIO_SAMPLE_RATE", "16000")),
+        "audio_channels": int(os.getenv("HUD_AUDIO_CHANNELS", "1")),
+        "audio_mock_dir": os.getenv("HUD_AUDIO_MOCK_DIR", str(PROJECT_ROOT / "output" / "audio")),
+
+        # Speech-to-text settings
+        "stt_mode": os.getenv("HUD_STT_MODE", "mock"),
+        "stt_whisper_model": os.getenv("HUD_STT_WHISPER_MODEL", "base.en"),
+        "stt_mock_response": os.getenv("HUD_STT_MOCK_RESPONSE", "hello world"),
+
+        # Voice pipeline settings
+        "voice_enabled": os.getenv("HUD_VOICE_ENABLED", "true").lower() == "true",
+        "voice_record_duration": int(os.getenv("HUD_VOICE_RECORD_DURATION", "5")),
+
+        # Wake word detection
+        "wake_mode": os.getenv("HUD_WAKE_MODE", "mock"),
+        "wake_model": os.getenv("HUD_WAKE_MODEL", "hey_jarvis"),
+        "wake_threshold": float(os.getenv("HUD_WAKE_THRESHOLD", "0.5")),
+        "wake_mock_trigger_after": int(os.getenv("HUD_WAKE_MOCK_TRIGGER_AFTER", "62")),
+
         # Refresh interval in seconds (e-ink shouldn't refresh too often)
         "refresh_interval": int(os.getenv("HUD_REFRESH_INTERVAL", "300")),
 

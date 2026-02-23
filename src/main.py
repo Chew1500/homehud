@@ -3,6 +3,7 @@
 import logging
 import logging.handlers
 import signal
+import threading
 import time
 from pathlib import Path
 
@@ -91,30 +92,57 @@ def main():
     name = display.__class__.__name__
     log.info(f"Starting Home HUD with {name} ({display.size[0]}x{display.size[1]})")
 
-    # Graceful shutdown
-    running = True
+    # Graceful shutdown — threading.Event is thread-safe
+    running = threading.Event()
+    running.set()
 
     def shutdown(signum, frame):
-        nonlocal running
         log.info("Shutting down...")
-        running = False
+        running.clear()
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
+    # Voice pipeline (optional)
+    audio = None
+    stt = None
+    wake = None
+    voice_thread = None
+
+    if config.get("voice_enabled", True):
+        from audio import get_audio
+        from speech import get_stt
+        from voice_pipeline import start_voice_pipeline
+        from wake import get_wake
+
+        audio = get_audio(config)
+        stt = get_stt(config)
+        wake = get_wake(config)
+        voice_thread = start_voice_pipeline(audio, stt, wake, config, running)
+        log.info("Voice pipeline enabled.")
+
     refresh_interval = config.get("refresh_interval", 300)  # 5 min default
 
     try:
-        while running:
+        while running.is_set():
             render_frame(display)
             log.info(f"Frame rendered. Next refresh in {refresh_interval}s.")
 
             # Sleep in small increments so we can catch signals
             for _ in range(refresh_interval):
-                if not running:
+                if not running.is_set():
                     break
                 time.sleep(1)
     finally:
+        running.clear()
+        if voice_thread:
+            voice_thread.join(timeout=5)
+        if wake:
+            wake.close()
+        if stt:
+            stt.close()
+        if audio:
+            audio.close()
         display.close()
         log.info("Home HUD stopped.")
 
