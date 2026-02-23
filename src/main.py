@@ -110,16 +110,19 @@ def main():
     voice_thread = None
 
     if config.get("voice_enabled", True):
-        from audio import get_audio
-        from speech import get_stt
-        from voice_pipeline import start_voice_pipeline
-        from wake import get_wake
+        try:
+            from audio import get_audio
+            from speech import get_stt
+            from voice_pipeline import start_voice_pipeline
+            from wake import get_wake
 
-        audio = get_audio(config)
-        stt = get_stt(config)
-        wake = get_wake(config)
-        voice_thread = start_voice_pipeline(audio, stt, wake, config, running)
-        log.info("Voice pipeline enabled.")
+            audio = get_audio(config)
+            stt = get_stt(config)
+            wake = get_wake(config)
+            voice_thread = start_voice_pipeline(audio, stt, wake, config, running)
+            log.info("Voice pipeline enabled.")
+        except Exception:
+            log.exception("Voice pipeline failed to start — running without voice")
 
     refresh_interval = config.get("refresh_interval", 300)  # 5 min default
 

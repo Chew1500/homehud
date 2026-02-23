@@ -35,6 +35,14 @@ jobs:
           sudo -H -u hud git -C /opt/homehud fetch origin main
           sudo -H -u hud git -C /opt/homehud reset --hard origin/main
 
+      - name: Ensure system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libportaudio2 ffmpeg libatlas-base-dev \
+            libopenjp2-7 libtiff6 \
+            2>/dev/null || true
+
       - name: Ensure Python 3.11 venv
         run: |
           # Find Python 3.11 — check versioned command, then system python3
