@@ -40,7 +40,7 @@ if ! command -v python3.12 &>/dev/null; then
         ./configure --enable-optimizations --prefix=/usr/local 2>&1 | tail -1
         make -j$(nproc) 2>&1 | tail -1
         sudo make altinstall 2>&1 | tail -1
-        rm -rf /tmp/Python-${PY_VER} /tmp/Python-${PY_VER}.tgz
+        sudo rm -rf /tmp/Python-${PY_VER} /tmp/Python-${PY_VER}.tgz
         cd -
     fi
 fi
