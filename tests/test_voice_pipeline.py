@@ -126,7 +126,7 @@ def test_pipeline_exits_when_running_cleared():
 
 
 def test_pipeline_survives_exceptions():
-    """Pipeline should continue running even if STT raises an exception."""
+    """Pipeline should retry with backoff after an exception and recover."""
     audio = _make_audio()
     stt = MagicMock()
     stt.transcribe.side_effect = [RuntimeError("model error"), "recovered"]
@@ -138,7 +138,8 @@ def test_pipeline_survives_exceptions():
     running.set()
 
     thread = start_voice_pipeline(audio, stt, wake, _make_config(), running)
-    time.sleep(0.5)
+    # First error triggers 2s backoff, so wait long enough for retry
+    time.sleep(3.0)
     running.clear()
     thread.join(timeout=3)
 

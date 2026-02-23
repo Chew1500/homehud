@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 
 from audio.base import BaseAudio
 from speech.base import BaseSTT
@@ -28,9 +29,13 @@ def start_voice_pipeline(
 
     def loop():
         log.info("Voice pipeline started (wake-word triggered, record=%ds)", record_duration)
+        consecutive_errors = 0
+        max_errors = 3
+
         while running.is_set():
             try:
                 for chunk in audio.stream():
+                    consecutive_errors = 0
                     if not running.is_set():
                         break
                     if wake.detect(chunk):
@@ -40,7 +45,19 @@ def start_voice_pipeline(
                         wake.reset()
                         break
             except Exception:
-                log.exception("Voice pipeline error (will retry next cycle)")
+                consecutive_errors += 1
+                if consecutive_errors >= max_errors:
+                    log.exception(
+                        "Voice pipeline giving up after %d consecutive errors",
+                        consecutive_errors,
+                    )
+                    break
+                backoff = min(2 ** consecutive_errors, 30)
+                log.exception(
+                    "Voice pipeline error (%d/%d, retrying in %ds)",
+                    consecutive_errors, max_errors, backoff,
+                )
+                time.sleep(backoff)
 
         log.info("Voice pipeline stopped.")
 
