@@ -37,7 +37,7 @@ jobs:
 
       - name: Update dependencies
         run: |
-          sudo -u hud /opt/homehud/venv/bin/pip install -q -r /opt/homehud/requirements.txt
+          sudo -u hud /opt/homehud/venv/bin/pip install -q -r /opt/homehud/requirements-pi.txt
 
       - name: Smoke test
         run: |
