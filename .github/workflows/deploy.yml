@@ -98,6 +98,11 @@ jobs:
         run: |
           sudo -H -u hud /opt/homehud/venv/bin/pip install -q -r /opt/homehud/requirements-pi.txt
 
+      - name: Download openWakeWord models
+        run: |
+          sudo -H -u hud /opt/homehud/venv/bin/python -c \
+            "from openwakeword.utils import download_models; download_models()"
+
       - name: Smoke test
         run: |
           cd /opt/homehud/src

@@ -97,6 +97,11 @@ sudo -H -u "$APP_USER" $PY311 -m venv "$APP_DIR/venv"
 sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
 sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements-pi.txt"
 
+# Download openWakeWord pre-trained models (not bundled with pip package)
+echo "  Downloading openWakeWord models..."
+sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/python" -c \
+    "from openwakeword.utils import download_models; download_models()"
+
 # --- Install systemd service ---
 echo "[6/6] Installing systemd service..."
 sudo cp "$APP_DIR/systemd/home-hud.service" /etc/systemd/system/
