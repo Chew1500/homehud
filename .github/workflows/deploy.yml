@@ -40,8 +40,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libportaudio2 portaudio19-dev ffmpeg libatlas-base-dev \
-            libopenjp2-7 libtiff6 \
-            2>/dev/null || true
+            libopenjp2-7 libtiff6
+          sudo ldconfig
 
       - name: Ensure Python 3.11 venv
         run: |

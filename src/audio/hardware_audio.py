@@ -6,11 +6,44 @@ Only used on the Raspberry Pi — sounddevice is not required for local dev.
 
 import logging
 import queue
+import sys
 from collections.abc import Generator
 
 from audio.base import BaseAudio
 
 log = logging.getLogger(__name__)
+
+
+def _import_sounddevice():
+    """Import sounddevice with aarch64 Python 3.11 find_library workaround.
+
+    ctypes.util.find_library is broken on aarch64 Python <3.12.4 — the
+    ldconfig parser regex doesn't match the AArch64 tag format.
+    See: https://github.com/python/cpython/issues/112417
+    """
+    import ctypes.util
+    import platform
+
+    if platform.machine() != "aarch64" or sys.version_info >= (3, 12, 4):
+        import sounddevice
+
+        return sounddevice
+
+    _orig = ctypes.util.find_library
+
+    def _patched(name):
+        result = _orig(name)
+        if result is None and name == "portaudio":
+            return "libportaudio.so.2"
+        return result
+
+    ctypes.util.find_library = _patched
+    try:
+        import sounddevice
+
+        return sounddevice
+    finally:
+        ctypes.util.find_library = _orig
 
 
 class HardwareAudio(BaseAudio):
@@ -22,12 +55,12 @@ class HardwareAudio(BaseAudio):
             channels=config.get("audio_channels", 1),
         )
         try:
-            import sounddevice  # noqa: F401
-            self._sd = sounddevice
-        except ImportError as e:
+            self._sd = _import_sounddevice()
+        except (ImportError, OSError) as e:
             raise RuntimeError(
                 "sounddevice is required for hardware audio mode. "
-                "Install it with: pip install sounddevice"
+                "Install it with: pip install sounddevice\n"
+                "On Raspberry Pi, also ensure: sudo apt-get install libportaudio2"
             ) from e
         log.info(
             f"HardwareAudio initialized: {self.sample_rate}Hz, "

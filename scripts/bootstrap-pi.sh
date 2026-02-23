@@ -22,6 +22,7 @@ sudo apt-get install -y -qq \
     libportaudio2 portaudio19-dev ffmpeg \
     fonts-dejavu-core \
     > /dev/null
+sudo ldconfig
 
 # Ensure Python 3.11 (tflite-runtime has no aarch64 wheels for 3.12+)
 PY311=""
