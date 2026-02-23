@@ -62,10 +62,21 @@ class HardwareAudio(BaseAudio):
                 "Install it with: pip install sounddevice\n"
                 "On Raspberry Pi, also ensure: sudo apt-get install libportaudio2"
             ) from e
+        self._device = self._parse_device(config.get("audio_device"))
         log.info(
             f"HardwareAudio initialized: {self.sample_rate}Hz, "
-            f"{self.channels}ch"
+            f"{self.channels}ch, device={self._device!r}"
         )
+
+    @staticmethod
+    def _parse_device(value):
+        """Parse device config: None, integer index, or string name."""
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return value  # string name/substring for sounddevice
 
     def stream(self, chunk_duration_ms: int = 80) -> Generator[bytes, None, None]:
         """Yield PCM chunks from the microphone continuously."""
@@ -83,6 +94,7 @@ class HardwareAudio(BaseAudio):
             dtype="int16",
             blocksize=chunk_samples,
             callback=callback,
+            device=self._device,
         )
         log.info("Hardware audio stream started (%dms chunks)", chunk_duration_ms)
         try:
@@ -106,6 +118,7 @@ class HardwareAudio(BaseAudio):
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype="int16",
+            device=self._device,
         )
         self._sd.wait()
         return audio.tobytes()
@@ -118,7 +131,7 @@ class HardwareAudio(BaseAudio):
         if self.channels > 1:
             audio = audio.reshape(-1, self.channels)
         log.info(f"Playing {len(data)} bytes of audio...")
-        self._sd.play(audio, samplerate=self.sample_rate)
+        self._sd.play(audio, samplerate=self.sample_rate, device=self._device)
         self._sd.wait()
 
     def close(self) -> None:
