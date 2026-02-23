@@ -31,8 +31,8 @@ class OWWWakeWord(BaseWakeWord):
     def detect(self, audio_chunk: bytes) -> bool:
         audio = self._np.frombuffer(audio_chunk, dtype=self._np.int16)
         self._model.predict(audio)
-        scores = self._model.get_prediction(self._wake_model)
-        score = scores[-1] if hasattr(scores, "__len__") else scores
+        scores = list(self._model.prediction_buffer[self._wake_model])
+        score = scores[-1] if scores else 0.0
         if score > self._threshold:
             log.info("Wake word detected (score=%.3f)", score)
             return True

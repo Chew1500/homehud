@@ -108,6 +108,11 @@ jobs:
           cd /opt/homehud/src
           sudo -H -u hud HUD_DISPLAY_MODE=mock /opt/homehud/venv/bin/python -c "from config import load_config; print('Config OK')"
 
+      - name: Sync systemd service file
+        run: |
+          sudo cp /opt/homehud/systemd/home-hud.service /etc/systemd/system/home-hud.service
+          sudo systemctl daemon-reload
+
       - name: Restart service
         run: |
           sudo systemctl restart home-hud
