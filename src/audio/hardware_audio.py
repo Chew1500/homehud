@@ -63,9 +63,25 @@ class HardwareAudio(BaseAudio):
                 "On Raspberry Pi, also ensure: sudo apt-get install libportaudio2"
             ) from e
         self._device = self._parse_device(config.get("audio_device"))
+
+        # Validate device at startup — fail fast with helpful message
+        try:
+            info = self._sd.query_devices(self._device, kind="input")
+        except (self._sd.PortAudioError, ValueError) as e:
+            try:
+                available = str(self._sd.query_devices())
+            except Exception:
+                available = "(unable to list devices)"
+            raise RuntimeError(
+                f"No usable audio input device (queried {self._device!r}): {e}\n"
+                f"Available devices:\n{available}\n"
+                "Set HUD_AUDIO_DEVICE in .env to a valid device index. "
+                "Run 'python -m sounddevice' to list devices."
+            ) from e
+
         log.info(
-            f"HardwareAudio initialized: {self.sample_rate}Hz, "
-            f"{self.channels}ch, device={self._device!r}"
+            "HardwareAudio initialized: %dHz, %dch, device=%r (%s)",
+            self.sample_rate, self.channels, self._device, info["name"],
         )
 
     @staticmethod
