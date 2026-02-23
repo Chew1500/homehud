@@ -18,7 +18,7 @@ sudo apt-get update -qq
 sudo apt-get install -y -qq \
     python3 python3-venv python3-pip python3-dev \
     git \
-    libopenjp2-7 libtiff6 libatlas-base-dev \
+    libopenjp2-7 libtiff6 libopenblas-dev \
     libportaudio2 portaudio19-dev ffmpeg \
     fonts-dejavu-core \
     > /dev/null
