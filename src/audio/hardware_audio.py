@@ -69,12 +69,24 @@ class HardwareAudio(BaseAudio):
             info = self._sd.query_devices(self._device, kind="input")
         except (self._sd.PortAudioError, ValueError) as e:
             try:
-                available = str(self._sd.query_devices())
+                all_devs = self._sd.query_devices()
+                available = str(all_devs) if all_devs is not None else ""
             except Exception:
                 available = "(unable to list devices)"
+
+            hint = ""
+            if not available or available.strip() == "":
+                hint = (
+                    "\nNo audio devices visible — this usually means the process "
+                    "lacks permission to access /dev/snd/*.\n"
+                    "Ensure the service user is in the 'audio' group: "
+                    "sudo usermod -aG audio hud\n"
+                )
+
             raise RuntimeError(
                 f"No usable audio input device (queried {self._device!r}): {e}\n"
                 f"Available devices:\n{available}\n"
+                f"{hint}"
                 "Set HUD_AUDIO_DEVICE in .env to a valid device index. "
                 "Run 'python -m sounddevice' to list devices."
             ) from e
