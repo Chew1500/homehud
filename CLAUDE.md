@@ -10,7 +10,7 @@ Building the voice pipeline: audio I/O → wake word detection → speech-to-tex
 
 ## Stack
 
-- Python 3.12 (Pi) / 3.11+ (local dev)
+- Python 3.11 (Pi) / 3.11+ (local dev)
 - Voice stack: openWakeWord, faster-whisper, Anthropic Claude API, Kokoro/Piper
 - Pillow for e-ink rendering (secondary)
 - ruff for linting, pytest for tests
@@ -68,5 +68,5 @@ make test         # pytest tests/ -v
 ## Dependencies
 
 - **Split requirements**: `requirements.txt` has core deps (CI + all environments). `requirements-pi.txt` adds voice/hardware deps (Pi only).
-- **Python <3.13 on Pi**: Voice libs (`tflite-runtime` via openwakeword, `ctranslate2` via faster-whisper) don't support Python 3.13+. The Pi venv uses Python 3.12.
+- **Python 3.11 on Pi**: `tflite-runtime` (via openwakeword) has no aarch64 wheels for 3.12+; `ctranslate2` (via faster-whisper) also caps at 3.11. The Pi venv uses Python 3.11.
 - When adding a new dependency, check its Python version support. Pi-only deps go in `requirements-pi.txt`.

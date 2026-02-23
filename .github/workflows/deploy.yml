@@ -35,19 +35,19 @@ jobs:
           sudo -u hud git -C /opt/homehud fetch origin main
           sudo -u hud git -C /opt/homehud reset --hard origin/main
 
-      - name: Ensure Python 3.12 venv
+      - name: Ensure Python 3.11 venv
         run: |
-          # Install Python 3.12 if not present
-          if ! command -v python3.12 &>/dev/null; then
-            echo "Python 3.12 not found, attempting apt install..."
+          # Install Python 3.11 if not present
+          if ! command -v python3.11 &>/dev/null; then
+            echo "Python 3.11 not found, attempting apt install..."
             sudo apt-get update -qq
-            if ! sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
-              echo "apt install failed, building Python 3.12 from source..."
+            if ! sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+              echo "apt install failed, building Python 3.11 from source..."
               sudo apt-get install -y -qq \
                 build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
                 libnss3-dev libssl-dev libreadline-dev libffi-dev \
                 libsqlite3-dev wget libbz2-dev liblzma-dev
-              PY_VER=3.12.8
+              PY_VER=3.11.11
               cd /tmp
               wget -q "https://www.python.org/ftp/python/${PY_VER}/Python-${PY_VER}.tgz"
               tar xzf "Python-${PY_VER}.tgz"
@@ -58,16 +58,16 @@ jobs:
               sudo rm -rf /tmp/Python-${PY_VER} /tmp/Python-${PY_VER}.tgz
             fi
           fi
-          python3.12 --version
+          python3.11 --version
 
-          # Recreate venv if not Python 3.12
+          # Recreate venv if not Python 3.11
           CURRENT_PY=$(sudo -u hud /opt/homehud/venv/bin/python3 -c \
             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
             2>/dev/null || echo "none")
-          if [ "$CURRENT_PY" != "3.12" ]; then
-            echo "Venv is Python $CURRENT_PY, recreating with 3.12..."
+          if [ "$CURRENT_PY" != "3.11" ]; then
+            echo "Venv is Python $CURRENT_PY, recreating with 3.11..."
             sudo rm -rf /opt/homehud/venv
-            sudo -u hud python3.12 -m venv /opt/homehud/venv
+            sudo -u hud python3.11 -m venv /opt/homehud/venv
             sudo -u hud /opt/homehud/venv/bin/pip install -q --upgrade pip
           fi
 

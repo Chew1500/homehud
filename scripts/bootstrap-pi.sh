@@ -23,16 +23,16 @@ sudo apt-get install -y -qq \
     fonts-dejavu-core \
     > /dev/null
 
-# Install Python 3.12 (needed for voice deps: tflite-runtime, ctranslate2)
-if ! command -v python3.12 &>/dev/null; then
-    echo "  Python 3.12 not found, attempting apt install..."
-    if ! sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
-        echo "  apt install failed, building Python 3.12 from source..."
+# Ensure Python 3.11 (tflite-runtime has no aarch64 wheels for 3.12+)
+if ! command -v python3.11 &>/dev/null; then
+    echo "  Python 3.11 not found, attempting apt install..."
+    if ! sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+        echo "  apt install failed, building Python 3.11 from source..."
         sudo apt-get install -y -qq \
             build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
             libnss3-dev libssl-dev libreadline-dev libffi-dev \
             libsqlite3-dev wget libbz2-dev liblzma-dev
-        PY_VER=3.12.8
+        PY_VER=3.11.11
         cd /tmp
         wget -q "https://www.python.org/ftp/python/${PY_VER}/Python-${PY_VER}.tgz"
         tar xzf "Python-${PY_VER}.tgz"
@@ -44,7 +44,7 @@ if ! command -v python3.12 &>/dev/null; then
         cd -
     fi
 fi
-echo "  Python 3.12: $(python3.12 --version)"
+echo "  Python 3.11: $(python3.11 --version)"
 
 # --- Enable SPI (required for e-ink display) ---
 echo "[2/6] Enabling SPI interface..."
@@ -78,7 +78,7 @@ fi
 
 # --- Python venv ---
 echo "[5/6] Setting up Python virtual environment..."
-sudo -u "$APP_USER" python3.12 -m venv "$APP_DIR/venv"
+sudo -u "$APP_USER" python3.11 -m venv "$APP_DIR/venv"
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements-pi.txt"
 
