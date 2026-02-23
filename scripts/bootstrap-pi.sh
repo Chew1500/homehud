@@ -17,12 +17,34 @@ echo "[1/6] Installing system packages..."
 sudo apt-get update -qq
 sudo apt-get install -y -qq \
     python3 python3-venv python3-pip python3-dev \
-    python3.12 python3.12-venv python3.12-dev \
     git \
     libopenjp2-7 libtiff6 libatlas-base-dev \
     libportaudio2 ffmpeg \
     fonts-dejavu-core \
     > /dev/null
+
+# Install Python 3.12 (needed for voice deps: tflite-runtime, ctranslate2)
+if ! command -v python3.12 &>/dev/null; then
+    echo "  Python 3.12 not found, attempting apt install..."
+    if ! sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
+        echo "  apt install failed, building Python 3.12 from source..."
+        sudo apt-get install -y -qq \
+            build-essential zlib1g-dev libncurses5-dev libgdbm-dev \
+            libnss3-dev libssl-dev libreadline-dev libffi-dev \
+            libsqlite3-dev wget libbz2-dev liblzma-dev
+        PY_VER=3.12.8
+        cd /tmp
+        wget -q "https://www.python.org/ftp/python/${PY_VER}/Python-${PY_VER}.tgz"
+        tar xzf "Python-${PY_VER}.tgz"
+        cd "Python-${PY_VER}"
+        ./configure --enable-optimizations --prefix=/usr/local 2>&1 | tail -1
+        make -j$(nproc) 2>&1 | tail -1
+        sudo make altinstall 2>&1 | tail -1
+        rm -rf /tmp/Python-${PY_VER} /tmp/Python-${PY_VER}.tgz
+        cd -
+    fi
+fi
+echo "  Python 3.12: $(python3.12 --version)"
 
 # --- Enable SPI (required for e-ink display) ---
 echo "[2/6] Enabling SPI interface..."
