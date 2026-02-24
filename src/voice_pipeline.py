@@ -1,10 +1,11 @@
-"""Voice pipeline: wake word → record → transcribe → (future: intent parsing)."""
+"""Voice pipeline: wake word → record → transcribe → LLM response."""
 
 import logging
 import threading
 import time
 
 from audio.base import BaseAudio
+from llm.base import BaseLLM
 from speech.base import BaseSTT
 from wake.base import BaseWakeWord
 
@@ -15,6 +16,7 @@ def start_voice_pipeline(
     audio: BaseAudio,
     stt: BaseSTT,
     wake: BaseWakeWord,
+    llm: BaseLLM,
     config: dict,
     running: threading.Event,
 ) -> threading.Thread:
@@ -46,6 +48,11 @@ def start_voice_pipeline(
                     pcm = audio.record(record_duration)
                     text = stt.transcribe(pcm)
                     log.info("Transcribed: %r", text)
+                    try:
+                        response = llm.respond(text)
+                        log.info("LLM response: %r", response)
+                    except Exception:
+                        log.exception("LLM error (non-fatal)")
                     wake.reset()
             except Exception:
                 consecutive_errors += 1

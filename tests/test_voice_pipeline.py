@@ -49,17 +49,25 @@ def _make_config(record=1):
     }
 
 
+def _make_llm(response="Mock LLM response."):
+    """Create a mock LLM that returns a fixed response."""
+    llm = MagicMock()
+    llm.respond.return_value = response
+    return llm
+
+
 def test_pipeline_streams_chunks_to_wake_detector():
     """Pipeline should pass audio chunks to wake.detect()."""
     audio = _make_audio()
     stt = MagicMock()
     stt.transcribe.return_value = "hello"
     wake = _make_wake(trigger_on_chunk=3)
+    llm = _make_llm()
 
     running = threading.Event()
     running.set()
 
-    thread = start_voice_pipeline(audio, stt, wake, _make_config(), running)
+    thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(), running)
     time.sleep(0.3)
     running.clear()
     thread.join(timeout=3)
@@ -74,11 +82,12 @@ def test_pipeline_records_and_transcribes_after_wake():
     stt = MagicMock()
     stt.transcribe.return_value = "add milk"
     wake = _make_wake(trigger_on_chunk=2)
+    llm = _make_llm()
 
     running = threading.Event()
     running.set()
 
-    thread = start_voice_pipeline(audio, stt, wake, _make_config(record=1), running)
+    thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(record=1), running)
     time.sleep(0.3)
     running.clear()
     thread.join(timeout=3)
@@ -93,11 +102,12 @@ def test_pipeline_calls_wake_reset_after_detection():
     stt = MagicMock()
     stt.transcribe.return_value = "test"
     wake = _make_wake(trigger_on_chunk=2)
+    llm = _make_llm()
 
     running = threading.Event()
     running.set()
 
-    thread = start_voice_pipeline(audio, stt, wake, _make_config(), running)
+    thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(), running)
     time.sleep(0.3)
     running.clear()
     thread.join(timeout=3)
@@ -113,11 +123,12 @@ def test_pipeline_exits_when_running_cleared():
     # Wake never triggers — pipeline should still exit via running check
     wake = MagicMock()
     wake.detect.return_value = False
+    llm = _make_llm()
 
     running = threading.Event()
     running.set()
 
-    thread = start_voice_pipeline(audio, stt, wake, _make_config(), running)
+    thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(), running)
     time.sleep(0.1)
     running.clear()
     thread.join(timeout=3)
@@ -133,11 +144,12 @@ def test_pipeline_survives_exceptions():
     # Trigger on first chunk each cycle
     wake = MagicMock()
     wake.detect.return_value = True
+    llm = _make_llm()
 
     running = threading.Event()
     running.set()
 
-    thread = start_voice_pipeline(audio, stt, wake, _make_config(), running)
+    thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(), running)
     # First error triggers 2s backoff, so wait long enough for retry
     time.sleep(3.0)
     running.clear()
@@ -152,14 +164,57 @@ def test_pipeline_logs_transcribed_text(caplog):
     stt = MagicMock()
     stt.transcribe.return_value = "add milk to groceries"
     wake = _make_wake(trigger_on_chunk=1)
+    llm = _make_llm()
 
     running = threading.Event()
     running.set()
 
     with caplog.at_level(logging.INFO, logger="home-hud.voice"):
-        thread = start_voice_pipeline(audio, stt, wake, _make_config(), running)
+        thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(), running)
         time.sleep(0.3)
         running.clear()
         thread.join(timeout=3)
 
     assert any("add milk to groceries" in record.message for record in caplog.records)
+
+
+def test_pipeline_sends_transcription_to_llm():
+    """Pipeline should pass transcribed text to llm.respond()."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "what time is it"
+    wake = _make_wake(trigger_on_chunk=1)
+    llm = _make_llm("It is 3pm.")
+
+    running = threading.Event()
+    running.set()
+
+    thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(), running)
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    llm.respond.assert_called_with("what time is it")
+
+
+def test_pipeline_survives_llm_errors(caplog):
+    """Pipeline should continue running even if LLM raises an exception."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    wake = _make_wake(trigger_on_chunk=1)
+    llm = MagicMock()
+    llm.respond.side_effect = RuntimeError("API down")
+
+    running = threading.Event()
+    running.set()
+
+    with caplog.at_level(logging.ERROR, logger="home-hud.voice"):
+        thread = start_voice_pipeline(audio, stt, wake, llm, _make_config(), running)
+        time.sleep(0.3)
+        running.clear()
+        thread.join(timeout=3)
+
+    # Pipeline should have called LLM and survived the error
+    llm.respond.assert_called()
+    assert any("LLM error" in record.message for record in caplog.records)

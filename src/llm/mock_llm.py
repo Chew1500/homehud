@@ -1,0 +1,23 @@
+"""Mock LLM backend for local development.
+
+Returns a configurable canned response, ignoring actual input text.
+"""
+
+import logging
+
+from llm.base import BaseLLM
+
+log = logging.getLogger(__name__)
+
+
+class MockLLM(BaseLLM):
+    """Fake LLM that returns a fixed string for development."""
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self._response = config.get("llm_mock_response", "This is a mock LLM response.")
+
+    def respond(self, text: str) -> str:
+        """Return the configured canned response, ignoring input text."""
+        log.info("Mock LLM called with: %r", text)
+        return self._response

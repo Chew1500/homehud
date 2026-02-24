@@ -32,6 +32,13 @@ def load_config() -> dict:
         "stt_whisper_model": os.getenv("HUD_STT_WHISPER_MODEL", "base.en"),
         "stt_mock_response": os.getenv("HUD_STT_MOCK_RESPONSE", "hello world"),
 
+        # LLM settings
+        "llm_mode": os.getenv("HUD_LLM_MODE", "mock"),
+        "llm_model": os.getenv("HUD_LLM_MODEL", "claude-sonnet-4-5-20250929"),
+        "llm_max_tokens": int(os.getenv("HUD_LLM_MAX_TOKENS", "1024")),
+        "llm_system_prompt": os.getenv("HUD_LLM_SYSTEM_PROMPT", ""),
+        "llm_mock_response": os.getenv("HUD_LLM_MOCK_RESPONSE", "This is a mock LLM response."),
+
         # Voice pipeline settings
         "voice_enabled": os.getenv("HUD_VOICE_ENABLED", "true").lower() == "true",
         "voice_record_duration": int(os.getenv("HUD_VOICE_RECORD_DURATION", "5")),
