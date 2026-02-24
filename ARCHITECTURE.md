@@ -30,8 +30,8 @@ Consult this file before creating new files or modules. Update it as planned pac
 - Audio format: raw PCM bytes (16-bit int16, little-endian), 16kHz mono by default
 
 **`src/voice_pipeline.py`** — Voice loop
-- `start_voice_pipeline(audio, stt, wake, config, running) -> Thread`
-- Daemon thread: stream audio → detect wake word → record → transcribe → log
+- `start_voice_pipeline(audio, stt, wake, llm, tts, config, running) -> Thread`
+- Daemon thread: stream audio → detect wake word → record → transcribe → LLM → TTS → play
 - Wake-word-triggered recording via continuous audio streaming
 - Per-cycle exception handling so one bad recording doesn't kill the pipeline
 
@@ -42,13 +42,21 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `__init__.py`: factory function `get_wake(config) -> BaseWakeWord`
 - Input: raw PCM chunks (int16, 1280 samples / 80ms at 16kHz)
 
-**`src/speech/`** — Speech-to-text (TTS planned)
+**`src/speech/`** — Speech (STT & TTS)
 - `base.py`: `BaseSTT` ABC — `transcribe(audio: bytes) -> str`, `close()`
 - `mock_stt.py`: `MockSTT` — returns configurable canned response for local dev
 - `whisper_stt.py`: `WhisperSTT` — local Whisper model, converts PCM int16 → float32 → transcription
-- `__init__.py`: factory function `get_stt(config) -> BaseSTT`
+- `base_tts.py`: `BaseTTS` ABC — `synthesize(text) -> bytes`, `close()`
+- `mock_tts.py`: `MockTTS` — generates silence for local dev
+- `piper_tts.py`: `PiperTTS` — Piper ONNX voice synthesis (requires piper-tts>=1.4)
+- `__init__.py`: factory functions `get_stt(config) -> BaseSTT`, `get_tts(config) -> BaseTTS`
 - Input: raw PCM bytes from `audio.record()` (int16, little-endian, 16kHz mono)
-- TTS (Piper/Kokoro) will be added later as `BaseTTS` + implementations
+
+**`src/llm/`** — LLM fallback
+- `base.py`: `BaseLLM` ABC — `respond(text) -> str`, `close()`
+- `mock_llm.py`: `MockLLM` — canned responses for local dev
+- `claude_llm.py`: `ClaudeLLM` — Anthropic Claude API
+- `__init__.py`: factory function `get_llm(config) -> BaseLLM`
 
 ### Planned
 
@@ -61,10 +69,6 @@ Consult this file before creating new files or modules. Update it as planned pac
 - Submodules: `grocery.py`, `reminders.py`, `solar.py`
 - Each feature has a consistent interface for the intent router to call
 - Solar uses Enphase API (config already has keys)
-
-**`src/llm/`** — LLM fallback
-- Anthropic Claude API integration for general queries
-- Config already has `anthropic_api_key`
 
 **`src/utils/`** — Shared helpers
 - Common logic used by 2+ packages goes here

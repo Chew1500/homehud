@@ -78,7 +78,14 @@ home-hud/
 │   ├── speech/
 │   │   ├── base.py          # Abstract STT interface
 │   │   ├── mock_stt.py      # Canned responses for local dev
-│   │   └── whisper_stt.py   # Local Whisper transcription
+│   │   ├── whisper_stt.py   # Local Whisper transcription
+│   │   ├── base_tts.py      # Abstract TTS interface
+│   │   ├── mock_tts.py      # Silence output for local dev
+│   │   └── piper_tts.py     # Piper ONNX voice synthesis
+│   ├── llm/
+│   │   ├── base.py          # Abstract LLM interface
+│   │   ├── mock_llm.py      # Canned responses for local dev
+│   │   └── claude_llm.py    # Anthropic Claude API
 │   └── wake/
 │       ├── base.py          # Abstract wake word interface
 │       ├── mock_wake.py     # Counter-based trigger for local dev
@@ -99,12 +106,12 @@ home-hud/
 - [x] Phase 2: Audio I/O setup (mic input, speaker output)
 - [x] Phase 3: Wake word detection (openWakeWord)
 - [x] Phase 4: Speech-to-text (Whisper)
-- [ ] Phase 5: Intent parsing & built-in commands (Claude API)
+- [ ] Phase 5: Intent parsing & built-in commands
   - Grocery list management
   - Reminders
   - Solar production queries
-  - General LLM fallback for anything else
-- [ ] Phase 6: Text-to-speech (Kokoro/Piper)
+  - [x] General LLM fallback (Claude API)
+- [x] Phase 6: Text-to-speech (Piper)
 - [ ] Phase 7: Live Enphase energy data integration
 - [ ] Phase 8: E-ink display UI
 - [ ] Phase 9: Polish & enclosure
