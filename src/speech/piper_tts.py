@@ -1,8 +1,10 @@
 """Piper TTS backend for real speech synthesis on the Pi."""
 
+import io
 import logging
 import urllib.error
 import urllib.request
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -123,13 +125,12 @@ class PiperTTS(BaseTTS):
             # Return 0.1s of silence for empty input
             return b"\x00\x00" * 1600
 
-        chunks = []
-        for audio_bytes in self._voice.synthesize_stream_raw(
-            text, speaker_id=self._speaker_id
-        ):
-            chunks.append(audio_bytes)
-
-        raw = b"".join(chunks)
+        wav_buf = io.BytesIO()
+        with wave.open(wav_buf, "wb") as wf:
+            self._voice.synthesize(text, wf, speaker_id=self._speaker_id)
+        wav_buf.seek(0)
+        with wave.open(wav_buf, "rb") as wf:
+            raw = wf.readframes(wf.getnframes())
 
         if self._native_rate != 16000:
             raw = self._resample_to_16k(raw, self._native_rate)
