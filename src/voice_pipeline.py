@@ -1,11 +1,11 @@
-"""Voice pipeline: wake word → record → transcribe → LLM response."""
+"""Voice pipeline: wake word → record → transcribe → route → respond."""
 
 import logging
 import threading
 import time
 
 from audio.base import BaseAudio
-from llm.base import BaseLLM
+from intent.router import IntentRouter
 from speech.base import BaseSTT
 from speech.base_tts import BaseTTS
 from wake.base import BaseWakeWord
@@ -17,7 +17,7 @@ def start_voice_pipeline(
     audio: BaseAudio,
     stt: BaseSTT,
     wake: BaseWakeWord,
-    llm: BaseLLM,
+    router: IntentRouter,
     tts: BaseTTS,
     config: dict,
     running: threading.Event,
@@ -51,15 +51,15 @@ def start_voice_pipeline(
                     text = stt.transcribe(pcm)
                     log.info("Transcribed: %r", text)
                     try:
-                        response = llm.respond(text)
-                        log.info("LLM response: %r", response)
+                        response = router.route(text)
+                        log.info("Response: %r", response)
                         try:
                             speech = tts.synthesize(response)
                             audio.play(speech)
                         except Exception:
                             log.exception("TTS error (non-fatal)")
                     except Exception:
-                        log.exception("LLM error (non-fatal)")
+                        log.exception("Routing error (non-fatal)")
                     wake.reset()
             except Exception:
                 consecutive_errors += 1

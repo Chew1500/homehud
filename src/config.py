@@ -55,6 +55,9 @@ def load_config() -> dict:
         "wake_threshold": float(os.getenv("HUD_WAKE_THRESHOLD", "0.5")),
         "wake_mock_trigger_after": int(os.getenv("HUD_WAKE_MOCK_TRIGGER_AFTER", "62")),
 
+        # Feature settings
+        "grocery_file": os.getenv("HUD_GROCERY_FILE", str(PROJECT_ROOT / "data" / "grocery.json")),
+
         # Refresh interval in seconds (e-ink shouldn't refresh too often)
         "refresh_interval": int(os.getenv("HUD_REFRESH_INTERVAL", "300")),
 

@@ -107,13 +107,15 @@ def main():
     audio = None
     stt = None
     wake = None
-    llm = None
+    router = None
     tts = None
     voice_thread = None
 
     if config.get("voice_enabled", True):
         try:
             from audio import get_audio
+            from features.grocery import GroceryFeature
+            from intent import get_router
             from llm import get_llm
             from speech import get_stt, get_tts
             from voice_pipeline import start_voice_pipeline
@@ -124,7 +126,9 @@ def main():
             wake = get_wake(config)
             llm = get_llm(config)
             tts = get_tts(config)
-            voice_thread = start_voice_pipeline(audio, stt, wake, llm, tts, config, running)
+            features = [GroceryFeature(config)]
+            router = get_router(config, features, llm)
+            voice_thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
             log.info("Voice pipeline enabled.")
         except Exception:
             log.exception("Voice pipeline failed to start — running without voice")
@@ -145,8 +149,8 @@ def main():
         running.clear()
         if voice_thread:
             voice_thread.join(timeout=5)
-        if llm:
-            llm.close()
+        if router:
+            router.close()  # cascades to features + LLM
         if tts:
             tts.close()
         if wake:

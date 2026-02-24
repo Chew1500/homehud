@@ -30,8 +30,8 @@ Consult this file before creating new files or modules. Update it as planned pac
 - Audio format: raw PCM bytes (16-bit int16, little-endian), 16kHz mono by default
 
 **`src/voice_pipeline.py`** — Voice loop
-- `start_voice_pipeline(audio, stt, wake, llm, tts, config, running) -> Thread`
-- Daemon thread: stream audio → detect wake word → record → transcribe → LLM → TTS → play
+- `start_voice_pipeline(audio, stt, wake, router, tts, config, running) -> Thread`
+- Daemon thread: stream audio → detect wake word → record → transcribe → route (feature or LLM) → TTS → play
 - Wake-word-triggered recording via continuous audio streaming
 - Per-cycle exception handling so one bad recording doesn't kill the pipeline
 
@@ -58,17 +58,17 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `claude_llm.py`: `ClaudeLLM` — Anthropic Claude API
 - `__init__.py`: factory function `get_llm(config) -> BaseLLM`
 
-### Planned
-
 **`src/intent/`** — Intent parsing and command routing
-- Takes transcribed text, determines which feature handles it
-- Routes to built-in features or LLM fallback
-- Rule-based initially, can evolve to NLU
+- `router.py`: `IntentRouter` — iterates features in order, falls back to LLM
+- `__init__.py`: factory function `get_router(config, features, llm) -> IntentRouter`
+- Concrete class (no ABC) — a single router tries features then LLM
 
 **`src/features/`** — Built-in features
-- Submodules: `grocery.py`, `reminders.py`, `solar.py`
-- Each feature has a consistent interface for the intent router to call
-- Solar uses Enphase API (config already has keys)
+- `base.py`: `BaseFeature` ABC — `matches(text) -> bool`, `handle(text) -> str`, `close()`
+- `grocery.py`: `GroceryFeature` — regex-based matching, JSON file persistence
+- Each feature self-selects via `matches()`, intent router dispatches to first match
+
+### Planned
 
 **`src/utils/`** — Shared helpers
 - Common logic used by 2+ packages goes here

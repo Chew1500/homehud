@@ -86,6 +86,11 @@ home-hud/
 │   │   ├── base.py          # Abstract LLM interface
 │   │   ├── mock_llm.py      # Canned responses for local dev
 │   │   └── claude_llm.py    # Anthropic Claude API
+│   ├── intent/
+│   │   └── router.py        # Intent router (features → LLM fallback)
+│   ├── features/
+│   │   ├── base.py          # Abstract feature interface
+│   │   └── grocery.py       # Grocery list management
 │   └── wake/
 │       ├── base.py          # Abstract wake word interface
 │       ├── mock_wake.py     # Counter-based trigger for local dev
@@ -107,7 +112,8 @@ home-hud/
 - [x] Phase 3: Wake word detection (openWakeWord)
 - [x] Phase 4: Speech-to-text (Whisper)
 - [ ] Phase 5: Intent parsing & built-in commands
-  - Grocery list management
+  - [x] Intent router (feature matching → LLM fallback)
+  - [x] Grocery list management
   - Reminders
   - Solar production queries
   - [x] General LLM fallback (Claude API)

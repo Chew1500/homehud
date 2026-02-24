@@ -11,6 +11,9 @@ venv/
 # Mock display output
 output/
 
+# Feature data (grocery list, etc.)
+data/
+
 # Log files
 logs/
 
