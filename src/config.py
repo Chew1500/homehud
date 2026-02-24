@@ -32,6 +32,12 @@ def load_config() -> dict:
         "stt_whisper_model": os.getenv("HUD_STT_WHISPER_MODEL", "base.en"),
         "stt_mock_response": os.getenv("HUD_STT_MOCK_RESPONSE", "hello world"),
 
+        # Text-to-speech settings
+        "tts_mode": os.getenv("HUD_TTS_MODE", "mock"),
+        "tts_piper_model": os.getenv("HUD_TTS_PIPER_MODEL", "en_US-lessac-medium"),
+        "tts_piper_speaker": os.getenv("HUD_TTS_PIPER_SPEAKER"),
+        "tts_mock_duration": float(os.getenv("HUD_TTS_MOCK_DURATION", "2.0")),
+
         # LLM settings
         "llm_mode": os.getenv("HUD_LLM_MODE", "mock"),
         "llm_model": os.getenv("HUD_LLM_MODEL", "claude-sonnet-4-5-20250929"),

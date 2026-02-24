@@ -108,13 +108,14 @@ def main():
     stt = None
     wake = None
     llm = None
+    tts = None
     voice_thread = None
 
     if config.get("voice_enabled", True):
         try:
             from audio import get_audio
             from llm import get_llm
-            from speech import get_stt
+            from speech import get_stt, get_tts
             from voice_pipeline import start_voice_pipeline
             from wake import get_wake
 
@@ -122,7 +123,8 @@ def main():
             stt = get_stt(config)
             wake = get_wake(config)
             llm = get_llm(config)
-            voice_thread = start_voice_pipeline(audio, stt, wake, llm, config, running)
+            tts = get_tts(config)
+            voice_thread = start_voice_pipeline(audio, stt, wake, llm, tts, config, running)
             log.info("Voice pipeline enabled.")
         except Exception:
             log.exception("Voice pipeline failed to start — running without voice")
@@ -145,6 +147,8 @@ def main():
             voice_thread.join(timeout=5)
         if llm:
             llm.close()
+        if tts:
+            tts.close()
         if wake:
             wake.close()
         if stt:

@@ -7,6 +7,7 @@ import time
 from audio.base import BaseAudio
 from llm.base import BaseLLM
 from speech.base import BaseSTT
+from speech.base_tts import BaseTTS
 from wake.base import BaseWakeWord
 
 log = logging.getLogger("home-hud.voice")
@@ -17,6 +18,7 @@ def start_voice_pipeline(
     stt: BaseSTT,
     wake: BaseWakeWord,
     llm: BaseLLM,
+    tts: BaseTTS,
     config: dict,
     running: threading.Event,
 ) -> threading.Thread:
@@ -51,6 +53,11 @@ def start_voice_pipeline(
                     try:
                         response = llm.respond(text)
                         log.info("LLM response: %r", response)
+                        try:
+                            speech = tts.synthesize(response)
+                            audio.play(speech)
+                        except Exception:
+                            log.exception("TTS error (non-fatal)")
                     except Exception:
                         log.exception("LLM error (non-fatal)")
                     wake.reset()

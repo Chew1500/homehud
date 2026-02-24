@@ -1,12 +1,14 @@
-"""Speech-to-text abstraction layer.
+"""Speech abstraction layer (STT and TTS).
 
-Provides a unified interface for STT on either:
-- MockSTT: returns canned responses (for development)
-- WhisperSTT: local Whisper model (for production)
+Provides unified interfaces for:
+- STT: MockSTT (dev) / WhisperSTT (production)
+- TTS: MockTTS (dev) / PiperTTS (production)
 """
 
 from speech.base import BaseSTT
+from speech.base_tts import BaseTTS
 from speech.mock_stt import MockSTT
+from speech.mock_tts import MockTTS
 
 
 def get_stt(config: dict) -> BaseSTT:
@@ -18,3 +20,14 @@ def get_stt(config: dict) -> BaseSTT:
         return WhisperSTT(config)
     else:
         return MockSTT(config)
+
+
+def get_tts(config: dict) -> BaseTTS:
+    """Factory: return the appropriate TTS backend based on config."""
+    mode = config.get("tts_mode", "mock")
+
+    if mode == "piper":
+        from speech.piper_tts import PiperTTS
+        return PiperTTS(config)
+    else:
+        return MockTTS(config)
