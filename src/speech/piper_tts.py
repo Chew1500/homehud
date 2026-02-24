@@ -1,10 +1,8 @@
 """Piper TTS backend for real speech synthesis on the Pi."""
 
-import io
 import logging
 import urllib.error
 import urllib.request
-import wave
 from pathlib import Path
 
 import numpy as np
@@ -99,6 +97,7 @@ class PiperTTS(BaseTTS):
 
         try:
             from piper import PiperVoice
+            from piper.config import SynthesisConfig
         except ImportError:
             raise ImportError(
                 "piper-tts is required for PiperTTS. "
@@ -112,11 +111,11 @@ class PiperTTS(BaseTTS):
 
         log.info("Loading Piper model: %s", model_path)
         self._voice = PiperVoice.load(str(model_path))
-        self._speaker_id = speaker_id
+        self._syn_config = SynthesisConfig(speaker_id=speaker_id)
         self._native_rate = self._voice.config.sample_rate
         log.info(
             "Piper ready (native rate=%dHz, speaker=%s)",
-            self._native_rate, self._speaker_id,
+            self._native_rate, speaker_id,
         )
 
     def synthesize(self, text: str) -> bytes:
@@ -125,12 +124,10 @@ class PiperTTS(BaseTTS):
             # Return 0.1s of silence for empty input
             return b"\x00\x00" * 1600
 
-        wav_buf = io.BytesIO()
-        with wave.open(wav_buf, "wb") as wf:
-            self._voice.synthesize(text, wf, speaker_id=self._speaker_id)
-        wav_buf.seek(0)
-        with wave.open(wav_buf, "rb") as wf:
-            raw = wf.readframes(wf.getnframes())
+        chunks = []
+        for audio_chunk in self._voice.synthesize(text, syn_config=self._syn_config):
+            chunks.append(audio_chunk.audio_int16_bytes)
+        raw = b"".join(chunks)
 
         if self._native_rate != 16000:
             raw = self._resample_to_16k(raw, self._native_rate)
