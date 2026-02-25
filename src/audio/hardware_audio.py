@@ -123,6 +123,7 @@ class HardwareAudio(BaseAudio):
             channels=self.channels,
             dtype="int16",
             blocksize=chunk_samples,
+            latency="high",
             callback=callback,
             device=self._device,
         )
