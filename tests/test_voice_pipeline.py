@@ -491,7 +491,7 @@ def test_pipeline_stops_playback_on_bargein():
 
     def is_playing():
         play_count["n"] += 1
-        return play_count["n"] <= 8  # 5 debounce + a few more
+        return play_count["n"] <= 20  # 15 debounce + a few more
 
     audio.is_playing.side_effect = is_playing
 

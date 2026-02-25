@@ -53,8 +53,8 @@ def start_voice_pipeline(
 
     # Number of audio chunks to skip before monitoring for barge-in.
     # Prevents speaker-to-mic feedback from triggering a false wake word
-    # immediately after playback starts. At 80ms/chunk, 5 chunks = 400ms.
-    BARGEIN_DEBOUNCE_CHUNKS = 5
+    # immediately after playback starts. At 80ms/chunk, 15 chunks = 1.2s.
+    BARGEIN_DEBOUNCE_CHUNKS = 15
 
     def _handle_command():
         """Record, transcribe, route, and respond to a single command.
@@ -67,6 +67,9 @@ def start_voice_pipeline(
             pcm = audio.record(record_duration)
         text = stt.transcribe(pcm)
         log.info("Transcribed: %r", text)
+        if not text or not text.strip():
+            log.info("Empty transcription, skipping")
+            return False
         try:
             response = router.route(text)
             log.info("Response: %r", response)
@@ -76,6 +79,9 @@ def start_voice_pipeline(
                 speech = tts.synthesize(response)
                 if bargein_enabled and hasattr(audio, "play_async"):
                     audio.play_async(speech)
+                    # Reset wake detector state to clear any residual
+                    # audio patterns from the tone or prior detection.
+                    wake.reset()
                     # Monitor for wake word during playback.
                     # Skip initial chunks to avoid speaker-to-mic feedback.
                     bargein = False
