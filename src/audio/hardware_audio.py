@@ -115,7 +115,10 @@ class HardwareAudio(BaseAudio):
 
         def callback(indata, frames, time_info, status):
             if status:
-                log.warning("Stream status: %s", status)
+                if status.input_overflow:
+                    log.debug("Stream status: %s", status)
+                else:
+                    log.warning("Stream status: %s", status)
             q.put(bytes(indata))
 
         stream = self._sd.InputStream(
