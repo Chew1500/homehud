@@ -8,7 +8,7 @@ A Raspberry Pi-powered voice assistant with an e-ink companion display. Responds
 - Waveshare USB Sound Card (speaker + mic input)
 - Waveshare 7.5" tri-color e-Paper HAT
 
-## Local Development
+## Local Development 
 
 ```bash
 # Clone and set up
