@@ -486,25 +486,26 @@ def test_pipeline_uses_async_playback_with_bargein():
 def test_pipeline_stops_playback_on_bargein():
     """Pipeline should stop playback and handle new command on barge-in."""
     audio = _make_audio()
-    # is_playing returns True for a few chunks, then False
+    # is_playing returns True for enough chunks to pass debounce + 1
     play_count = {"n": 0}
 
     def is_playing():
         play_count["n"] += 1
-        return play_count["n"] <= 2
+        return play_count["n"] <= 8  # 5 debounce + a few more
 
     audio.is_playing.side_effect = is_playing
 
     stt = MagicMock()
     stt.transcribe.return_value = "hello"
 
-    # Wake detector triggers during barge-in monitoring
+    # Wake detector: triggers on 1st call (initial wake), then on the
+    # first call after debounce during barge-in monitoring
     wake = MagicMock()
     wake_calls = {"n": 0}
 
     def wake_detect(chunk):
         wake_calls["n"] += 1
-        # Trigger on 1st call (initial wake), then on 2nd call during barge-in
+        # 1 = initial wake stream, 2 = first detect call after debounce
         return wake_calls["n"] in (1, 2)
 
     wake.detect.side_effect = wake_detect

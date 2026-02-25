@@ -51,8 +51,16 @@ def start_voice_pipeline(
     # Barge-in setup
     bargein_enabled = config.get("voice_bargein_enabled", True)
 
+    # Number of audio chunks to skip before monitoring for barge-in.
+    # Prevents speaker-to-mic feedback from triggering a false wake word
+    # immediately after playback starts. At 80ms/chunk, 5 chunks = 400ms.
+    BARGEIN_DEBOUNCE_CHUNKS = 5
+
     def _handle_command():
-        """Record, transcribe, route, and respond to a single command."""
+        """Record, transcribe, route, and respond to a single command.
+
+        Returns True if barge-in was detected (caller should loop).
+        """
         if vad is not None:
             pcm = vad.record_until_silence(audio.stream())
         else:
@@ -68,23 +76,32 @@ def start_voice_pipeline(
                 speech = tts.synthesize(response)
                 if bargein_enabled and hasattr(audio, "play_async"):
                     audio.play_async(speech)
-                    # Monitor for wake word during playback
+                    # Monitor for wake word during playback.
+                    # Skip initial chunks to avoid speaker-to-mic feedback.
+                    bargein = False
+                    chunks_heard = 0
                     for chunk in audio.stream():
                         if not audio.is_playing():
                             break
+                        chunks_heard += 1
+                        if chunks_heard <= BARGEIN_DEBOUNCE_CHUNKS:
+                            continue
                         if wake.detect(chunk):
                             log.info("Barge-in detected, stopping playback")
                             audio.stop_playback()
                             wake.reset()
-                            _handle_command()
-                            return
-                    wake.reset()
+                            bargein = True
+                            break  # close stream before recursing
+                    if not bargein:
+                        wake.reset()
+                    return bargein
                 else:
                     audio.play(speech)
             except Exception:
                 log.exception("TTS error (non-fatal)")
         except Exception:
             log.exception("Routing error (non-fatal)")
+        return False
 
     def loop():
         log.info("Voice pipeline started (wake-word triggered, record=%ds)", record_duration)
@@ -104,7 +121,12 @@ def start_voice_pipeline(
                 if wake_detected:
                     if wake_tone is not None:
                         audio.play(wake_tone)
-                    _handle_command()
+                    # Loop handles barge-in: _handle_command returns True
+                    # when wake word interrupts playback, so we immediately
+                    # process the next command (with a new tone).
+                    while _handle_command():
+                        if wake_tone is not None:
+                            audio.play(wake_tone)
                     wake.reset()
             except Exception:
                 consecutive_errors += 1
