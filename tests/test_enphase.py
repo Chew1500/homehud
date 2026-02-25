@@ -26,7 +26,7 @@ def _make_config(tmp_path):
     return {
         "enphase_mode": "mock",
         "solar_db_path": str(tmp_path / "solar.db"),
-        "enphase_poll_interval": 60,
+        "enphase_poll_interval": 600,
         "solar_latitude": "",
         "solar_longitude": "",
     }

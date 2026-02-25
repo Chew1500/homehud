@@ -16,7 +16,7 @@ log = logging.getLogger("home-hud.enphase.collector")
 class SolarCollector:
     """Daemon thread that polls the Enphase gateway and stores readings in SQLite.
 
-    - Polls production data every poll_interval seconds (default: 60)
+    - Polls production data every poll_interval seconds (default: 600)
     - Polls inverter data every 5 minutes
     - Polls weather every 15 minutes
     - Updates daily summary after each reading
@@ -30,7 +30,7 @@ class SolarCollector:
     ):
         self._client = client
         self._storage = storage
-        self._poll_interval = config.get("enphase_poll_interval", 60)
+        self._poll_interval = config.get("enphase_poll_interval", 600)
         self._lat = config.get("solar_latitude", "")
         self._lon = config.get("solar_longitude", "")
         self._stop_event = threading.Event()

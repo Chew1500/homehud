@@ -76,7 +76,7 @@ def load_config() -> dict:
         "enphase_token": os.getenv("ENPHASE_TOKEN", ""),
         "enphase_email": os.getenv("ENPHASE_EMAIL", ""),
         "enphase_password": os.getenv("ENPHASE_PASSWORD", ""),
-        "enphase_poll_interval": int(os.getenv("ENPHASE_POLL_INTERVAL", "60")),
+        "enphase_poll_interval": int(os.getenv("ENPHASE_POLL_INTERVAL", "") or "600"),
         "solar_db_path": os.getenv("SOLAR_DB_PATH", str(PROJECT_ROOT / "data" / "solar.db")),
         "solar_latitude": os.getenv("SOLAR_LATITUDE", ""),
         "solar_longitude": os.getenv("SOLAR_LONGITUDE", ""),
