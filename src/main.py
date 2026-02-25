@@ -122,6 +122,7 @@ def main():
             from enphase.storage import SolarStorage
             from features.grocery import GroceryFeature
             from features.reminder import ReminderFeature
+            from features.repeat import RepeatFeature
             from features.solar import SolarFeature
             from intent import get_router
             from llm import get_llm
@@ -135,8 +136,12 @@ def main():
             llm = get_llm(config)
             tts = get_tts(config)
 
+            repeat_feature = RepeatFeature(config)
+
             def on_reminder_due(text):
-                speech = tts.synthesize(f"Reminder: {text}")
+                response = f"Reminder: {text}"
+                repeat_feature.record("(reminder)", response)
+                speech = tts.synthesize(response)
                 audio.play(speech)
 
             # Solar monitoring
@@ -146,12 +151,16 @@ def main():
             solar_collector.start()
 
             features = [
+                repeat_feature,
                 GroceryFeature(config),
                 ReminderFeature(config, on_due=on_reminder_due),
                 SolarFeature(config, solar_storage, llm),
             ]
             router = get_router(config, features, llm)
-            voice_thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+            voice_thread = start_voice_pipeline(
+                audio, stt, wake, router, tts, config, running,
+                repeat_feature=repeat_feature,
+            )
             log.info("Voice pipeline enabled.")
         except Exception:
             log.exception("Voice pipeline failed to start — running without voice")

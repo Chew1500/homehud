@@ -67,6 +67,7 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `base.py`: `BaseFeature` ABC — `matches(text) -> bool`, `handle(text) -> str`, `close()`
 - `grocery.py`: `GroceryFeature` — regex-based matching, JSON file persistence
 - `reminder.py`: `ReminderFeature` — timed reminders with background checker thread and `on_due` callback
+- `repeat.py`: `RepeatFeature` — replays the last spoken response
 - `solar.py`: `SolarFeature` — solar production queries, simple answers + LLM-assisted analysis
 - Each feature self-selects via `matches()`, intent router dispatches to first match
 

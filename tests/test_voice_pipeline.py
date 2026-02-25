@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 # Add src to path so imports work
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from features.repeat import RepeatFeature
 from voice_pipeline import start_voice_pipeline
 
 CHUNK = b"\x00\x00" * 1280
@@ -280,3 +281,51 @@ def test_pipeline_survives_tts_errors(caplog):
     router.route.assert_called()
     # TTS error should be logged but pipeline survives
     assert any("TTS error" in record.message for record in caplog.records)
+
+
+def test_pipeline_calls_repeat_feature_record():
+    """Pipeline should call repeat_feature.record() after routing."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "what time is it"
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router("It is 3pm.")
+    tts = _make_tts()
+    repeat = RepeatFeature({})
+
+    running = threading.Event()
+    running.set()
+
+    thread = start_voice_pipeline(
+        audio, stt, wake, router, tts, _make_config(), running,
+        repeat_feature=repeat,
+    )
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    result = repeat.handle("what did you say")
+    assert "what time is it" in result
+    assert "It is 3pm." in result
+
+
+def test_pipeline_works_without_repeat_feature():
+    """Pipeline should work fine when repeat_feature is not provided."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router("Hi there!")
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    thread = start_voice_pipeline(
+        audio, stt, wake, router, tts, _make_config(), running,
+    )
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    router.route.assert_called_with("hello")

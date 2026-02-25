@@ -21,6 +21,7 @@ def start_voice_pipeline(
     tts: BaseTTS,
     config: dict,
     running: threading.Event,
+    repeat_feature=None,
 ) -> threading.Thread:
     """Start the voice pipeline in a daemon thread.
 
@@ -53,6 +54,8 @@ def start_voice_pipeline(
                     try:
                         response = router.route(text)
                         log.info("Response: %r", response)
+                        if repeat_feature is not None:
+                            repeat_feature.record(text, response)
                         try:
                             speech = tts.synthesize(response)
                             audio.play(speech)
