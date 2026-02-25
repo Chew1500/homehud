@@ -115,6 +115,7 @@ def main():
         try:
             from audio import get_audio
             from features.grocery import GroceryFeature
+            from features.reminder import ReminderFeature
             from intent import get_router
             from llm import get_llm
             from speech import get_stt, get_tts
@@ -126,7 +127,12 @@ def main():
             wake = get_wake(config)
             llm = get_llm(config)
             tts = get_tts(config)
-            features = [GroceryFeature(config)]
+
+            def on_reminder_due(text):
+                speech = tts.synthesize(f"Reminder: {text}")
+                audio.play(speech)
+
+            features = [GroceryFeature(config), ReminderFeature(config, on_due=on_reminder_due)]
             router = get_router(config, features, llm)
             voice_thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
             log.info("Voice pipeline enabled.")

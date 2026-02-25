@@ -114,7 +114,7 @@ home-hud/
 - [ ] Phase 5: Intent parsing & built-in commands
   - [x] Intent router (feature matching → LLM fallback)
   - [x] Grocery list management
-  - Reminders
+  - [x] Reminders
   - Solar production queries
   - [x] General LLM fallback (Claude API)
 - [x] Phase 6: Text-to-speech (Piper)

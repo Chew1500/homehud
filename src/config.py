@@ -57,6 +57,10 @@ def load_config() -> dict:
 
         # Feature settings
         "grocery_file": os.getenv("HUD_GROCERY_FILE", str(PROJECT_ROOT / "data" / "grocery.json")),
+        "reminder_file": os.getenv(
+            "HUD_REMINDER_FILE", str(PROJECT_ROOT / "data" / "reminders.json")
+        ),
+        "reminder_check_interval": int(os.getenv("HUD_REMINDER_CHECK_INTERVAL", "15")),
 
         # Refresh interval in seconds (e-ink shouldn't refresh too often)
         "refresh_interval": int(os.getenv("HUD_REFRESH_INTERVAL", "300")),

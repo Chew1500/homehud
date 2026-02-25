@@ -66,6 +66,7 @@ Consult this file before creating new files or modules. Update it as planned pac
 **`src/features/`** — Built-in features
 - `base.py`: `BaseFeature` ABC — `matches(text) -> bool`, `handle(text) -> str`, `close()`
 - `grocery.py`: `GroceryFeature` — regex-based matching, JSON file persistence
+- `reminder.py`: `ReminderFeature` — timed reminders with background checker thread and `on_due` callback
 - Each feature self-selects via `matches()`, intent router dispatches to first match
 
 ### Planned
