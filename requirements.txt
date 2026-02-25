@@ -3,8 +3,8 @@ Pillow>=10.0
 python-dotenv>=1.0
 numpy>=1.24,<2
 
-# Enphase API (Phase 2)
-# httpx>=0.27
+# Enphase local API + weather
+httpx>=0.27
 
 # LLM fallback
 anthropic>=0.40

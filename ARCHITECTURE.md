@@ -67,7 +67,17 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `base.py`: `BaseFeature` ABC — `matches(text) -> bool`, `handle(text) -> str`, `close()`
 - `grocery.py`: `GroceryFeature` — regex-based matching, JSON file persistence
 - `reminder.py`: `ReminderFeature` — timed reminders with background checker thread and `on_due` callback
+- `solar.py`: `SolarFeature` — solar production queries, simple answers + LLM-assisted analysis
 - Each feature self-selects via `matches()`, intent router dispatches to first match
+
+**`src/enphase/`** — Enphase solar monitoring
+- `base.py`: `BaseEnphaseClient` ABC — `get_production()`, `get_inverters()`, `check_health()`, `close()`
+- `mock_client.py`: `MockEnphaseClient` — canned production data for local dev
+- `client.py`: `EnphaseClient` — real IQ Gateway client with JWT auth via httpx
+- `storage.py`: `SolarStorage` — SQLite storage for readings, inverter data, daily summaries
+- `weather.py`: `get_current_weather()` — Open-Meteo weather helper for solar context
+- `collector.py`: `SolarCollector` — background daemon thread that polls gateway and stores readings
+- `__init__.py`: factory function `get_enphase_client(config) -> BaseEnphaseClient`
 
 ### Planned
 

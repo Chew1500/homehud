@@ -110,12 +110,19 @@ def main():
     router = None
     tts = None
     voice_thread = None
+    enphase_client = None
+    solar_storage = None
+    solar_collector = None
 
     if config.get("voice_enabled", True):
         try:
             from audio import get_audio
+            from enphase import get_enphase_client
+            from enphase.collector import SolarCollector
+            from enphase.storage import SolarStorage
             from features.grocery import GroceryFeature
             from features.reminder import ReminderFeature
+            from features.solar import SolarFeature
             from intent import get_router
             from llm import get_llm
             from speech import get_stt, get_tts
@@ -132,7 +139,17 @@ def main():
                 speech = tts.synthesize(f"Reminder: {text}")
                 audio.play(speech)
 
-            features = [GroceryFeature(config), ReminderFeature(config, on_due=on_reminder_due)]
+            # Solar monitoring
+            enphase_client = get_enphase_client(config)
+            solar_storage = SolarStorage(config["solar_db_path"])
+            solar_collector = SolarCollector(enphase_client, solar_storage, config)
+            solar_collector.start()
+
+            features = [
+                GroceryFeature(config),
+                ReminderFeature(config, on_due=on_reminder_due),
+                SolarFeature(config, solar_storage, llm),
+            ]
             router = get_router(config, features, llm)
             voice_thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
             log.info("Voice pipeline enabled.")
@@ -155,8 +172,14 @@ def main():
         running.clear()
         if voice_thread:
             voice_thread.join(timeout=5)
+        if solar_collector:
+            solar_collector.close()
         if router:
             router.close()  # cascades to features + LLM
+        if solar_storage:
+            solar_storage.close()
+        if enphase_client:
+            enphase_client.close()
         if tts:
             tts.close()
         if wake:

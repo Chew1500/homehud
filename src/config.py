@@ -69,9 +69,17 @@ def load_config() -> dict:
         "log_dir": os.getenv("HUD_LOG_DIR", str(PROJECT_ROOT / "logs")),
         "log_level": os.getenv("HUD_LOG_LEVEL", "INFO"),
 
-        # Enphase API (Phase 2)
-        "enphase_api_key": os.getenv("ENPHASE_API_KEY", ""),
-        "enphase_system_id": os.getenv("ENPHASE_SYSTEM_ID", ""),
+        # Enphase solar monitoring
+        "enphase_mode": os.getenv("ENPHASE_MODE", "mock"),  # "mock" or "live"
+        "enphase_host": os.getenv("ENPHASE_HOST", "192.168.1.67"),
+        "enphase_serial": os.getenv("ENPHASE_SERIAL", ""),
+        "enphase_token": os.getenv("ENPHASE_TOKEN", ""),
+        "enphase_email": os.getenv("ENPHASE_EMAIL", ""),
+        "enphase_password": os.getenv("ENPHASE_PASSWORD", ""),
+        "enphase_poll_interval": int(os.getenv("ENPHASE_POLL_INTERVAL", "60")),
+        "solar_db_path": os.getenv("SOLAR_DB_PATH", str(PROJECT_ROOT / "data" / "solar.db")),
+        "solar_latitude": os.getenv("SOLAR_LATITUDE", ""),
+        "solar_longitude": os.getenv("SOLAR_LONGITUDE", ""),
 
         # Anthropic API (Phase 6)
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
