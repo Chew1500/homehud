@@ -44,10 +44,21 @@ def load_config() -> dict:
         "llm_max_tokens": int(os.getenv("HUD_LLM_MAX_TOKENS", "1024")),
         "llm_system_prompt": os.getenv("HUD_LLM_SYSTEM_PROMPT", ""),
         "llm_mock_response": os.getenv("HUD_LLM_MOCK_RESPONSE", "This is a mock LLM response."),
+        "llm_max_history": int(os.getenv("HUD_LLM_MAX_HISTORY", "10")),
+        "llm_history_ttl": int(os.getenv("HUD_LLM_HISTORY_TTL", "300")),
 
         # Voice pipeline settings
         "voice_enabled": os.getenv("HUD_VOICE_ENABLED", "true").lower() == "true",
         "voice_record_duration": int(os.getenv("HUD_VOICE_RECORD_DURATION", "5")),
+        "voice_wake_feedback": os.getenv("HUD_VOICE_WAKE_FEEDBACK", "true").lower() == "true",
+        "voice_wake_tone_freq": int(os.getenv("HUD_VOICE_WAKE_TONE_FREQ", "880")),
+        "voice_wake_tone_duration": int(os.getenv("HUD_VOICE_WAKE_TONE_DURATION", "150")),
+        "voice_vad_enabled": os.getenv("HUD_VOICE_VAD_ENABLED", "true").lower() == "true",
+        "vad_silence_threshold": int(os.getenv("HUD_VAD_SILENCE_THRESHOLD", "500")),
+        "vad_silence_duration": float(os.getenv("HUD_VAD_SILENCE_DURATION", "1.5")),
+        "vad_min_duration": float(os.getenv("HUD_VAD_MIN_DURATION", "0.5")),
+        "vad_max_duration": float(os.getenv("HUD_VAD_MAX_DURATION", "15.0")),
+        "voice_bargein_enabled": os.getenv("HUD_VOICE_BARGEIN_ENABLED", "true").lower() == "true",
 
         # Wake word detection
         "wake_mode": os.getenv("HUD_WAKE_MODE", "mock"),

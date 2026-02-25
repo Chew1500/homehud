@@ -23,16 +23,18 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `__init__.py`: factory function `get_display(config) -> BaseDisplay`
 
 **`src/audio/`** — Audio I/O
-- `base.py`: `BaseAudio` ABC — `record(duration) -> bytes`, `stream(chunk_duration_ms) -> Generator`, `play(data) -> None`, `close()`
+- `base.py`: `BaseAudio` ABC — `record(duration) -> bytes`, `stream(chunk_duration_ms) -> Generator`, `play(data) -> None`, `play_async(data)`, `stop_playback()`, `is_playing() -> bool`, `close()`
 - `mock_audio.py`: `MockAudio` — reads/writes WAV files for local dev
 - `hardware_audio.py`: `HardwareAudio` — real mic/speaker via sounddevice
 - `__init__.py`: factory function `get_audio(config) -> BaseAudio`
 - Audio format: raw PCM bytes (16-bit int16, little-endian), 16kHz mono by default
+- Async playback methods (`play_async`, `stop_playback`, `is_playing`) are concrete with default fallbacks — override for real non-blocking playback
 
 **`src/voice_pipeline.py`** — Voice loop
 - `start_voice_pipeline(audio, stt, wake, router, tts, config, running) -> Thread`
-- Daemon thread: stream audio → detect wake word → record → transcribe → route (feature or LLM) → TTS → play
+- Daemon thread: stream audio → detect wake word → play feedback tone → record (VAD or fixed) → transcribe → route (feature or LLM) → TTS → play (with barge-in support)
 - Wake-word-triggered recording via continuous audio streaming
+- Optional wake feedback tone, VAD-based dynamic recording, barge-in interruption
 - Per-cycle exception handling so one bad recording doesn't kill the pipeline
 
 **`src/wake/`** — Wake word detection
@@ -53,9 +55,9 @@ Consult this file before creating new files or modules. Update it as planned pac
 - Input: raw PCM bytes from `audio.record()` (int16, little-endian, 16kHz mono)
 
 **`src/llm/`** — LLM fallback
-- `base.py`: `BaseLLM` ABC — `respond(text) -> str`, `close()`
+- `base.py`: `BaseLLM` ABC — `respond(text) -> str`, `close()`, plus concrete history methods: `_get_messages(text)`, `_record_exchange(user, assistant)`, `_expire_history()`, `clear_history()`
 - `mock_llm.py`: `MockLLM` — canned responses for local dev
-- `claude_llm.py`: `ClaudeLLM` — Anthropic Claude API
+- `claude_llm.py`: `ClaudeLLM` — Anthropic Claude API with multi-turn conversation history
 - `__init__.py`: factory function `get_llm(config) -> BaseLLM`
 
 **`src/intent/`** — Intent parsing and command routing
@@ -80,12 +82,14 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `collector.py`: `SolarCollector` — background daemon thread that polls gateway and stores readings
 - `__init__.py`: factory function `get_enphase_client(config) -> BaseEnphaseClient`
 
-### Planned
-
 **`src/utils/`** — Shared helpers
+- `__init__.py`: Package marker
+- `tone.py`: `generate_tone(freq, duration_ms, sample_rate, volume) -> bytes` — sine wave PCM tone with fade-in/out
+- `vad.py`: `VoiceActivityDetector` — energy-based (RMS) voice activity detection for dynamic recording
 - Common logic used by 2+ packages goes here
-- Examples: audio format conversion, logging helpers, retry logic
 - Do not duplicate helpers across packages — extract to utils instead
+
+### Planned
 
 ## Key Patterns
 

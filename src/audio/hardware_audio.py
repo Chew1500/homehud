@@ -7,6 +7,7 @@ Only used on the Raspberry Pi — sounddevice is not required for local dev.
 import logging
 import queue
 import sys
+import threading
 from collections.abc import Generator
 
 from audio.base import BaseAudio
@@ -54,6 +55,7 @@ class HardwareAudio(BaseAudio):
             sample_rate=config.get("audio_sample_rate", 16000),
             channels=config.get("audio_channels", 1),
         )
+        self._playing = threading.Event()
         try:
             self._sd = _import_sounddevice()
         except (ImportError, OSError) as e:
@@ -162,7 +164,35 @@ class HardwareAudio(BaseAudio):
         self._sd.play(audio, samplerate=self.sample_rate, device=self._device)
         self._sd.wait()
 
+    def play_async(self, data: bytes) -> None:
+        """Start playing audio without blocking (non-blocking playback)."""
+        import numpy as np
+
+        audio = np.frombuffer(data, dtype=np.int16)
+        if self.channels > 1:
+            audio = audio.reshape(-1, self.channels)
+        log.info(f"Async playing {len(data)} bytes of audio...")
+        self._playing.set()
+        self._sd.play(audio, samplerate=self.sample_rate, device=self._device)
+
+        def _wait_done():
+            self._sd.wait()
+            self._playing.clear()
+
+        threading.Thread(target=_wait_done, name="audio-play-wait", daemon=True).start()
+
+    def stop_playback(self) -> None:
+        """Stop any in-progress async playback."""
+        self._sd.stop()
+        self._playing.clear()
+        log.info("Playback stopped.")
+
+    def is_playing(self) -> bool:
+        """Return True if async playback is in progress."""
+        return self._playing.is_set()
+
     def close(self) -> None:
         """Stop any active playback/recording."""
         self._sd.stop()
+        self._playing.clear()
         log.info("HardwareAudio closed.")

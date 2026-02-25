@@ -5,6 +5,7 @@ played audio to WAV files in an output directory.
 """
 
 import logging
+import threading
 import wave
 from collections.abc import Generator
 from pathlib import Path
@@ -25,6 +26,7 @@ class MockAudio(BaseAudio):
         self._output_dir = Path(config.get("audio_mock_dir", "output/audio"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._mock_input_file = config.get("audio_mock_input_file")
+        self._playing = threading.Event()
 
     def record(self, duration: float) -> bytes:
         """Return PCM from a mock input WAV file, or silence."""
@@ -56,6 +58,19 @@ class MockAudio(BaseAudio):
         output_path = self._output_dir / "latest.wav"
         _write_wav(output_path, data, self.sample_rate, self.channels)
         log.info(f"Mock playback saved to {output_path}")
+
+    def play_async(self, data: bytes) -> None:
+        """Mock async playback — saves file and sets playing flag."""
+        self.play(data)
+        self._playing.set()
+
+    def stop_playback(self) -> None:
+        """Mock stop playback."""
+        self._playing.clear()
+
+    def is_playing(self) -> bool:
+        """Return mock playing state."""
+        return self._playing.is_set()
 
 
 def _read_wav(path: Path) -> bytes:

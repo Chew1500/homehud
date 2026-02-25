@@ -20,4 +20,6 @@ class MockLLM(BaseLLM):
     def respond(self, text: str) -> str:
         """Return the configured canned response, ignoring input text."""
         log.info("Mock LLM called with: %r", text)
-        return self._response
+        response = self._response
+        self._record_exchange(text, response)
+        return response

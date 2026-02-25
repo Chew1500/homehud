@@ -19,7 +19,9 @@ CHUNK = b"\x00\x00" * 1280
 def _make_audio(trigger_on_chunk=3):
     """Create a mock audio that streams chunks and records silence."""
     audio = MagicMock()
+    audio.sample_rate = 16000
     audio.record.return_value = b"\x00\x00" * 16000
+    audio.is_playing.return_value = False
 
     def fake_stream(chunk_duration_ms=80):
         i = 0
@@ -44,9 +46,16 @@ def _make_wake(trigger_on_chunk=3):
     return wake
 
 
-def _make_config(record=1):
+def _make_config(record=1, wake_feedback=False, vad_enabled=False, bargein_enabled=False):
+    """Create a config dict with sensible test defaults.
+
+    New features are disabled by default to keep existing tests stable.
+    """
     return {
         "voice_record_duration": record,
+        "voice_wake_feedback": wake_feedback,
+        "voice_vad_enabled": vad_enabled,
+        "voice_bargein_enabled": bargein_enabled,
     }
 
 
@@ -97,7 +106,9 @@ def test_pipeline_records_and_transcribes_after_wake():
     running = threading.Event()
     running.set()
 
-    thread = start_voice_pipeline(audio, stt, wake, router, tts, _make_config(record=1), running)
+    thread = start_voice_pipeline(
+        audio, stt, wake, router, tts, _make_config(record=1), running,
+    )
     time.sleep(0.3)
     running.clear()
     thread.join(timeout=3)
@@ -329,3 +340,185 @@ def test_pipeline_works_without_repeat_feature():
     thread.join(timeout=3)
 
     router.route.assert_called_with("hello")
+
+
+# --- Phase 1: Wake feedback tests ---
+
+
+def test_pipeline_plays_tone_on_wake():
+    """Pipeline should play a tone after wake word detection when feedback is enabled."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router()
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(wake_feedback=True)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    # play() should have been called at least twice: once for tone, once for TTS
+    assert audio.play.call_count >= 2
+    # First play call should be the tone (short PCM data)
+    tone_data = audio.play.call_args_list[0][0][0]
+    assert isinstance(tone_data, bytes)
+    assert len(tone_data) > 0
+
+
+def test_pipeline_skips_tone_when_feedback_disabled():
+    """Pipeline should NOT play a tone when wake feedback is disabled."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    # Use a wake that triggers exactly once then never again
+    wake = MagicMock()
+    wake_calls = {"n": 0}
+
+    def detect_once(chunk):
+        wake_calls["n"] += 1
+        return wake_calls["n"] == 1
+
+    wake.detect.side_effect = detect_once
+    router = _make_router("response")
+    speech_bytes = b"\x01\x00" * 16000
+    tts = _make_tts(speech=speech_bytes)
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(wake_feedback=False)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    # play() should be called exactly once (for TTS), no tone
+    assert audio.play.call_count == 1
+    audio.play.assert_called_with(speech_bytes)
+
+
+# --- Phase 2: VAD tests ---
+
+
+def test_pipeline_uses_vad_when_enabled():
+    """Pipeline should use VAD streaming instead of audio.record() when VAD is enabled."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router()
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(vad_enabled=True)
+    # VAD needs silence threshold config
+    config["vad_silence_threshold"] = 500
+    config["vad_silence_duration"] = 0.01
+    config["vad_min_duration"] = 0.0
+    config["vad_max_duration"] = 0.1
+
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.5)
+    running.clear()
+    thread.join(timeout=3)
+
+    # audio.record() should NOT be called when VAD is enabled
+    audio.record.assert_not_called()
+    # stt.transcribe should still be called
+    stt.transcribe.assert_called()
+
+
+def test_pipeline_uses_record_when_vad_disabled():
+    """Pipeline should use audio.record() when VAD is disabled."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router()
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(vad_enabled=False, record=2)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    audio.record.assert_called_with(2)
+
+
+# --- Phase 3: Barge-in tests ---
+
+
+def test_pipeline_uses_async_playback_with_bargein():
+    """Pipeline should use play_async when barge-in is enabled."""
+    audio = _make_audio()
+    audio.is_playing.return_value = False
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router("response")
+    speech_bytes = b"\x01\x00" * 16000
+    tts = _make_tts(speech=speech_bytes)
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=True)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    audio.play_async.assert_called_with(speech_bytes)
+
+
+def test_pipeline_stops_playback_on_bargein():
+    """Pipeline should stop playback and handle new command on barge-in."""
+    audio = _make_audio()
+    # is_playing returns True for a few chunks, then False
+    play_count = {"n": 0}
+
+    def is_playing():
+        play_count["n"] += 1
+        return play_count["n"] <= 2
+
+    audio.is_playing.side_effect = is_playing
+
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+
+    # Wake detector triggers during barge-in monitoring
+    wake = MagicMock()
+    wake_calls = {"n": 0}
+
+    def wake_detect(chunk):
+        wake_calls["n"] += 1
+        # Trigger on 1st call (initial wake), then on 2nd call during barge-in
+        return wake_calls["n"] in (1, 2)
+
+    wake.detect.side_effect = wake_detect
+
+    router = _make_router("response")
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=True)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.5)
+    running.clear()
+    thread.join(timeout=3)
+
+    audio.stop_playback.assert_called()

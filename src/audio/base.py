@@ -52,6 +52,21 @@ class BaseAudio(ABC):
         """Play raw PCM audio data (int16, little-endian)."""
         ...
 
+    def play_async(self, data: bytes) -> None:
+        """Start playing audio without blocking. Override for real async playback.
+
+        Default implementation falls back to synchronous play().
+        """
+        self.play(data)
+
+    def stop_playback(self) -> None:
+        """Stop any in-progress playback. Override for real implementation."""
+        pass
+
+    def is_playing(self) -> bool:
+        """Return True if async playback is in progress. Override for real implementation."""
+        return False
+
     def close(self) -> None:
         """Clean up resources. Override if needed."""
         pass

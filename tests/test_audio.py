@@ -112,6 +112,33 @@ def test_mock_stream_cleanup_on_close(tmp_path):
     gen.close()  # should not raise
 
 
+def test_mock_async_playback(tmp_path):
+    """play_async should set is_playing, stop_playback should clear it."""
+    config = {"audio_mock_dir": str(tmp_path)}
+    audio = MockAudio(config)
+
+    assert not audio.is_playing()
+
+    pcm_data = b"\x00\x00" * 800
+    audio.play_async(pcm_data)
+    assert audio.is_playing()
+
+    audio.stop_playback()
+    assert not audio.is_playing()
+
+
+def test_mock_async_saves_wav(tmp_path):
+    """play_async should still save the WAV file."""
+    config = {"audio_mock_dir": str(tmp_path)}
+    audio = MockAudio(config)
+
+    pcm_data = b"\x00\x00" * 800
+    audio.play_async(pcm_data)
+
+    wav_path = tmp_path / "latest.wav"
+    assert wav_path.exists()
+
+
 def test_factory_returns_mock(tmp_path):
     """get_audio() should return MockAudio by default."""
     config = {

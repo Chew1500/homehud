@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,68 @@ def test_claude_llm_requires_api_key():
 
     with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
         ClaudeLLM({"anthropic_api_key": ""})
+
+
+def test_history_records_exchanges():
+    """respond() should record exchanges in history."""
+    llm = MockLLM({})
+    llm.respond("first question")
+    llm.respond("second question")
+
+    assert len(llm._history) == 2
+    assert llm._history[0][0] == "first question"
+    assert llm._history[1][0] == "second question"
+
+
+def test_history_trims_at_max():
+    """History should be trimmed when it exceeds max_history."""
+    llm = MockLLM({"llm_max_history": 3})
+    for i in range(5):
+        llm.respond(f"question {i}")
+
+    assert len(llm._history) == 3
+    # Should keep the 3 most recent
+    assert llm._history[0][0] == "question 2"
+    assert llm._history[2][0] == "question 4"
+
+
+def test_history_ttl_expiry():
+    """Expired history entries should be removed."""
+    llm = MockLLM({"llm_history_ttl": 1})
+    llm.respond("old question")
+
+    # Manually backdate the timestamp
+    user, assistant, _ts = llm._history[0]
+    llm._history[0] = (user, assistant, time.monotonic() - 2)
+
+    # Next call triggers expiry via _get_messages
+    messages = llm._get_messages("new question")
+    # Should only have the new message, old one expired
+    assert len(messages) == 1
+    assert messages[0]["content"] == "new question"
+
+
+def test_history_builds_messages():
+    """_get_messages should build correct message array with history."""
+    llm = MockLLM({})
+    llm.respond("hello")
+
+    messages = llm._get_messages("follow up")
+    assert len(messages) == 3  # user, assistant, user
+    assert messages[0] == {"role": "user", "content": "hello"}
+    assert messages[1] == {"role": "assistant", "content": "This is a mock LLM response."}
+    assert messages[2] == {"role": "user", "content": "follow up"}
+
+
+def test_clear_history():
+    """clear_history() should remove all entries."""
+    llm = MockLLM({})
+    llm.respond("hello")
+    llm.respond("world")
+    assert len(llm._history) == 2
+
+    llm.clear_history()
+    assert len(llm._history) == 0
 
 
 @pytest.mark.skipif(
