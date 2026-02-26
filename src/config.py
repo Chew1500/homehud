@@ -101,6 +101,19 @@ def load_config() -> dict:
         "solar_latitude": os.getenv("SOLAR_LATITUDE", ""),
         "solar_longitude": os.getenv("SOLAR_LONGITUDE", ""),
 
+        # Sonarr (TV shows) — opt-in: leave SONARR_MODE empty to disable
+        "sonarr_mode": os.getenv("SONARR_MODE", ""),  # "" | "mock" | "live"
+        "sonarr_url": os.getenv("SONARR_URL", "http://localhost:8989"),
+        "sonarr_api_key": os.getenv("SONARR_API_KEY", ""),
+
+        # Radarr (Movies) — opt-in: leave RADARR_MODE empty to disable
+        "radarr_mode": os.getenv("RADARR_MODE", ""),  # "" | "mock" | "live"
+        "radarr_url": os.getenv("RADARR_URL", "http://localhost:7878"),
+        "radarr_api_key": os.getenv("RADARR_API_KEY", ""),
+
+        # Media feature
+        "media_disambiguation_ttl": int(os.getenv("HUD_MEDIA_DISAMBIGUATION_TTL", "60")),
+
         # Anthropic API (Phase 6)
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
     }

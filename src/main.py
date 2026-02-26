@@ -113,6 +113,8 @@ def main():
     enphase_client = None
     solar_storage = None
     solar_collector = None
+    sonarr_client = None
+    radarr_client = None
 
     if config.get("voice_enabled", True):
         try:
@@ -122,11 +124,13 @@ def main():
             from enphase.storage import SolarStorage
             from features.capabilities import CapabilitiesFeature
             from features.grocery import GroceryFeature
+            from features.media import MediaFeature
             from features.reminder import ReminderFeature
             from features.repeat import RepeatFeature
             from features.solar import SolarFeature
             from intent import get_router
             from llm import get_llm
+            from media import get_radarr_client, get_sonarr_client
             from speech import get_stt, get_tts
             from utils.phrases import DEPLOY_PHRASES, STARTUP_PHRASES, WAKE_PHRASES, pick_phrase
             from utils.prompt_cache import PromptCache
@@ -157,11 +161,16 @@ def main():
             solar_collector = SolarCollector(enphase_client, solar_storage, config)
             solar_collector.start()
 
+            # Media library (opt-in)
+            sonarr_client = get_sonarr_client(config)
+            radarr_client = get_radarr_client(config)
+
             features = [
                 repeat_feature,
                 GroceryFeature(config),
                 ReminderFeature(config, on_due=on_reminder_due),
                 SolarFeature(config, solar_storage, llm),
+                MediaFeature(config, sonarr=sonarr_client, radarr=radarr_client),
             ]
             capabilities_feature = CapabilitiesFeature(config, features)
             features.append(capabilities_feature)
@@ -208,6 +217,10 @@ def main():
             solar_storage.close()
         if enphase_client:
             enphase_client.close()
+        if sonarr_client:
+            sonarr_client.close()
+        if radarr_client:
+            radarr_client.close()
         if tts:
             tts.close()
         if wake:
