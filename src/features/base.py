@@ -13,6 +13,18 @@ class BaseFeature(ABC):
     def __init__(self, config: dict):
         self._config = config
 
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Human-readable feature name (e.g., 'Grocery List')."""
+        ...
+
+    @property
+    @abstractmethod
+    def short_description(self) -> str:
+        """One-line summary of what this feature does."""
+        ...
+
     @abstractmethod
     def matches(self, text: str) -> bool:
         """Return True if this feature should handle the given text.

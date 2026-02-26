@@ -77,6 +77,14 @@ class SolarFeature(BaseFeature):
         self._llm = llm
 
     @property
+    def name(self) -> str:
+        return "Solar Monitor"
+
+    @property
+    def short_description(self) -> str:
+        return "Check your solar production, consumption, and grid status"
+
+    @property
     def description(self) -> str:
         return (
             'Solar monitoring: triggered by "solar", "panels", "inverters", '

@@ -40,6 +40,14 @@ class GroceryFeature(BaseFeature):
         self._path = Path(config.get("grocery_file", "data/grocery.json"))
 
     @property
+    def name(self) -> str:
+        return "Grocery List"
+
+    @property
+    def short_description(self) -> str:
+        return "Manage your grocery and shopping lists"
+
+    @property
     def description(self) -> str:
         return (
             'Grocery/shopping list: triggered by "grocery list" or "shopping list". '

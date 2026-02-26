@@ -66,11 +66,12 @@ Consult this file before creating new files or modules. Update it as planned pac
 - Concrete class (no ABC) — a single router tries features then LLM
 
 **`src/features/`** — Built-in features
-- `base.py`: `BaseFeature` ABC — `matches(text) -> bool`, `handle(text) -> str`, `close()`
+- `base.py`: `BaseFeature` ABC — `name`, `short_description` (abstract properties), `matches(text) -> bool`, `handle(text) -> str`, `description` (optional), `close()`
 - `grocery.py`: `GroceryFeature` — regex-based matching, JSON file persistence
 - `reminder.py`: `ReminderFeature` — timed reminders with background checker thread and `on_due` callback
 - `repeat.py`: `RepeatFeature` — replays the last spoken response
 - `solar.py`: `SolarFeature` — solar production queries, simple answers + LLM-assisted analysis
+- `capabilities.py`: `CapabilitiesFeature` — auto-discovers features and lists capabilities; answers "what can you do" and "tell me about X"
 - Each feature self-selects via `matches()`, intent router dispatches to first match
 
 **`src/enphase/`** — Enphase solar monitoring

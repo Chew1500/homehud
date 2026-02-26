@@ -38,6 +38,14 @@ class RepeatFeature(BaseFeature):
         self._last_response: str | None = None
 
     @property
+    def name(self) -> str:
+        return "Repeat"
+
+    @property
+    def short_description(self) -> str:
+        return "Repeat the last thing I said"
+
+    @property
     def description(self) -> str:
         return (
             'Repeat last response: triggered by "what did you say", "repeat that", '

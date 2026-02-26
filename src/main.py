@@ -120,6 +120,7 @@ def main():
             from enphase import get_enphase_client
             from enphase.collector import SolarCollector
             from enphase.storage import SolarStorage
+            from features.capabilities import CapabilitiesFeature
             from features.grocery import GroceryFeature
             from features.reminder import ReminderFeature
             from features.repeat import RepeatFeature
@@ -162,6 +163,8 @@ def main():
                 ReminderFeature(config, on_due=on_reminder_due),
                 SolarFeature(config, solar_storage, llm),
             ]
+            capabilities_feature = CapabilitiesFeature(config, features)
+            features.append(capabilities_feature)
             router = get_router(config, features, llm)
             voice_thread = start_voice_pipeline(
                 audio, stt, wake, router, tts, config, running,

@@ -88,6 +88,14 @@ class ReminderFeature(BaseFeature):
             self._checker_thread.start()
 
     @property
+    def name(self) -> str:
+        return "Reminders"
+
+    @property
+    def short_description(self) -> str:
+        return "Set, list, and cancel timed reminders"
+
+    @property
     def description(self) -> str:
         return (
             'Reminders: triggered by "remind" or "reminder". '
