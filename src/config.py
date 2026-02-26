@@ -30,6 +30,8 @@ def load_config() -> dict:
         # Speech-to-text settings
         "stt_mode": os.getenv("HUD_STT_MODE", "mock"),
         "stt_whisper_model": os.getenv("HUD_STT_WHISPER_MODEL", "base.en"),
+        "stt_whisper_prompt": os.getenv("HUD_STT_WHISPER_PROMPT", ""),
+        "stt_whisper_hotwords": os.getenv("HUD_STT_WHISPER_HOTWORDS", ""),
         "stt_mock_response": os.getenv("HUD_STT_MOCK_RESPONSE", "hello world"),
 
         # Text-to-speech settings

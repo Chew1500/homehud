@@ -26,6 +26,8 @@ class WhisperSTT(BaseSTT):
             )
 
         model_name = config.get("stt_whisper_model", "base.en")
+        self._prompt = config.get("stt_whisper_prompt", "")
+        self._hotwords = config.get("stt_whisper_hotwords", "")
         log.info(f"Loading Whisper model: {model_name}")
         self._model = WhisperModel(model_name, device="cpu", compute_type="int8")
 
@@ -40,7 +42,13 @@ class WhisperSTT(BaseSTT):
         audio_array = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
 
         log.info(f"Transcribing {len(audio_array)} samples with Whisper")
-        segments, _info = self._model.transcribe(audio_array, beam_size=5)
+        segments, _info = self._model.transcribe(
+            audio_array,
+            beam_size=5,
+            language="en",
+            initial_prompt=self._prompt or None,
+            hotwords=self._hotwords or None,
+        )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         log.info(f"Whisper transcription: {text!r}")
         return text
