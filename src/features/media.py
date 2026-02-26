@@ -88,6 +88,30 @@ _NEW_COMMAND_PATTERNS = [
 ]
 
 
+def _clean_title(text: str) -> str:
+    """Strip trailing punctuation that Whisper may add to transcribed titles."""
+    return re.sub(r"[.!?,;:]+$", "", text)
+
+
+def _title_relevance(title: str, search_term: str) -> float:
+    """Score how well a result title matches the search term (0.0 to 1.0)."""
+    t = title.lower()
+    s = search_term.lower()
+    if t == s:
+        return 1.0
+    if t.startswith(s):
+        return 0.8
+    if s in t:
+        return 0.6
+    # Word overlap — fraction of search words found in the title
+    s_words = set(s.split())
+    if s_words:
+        t_words = set(t.split())
+        overlap = len(t_words & s_words) / len(s_words)
+        return 0.4 * overlap
+    return 0.0
+
+
 class MediaFeature(BaseFeature):
     """Voice-controlled media library management via Sonarr and Radarr.
 
@@ -282,6 +306,7 @@ class MediaFeature(BaseFeature):
 
     def _track_movie(self, title: str) -> str:
         self._pending = None
+        title = _clean_title(title)
         if not self._radarr:
             return "Movie tracking isn't configured. Set up Radarr to enable it."
         results = self._radarr.search_movie(title)
@@ -289,10 +314,11 @@ class MediaFeature(BaseFeature):
             return f"I couldn't find any movies matching {title}."
         for r in results:
             r["media_type"] = "movie"
-        return self._start_disambiguation(results)
+        return self._start_disambiguation(results, search_term=title)
 
     def _track_show(self, title: str) -> str:
         self._pending = None
+        title = _clean_title(title)
         if not self._sonarr:
             return "TV show tracking isn't configured. Set up Sonarr to enable it."
         results = self._sonarr.search_series(title)
@@ -300,10 +326,11 @@ class MediaFeature(BaseFeature):
             return f"I couldn't find any shows matching {title}."
         for r in results:
             r["media_type"] = "show"
-        return self._start_disambiguation(results)
+        return self._start_disambiguation(results, search_term=title)
 
     def _track_generic(self, title: str) -> str:
         self._pending = None
+        title = _clean_title(title)
         all_results = []
         if self._radarr:
             movies = self._radarr.search_movie(title)
@@ -319,23 +346,36 @@ class MediaFeature(BaseFeature):
             return "Media tracking isn't configured."
         if not all_results:
             return f"I couldn't find anything matching {title}."
-        return self._start_disambiguation(all_results)
+        return self._start_disambiguation(all_results, search_term=title)
 
     # -- Disambiguation --
 
-    def _start_disambiguation(self, results: list[dict]) -> str:
+    def _start_disambiguation(
+        self, results: list[dict], search_term: str = ""
+    ) -> str:
         """Begin disambiguation flow with tagged search results."""
-        if len(results) >= 4:
-            # Many results — enter refining phase
+        # Sort by title relevance (desc), then year (desc) for ties
+        results.sort(
+            key=lambda r: (_title_relevance(r["title"], search_term), r["year"]),
+            reverse=True,
+        )
+
+        top_score = (
+            _title_relevance(results[0]["title"], search_term) if results else 0.0
+        )
+
+        if len(results) >= 4 and top_score < 0.8:
+            # Many results with no strong match — enter refining phase
             self._pending = {
                 "results": results,
                 "index": 0,
                 "phase": "refining",
+                "search_term": search_term,
                 "timestamp": time.time(),
             }
             return self._describe_refining_summary()
 
-        # Few results — check if first is already tracked, then confirm one-by-one
+        # Few results or strong match — check if first is already tracked
         first = results[0]
         if self._is_result_tracked(first):
             if len(results) == 1:
@@ -349,6 +389,7 @@ class MediaFeature(BaseFeature):
                         "results": results,
                         "index": i,
                         "phase": "confirming",
+                        "search_term": search_term,
                         "timestamp": time.time(),
                     }
                     already = f"You're already tracking {first['title']} from {first['year']}."
@@ -362,6 +403,7 @@ class MediaFeature(BaseFeature):
             "results": results,
             "index": 0,
             "phase": "confirming",
+            "search_term": search_term,
             "timestamp": time.time(),
         }
         return self._describe_current()
@@ -517,6 +559,13 @@ class MediaFeature(BaseFeature):
         if not filtered:
             self._pending = None
             return "None of my results match that."
+
+        # Re-sort filtered results by relevance
+        search_term = self._pending.get("search_term", "")
+        filtered.sort(
+            key=lambda r: (_title_relevance(r["title"], search_term), r["year"]),
+            reverse=True,
+        )
 
         # Update pending with filtered results
         self._pending["results"] = filtered

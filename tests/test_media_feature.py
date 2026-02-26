@@ -19,6 +19,37 @@ def _make_feature(sonarr=True, radarr=True, ttl=60):
     return MediaFeature(config, sonarr=s, radarr=r)
 
 
+def _batman_results():
+    """Build the combined batman search results (unsorted, for direct pending setup)."""
+    return [
+        {"tmdbId": 272, "title": "Batman Begins", "year": 2005, "media_type": "movie",
+         "overview": "Driven by tragedy, billionaire Bruce Wayne dedicates his life."},
+        {"tmdbId": 155, "title": "The Dark Knight", "year": 2008, "media_type": "movie",
+         "overview": "Batman raises the stakes in his war on crime."},
+        {"tmdbId": 49026, "title": "The Dark Knight Rises", "year": 2012,
+         "media_type": "movie", "overview": "Eight years after the Joker's reign."},
+        {"tmdbId": 414906, "title": "The Batman", "year": 2022, "media_type": "movie",
+         "overview": "In his second year of fighting crime."},
+        {"tmdbId": 142061, "title": "Batman", "year": 1989, "media_type": "movie",
+         "overview": "Batman must face his most ruthless nemesis."},
+        {"tvdbId": 76168, "title": "Batman: The Animated Series", "year": 1992,
+         "media_type": "show", "overview": "The Dark Knight battles crime in Gotham."},
+        {"tvdbId": 403172, "title": "Batman: Caped Crusader", "year": 2024,
+         "media_type": "show", "overview": "An all-new animated series."},
+    ]
+
+
+def _make_pending(results, phase="refining", search_term="test"):
+    """Create a _pending dict for testing disambiguation phases directly."""
+    return {
+        "results": results,
+        "index": 0,
+        "phase": phase,
+        "search_term": search_term,
+        "timestamp": time.time(),
+    }
+
+
 # -- matches() --
 
 
@@ -349,16 +380,17 @@ def test_expects_follow_up_false_when_expired():
 
 
 def test_track_generic_searches_both_services():
-    """Generic track should search both Radarr and Sonarr."""
+    """Generic track should search both Radarr and Sonarr, sorted by relevance."""
     feat = _make_feature()
     result = feat.handle("track batman")
-    # batman has 5 movies + 2 shows = 7 results → refining phase
+    # Batman (1989) is an exact match → strong-match bypass → confirming
     assert feat._pending is not None
-    assert feat._pending["phase"] == "refining"
+    assert feat._pending["phase"] == "confirming"
     assert len(feat._pending["results"]) == 7
-    # Summary should mention both movies and shows
-    assert "movie" in result.lower()
-    assert "show" in result.lower()
+    # Best match (exact title) should be first
+    assert feat._pending["results"][0]["title"] == "Batman"
+    assert "Batman" in result
+    assert "Should I add" in result
 
 
 def test_track_generic_movie_only():
@@ -383,7 +415,8 @@ def test_track_generic_show_only():
 def test_refining_summary_describes_results():
     """Refining summary should mention count, types, and year range."""
     feat = _make_feature()
-    result = feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
+    result = feat._describe_refining_summary()
     assert "7 results" in result
     assert "1989" in result
     assert "2024" in result
@@ -392,11 +425,9 @@ def test_refining_summary_describes_results():
 def test_refining_filter_by_year():
     """Filtering by year during refining should narrow results."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     result = feat.handle("2022")
-    # Only The Batman (2022) and Batman: The Animated Series' year doesn't match
-    # Wait — Batman TAS is 1992, Caped Crusader is 2024... The Batman is 2022
-    # So filtering by 2022 → 1 result (The Batman)
+    # Only The Batman (2022) matches
     assert "The Batman" in result
     assert "Should I add" in result
     assert feat._pending["phase"] == "confirming"
@@ -405,7 +436,7 @@ def test_refining_filter_by_year():
 def test_refining_filter_by_type_movie():
     """Filtering by 'movie' should keep only movies."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     result = feat.handle("it was a movie")
     # 5 movies remain — still 4+ → stay in refining
     assert feat._pending is not None
@@ -415,7 +446,7 @@ def test_refining_filter_by_type_movie():
 def test_refining_filter_by_type_show():
     """Filtering by 'show' should keep only shows."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     feat.handle("it's a show")
     # 2 shows → phase switches to confirming
     assert feat._pending is not None
@@ -426,7 +457,7 @@ def test_refining_filter_by_type_show():
 def test_refining_filter_by_recency():
     """Filtering by 'the newest' should keep top 3 by year."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     feat.handle("the newest one")
     # Top 3 by year: Caped Crusader (2024), The Batman (2022), Dark Knight Rises (2012)
     assert feat._pending is not None
@@ -437,7 +468,7 @@ def test_refining_filter_by_recency():
 def test_refining_combined_filter():
     """Multiple refinement signals should combine."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     result = feat.handle("the 1992 show")
     # Year 1992 + show → Batman: The Animated Series only
     assert "Batman: The Animated Series" in result
@@ -447,7 +478,7 @@ def test_refining_combined_filter():
 def test_refining_no_matches_clears_pending():
     """Filtering that yields 0 results should clear pending."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     result = feat.handle("1999")
     # No batman results from 1999
     assert "None of my results" in result
@@ -457,7 +488,7 @@ def test_refining_no_matches_clears_pending():
 def test_refining_yes_switches_to_confirming():
     """Saying 'yes' during refining should start one-by-one confirmation."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     assert feat._pending["phase"] == "refining"
     result = feat.handle("yes")
     assert feat._pending is not None
@@ -468,7 +499,7 @@ def test_refining_yes_switches_to_confirming():
 def test_refining_cancel():
     """Cancel during refining should clear pending."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     result = feat.handle("cancel")
     assert "cancelled" in result.lower()
     assert feat._pending is None
@@ -477,14 +508,14 @@ def test_refining_cancel():
 def test_refining_matches_year_input():
     """Year input during refining should be matched by matches()."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     assert feat.matches("2022")
 
 
 def test_refining_matches_type_input():
     """Type input during refining should be matched by matches()."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     assert feat.matches("it was a movie")
     assert feat.matches("it's a show")
 
@@ -524,7 +555,7 @@ def test_check_clears_pending():
 def test_new_command_during_refining():
     """A new 'track movie X' command during refining should replace it."""
     feat = _make_feature()
-    feat.handle("track batman")
+    feat._pending = _make_pending(_batman_results(), search_term="batman")
     assert feat._pending["phase"] == "refining"
     result = feat.handle("track the movie The Matrix")
     # Should have cleared batman pending and started Matrix disambiguation
@@ -572,19 +603,80 @@ def test_results_tagged_with_media_type():
 
 
 def test_full_refine_to_confirm_flow():
-    """Complete flow: track batman → refine by year → confirm → added."""
+    """Complete flow: track batman → Batman (1989) presented → confirm → added."""
     feat = _make_feature()
-    # Step 1: search triggers refining
+    # Step 1: search — strong match → confirming with Batman (1989) first
     result = feat.handle("track batman")
-    assert feat._pending["phase"] == "refining"
-
-    # Step 2: refine by year to single result
-    result = feat.handle("2022")
-    assert "The Batman" in result
-    assert "Should I add" in result
     assert feat._pending["phase"] == "confirming"
+    assert "Batman" in result
+    assert "1989" in result
+    assert "Should I add" in result
 
-    # Step 3: confirm
+    # Step 2: confirm
     result = feat.handle("yes")
     assert "Done" in result or "added" in result
     assert feat._pending is None
+
+
+# -- Title relevance sorting --
+
+
+def test_relevance_sort_exact_match_first():
+    """Exact title match should be sorted first."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    results = feat._pending["results"]
+    assert results[0]["title"] == "Batman"
+    assert results[0]["year"] == 1989
+
+
+def test_strong_match_bypasses_refining():
+    """A strong title match (>= 0.8) should skip refining even with many results."""
+    feat = _make_feature()
+    result = feat.handle("track batman")
+    # Batman (1989) is exact match → score 1.0 → bypass refining
+    assert feat._pending["phase"] == "confirming"
+    assert "Should I add" in result
+
+
+def test_weak_match_enters_refining():
+    """When no result scores >= 0.8, many results should enter refining."""
+    feat = _make_feature()
+    results = [
+        {"tmdbId": 1, "title": "The Dark Knight", "year": 2008, "media_type": "movie"},
+        {"tmdbId": 2, "title": "The Dark Knight Rises", "year": 2012,
+         "media_type": "movie"},
+        {"tmdbId": 3, "title": "Dark Shadows", "year": 2012, "media_type": "movie"},
+        {"tmdbId": 4, "title": "Dark City", "year": 1998, "media_type": "movie"},
+    ]
+    feat._start_disambiguation(results, search_term="dark knight returns")
+    assert feat._pending["phase"] == "refining"
+
+
+def test_clean_title_strips_trailing_punctuation():
+    """_clean_title should strip trailing punctuation from Whisper transcriptions."""
+    from features.media import _clean_title
+
+    assert _clean_title("severance.") == "severance"
+    assert _clean_title("severance!") == "severance"
+    assert _clean_title("severance,") == "severance"
+    assert _clean_title("severance") == "severance"
+    assert _clean_title("Mr. Robot") == "Mr. Robot"  # mid-word dots preserved
+
+
+def test_refinement_preserves_relevance_sort():
+    """After filtering, results should still be sorted by title relevance."""
+    feat = _make_feature()
+    results = [
+        {"tmdbId": 1, "title": "The Batman", "year": 2022, "media_type": "movie"},
+        {"tmdbId": 2, "title": "Batman Begins", "year": 2005, "media_type": "movie"},
+        {"tmdbId": 3, "title": "The Dark Knight", "year": 2008, "media_type": "movie"},
+        {"tmdbId": 4, "title": "Batman", "year": 1989, "media_type": "movie"},
+        {"tmdbId": 5, "title": "Batman: Mask of the Phantasm", "year": 1993,
+         "media_type": "movie"},
+    ]
+    feat._pending = _make_pending(results, search_term="batman")
+    feat.handle("movie")
+    # After type filter (all are movies anyway) and re-sort by relevance:
+    # Batman (1.0) should be first
+    assert feat._pending["results"][0]["title"] == "Batman"
