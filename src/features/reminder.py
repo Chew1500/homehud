@@ -62,11 +62,73 @@ _CLEAR = re.compile(
     r"\b(?:clear|cancel|delete)\s+all\s+(?:my\s+)?reminders\b",
     re.IGNORECASE,
 )
+# 3b. Reverse at-time: "remind me at TIME [tomorrow] to TASK"
+_SET_AT_REVERSE = re.compile(
+    rf"\bremind\s+me\s+at\s+{_TIME}(?:\s+(tomorrow))?\s+to\s+(.+)",
+    re.IGNORECASE,
+)
 # 9. List: "what are/show/list [my] reminders"
 _LIST = re.compile(
     r"\b(?:what\s+are|show|list)\s+(?:my\s+)?reminders\b",
     re.IGNORECASE,
 )
+
+# --- Input normalization for voice phrasing ---
+
+_TRAILING_PUNCT = re.compile(r"[.?!]+$")
+_BROKEN_AMPM = re.compile(r"\b((?:a|p)\.m)$", re.IGNORECASE)
+_CONVERSATIONAL_PREFIX = re.compile(
+    r"^(?:can|could|would)\s+you\s+(?:please\s+)?|^please\s+",
+    re.IGNORECASE,
+)
+_REMINDER_FOR_TOMORROW_AT = re.compile(
+    r"(?:set|create)\s+a\s+reminder\s+for\s+tomorrow\s+at\s+(.+?)\s+to\s+(.+)",
+    re.IGNORECASE,
+)
+_REMINDER_FOR_TOMORROW = re.compile(
+    r"(?:set|create)\s+a\s+reminder\s+for\s+tomorrow\s+to\s+(.+)",
+    re.IGNORECASE,
+)
+_REMINDER_TO = re.compile(
+    r"(?:set|create)\s+a\s+reminder\s+to\s+",
+    re.IGNORECASE,
+)
+_REMINDER_FOR = re.compile(
+    r"(?:set|create)\s+a\s+reminder\s+for\s+",
+    re.IGNORECASE,
+)
+
+
+def _normalize(text: str) -> str:
+    """Clean voice input before pattern matching.
+
+    Strips trailing punctuation, conversational prefixes, and rewrites
+    "set/create a reminder" forms into canonical "remind me" phrasing.
+    """
+    # Strip trailing punctuation, then restore broken a.m./p.m.
+    text = _TRAILING_PUNCT.sub("", text).strip()
+    text = _BROKEN_AMPM.sub(r"\1.", text)
+
+    # Strip conversational prefixes
+    text = _CONVERSATIONAL_PREFIX.sub("", text).strip()
+
+    # Rewrite "set/create a reminder for tomorrow at TIME to TASK"
+    m = _REMINDER_FOR_TOMORROW_AT.search(text)
+    if m:
+        return f"tomorrow at {m.group(1)} remind me to {m.group(2)}"
+
+    # Rewrite "set/create a reminder for tomorrow to TASK"
+    m = _REMINDER_FOR_TOMORROW.search(text)
+    if m:
+        return f"remind me to {m.group(1)} tomorrow"
+
+    # Rewrite "set/create a reminder to" → "remind me to"
+    text = _REMINDER_TO.sub("remind me to ", text)
+
+    # Rewrite "set/create a reminder for" → "remind me at"
+    text = _REMINDER_FOR.sub("remind me at ", text)
+
+    return text
 
 
 class ReminderFeature(BaseFeature):
@@ -107,7 +169,16 @@ class ReminderFeature(BaseFeature):
         return bool(_ANY_REMINDER.search(text))
 
     def handle(self, text: str) -> str:
-        # 1. Prefix: "at TIME [tomorrow] remind me to TASK"
+        text = _normalize(text)
+
+        # 1. Prefix: "tomorrow at TIME remind me to TASK"
+        m = _PREFIX_TOMORROW_AT.search(text)
+        if m:
+            hour, minute, ampm, task = m.group(1), m.group(2), m.group(3), m.group(4)
+            due = self._parse_absolute(hour, minute, ampm, tomorrow=True)
+            return self._set(task.strip(), due)
+
+        # 2. Prefix: "at TIME [tomorrow] remind me to TASK"
         m = _PREFIX_AT.search(text)
         if m:
             hour, minute, ampm, tomorrow, task = (
@@ -116,20 +187,22 @@ class ReminderFeature(BaseFeature):
             due = self._parse_absolute(hour, minute, ampm, tomorrow is not None)
             return self._set(task.strip(), due)
 
-        # 2. Prefix: "tomorrow at TIME remind me to TASK"
-        m = _PREFIX_TOMORROW_AT.search(text)
-        if m:
-            hour, minute, ampm, task = m.group(1), m.group(2), m.group(3), m.group(4)
-            due = self._parse_absolute(hour, minute, ampm, tomorrow=True)
-            return self._set(task.strip(), due)
-
         # 3. Relative time-first: "remind me in 10 minutes to TASK"
         m = _SET_RELATIVE_FIRST.search(text)
         if m:
             delta = self._parse_relative(m.group(1), m.group(2))
             return self._set(m.group(3).strip(), datetime.now() + delta)
 
-        # 4. Set at-time: "remind me to TASK at TIME [tomorrow]"
+        # 4. Reverse at-time: "remind me at TIME [tomorrow] to TASK"
+        m = _SET_AT_REVERSE.search(text)
+        if m:
+            hour, minute, ampm, tomorrow, task = (
+                m.group(1), m.group(2), m.group(3), m.group(4), m.group(5),
+            )
+            due = self._parse_absolute(hour, minute, ampm, tomorrow is not None)
+            return self._set(task.strip(), due)
+
+        # 5. Set at-time: "remind me to TASK at TIME [tomorrow]"
         m = _SET_AT.search(text)
         if m:
             task, hour, minute, ampm, tomorrow = (
@@ -138,13 +211,13 @@ class ReminderFeature(BaseFeature):
             due = self._parse_absolute(hour, minute, ampm, tomorrow is not None)
             return self._set(task.strip(), due)
 
-        # 5. Set relative: "remind me to TASK in N UNITS"
+        # 6. Set relative: "remind me to TASK in N UNITS"
         m = _SET_RELATIVE.search(text)
         if m:
             delta = self._parse_relative(m.group(2), m.group(3))
             return self._set(m.group(1).strip(), datetime.now() + delta)
 
-        # 6. Set tomorrow: "remind me to TASK tomorrow"
+        # 7. Set tomorrow: "remind me to TASK tomorrow"
         m = _SET_TOMORROW.search(text)
         if m:
             tomorrow_9am = (datetime.now() + timedelta(days=1)).replace(
@@ -152,16 +225,16 @@ class ReminderFeature(BaseFeature):
             )
             return self._set(m.group(1).strip(), tomorrow_9am)
 
-        # 7. Cancel specific
+        # 8. Cancel specific
         m = _CANCEL.search(text)
         if m:
             return self._cancel(m.group(1).strip())
 
-        # 8. Clear all
+        # 9. Clear all
         if _CLEAR.search(text):
             return self._clear()
 
-        # 9. List
+        # 10. List
         if _LIST.search(text):
             return self._list()
 
