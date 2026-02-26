@@ -51,8 +51,12 @@ def load_config() -> dict:
         "voice_enabled": os.getenv("HUD_VOICE_ENABLED", "true").lower() == "true",
         "voice_record_duration": int(os.getenv("HUD_VOICE_RECORD_DURATION", "5")),
         "voice_wake_feedback": os.getenv("HUD_VOICE_WAKE_FEEDBACK", "true").lower() == "true",
-        "voice_wake_tone_freq": int(os.getenv("HUD_VOICE_WAKE_TONE_FREQ", "880")),
-        "voice_wake_tone_duration": int(os.getenv("HUD_VOICE_WAKE_TONE_DURATION", "150")),
+        "voice_startup_announcement": (
+            os.getenv("HUD_VOICE_STARTUP_ANNOUNCEMENT", "true").lower() == "true"
+        ),
+        "voice_deploy_announcement": (
+            os.getenv("HUD_VOICE_DEPLOY_ANNOUNCEMENT", "true").lower() == "true"
+        ),
         "voice_vad_enabled": os.getenv("HUD_VOICE_VAD_ENABLED", "true").lower() == "true",
         "vad_silence_threshold": int(os.getenv("HUD_VAD_SILENCE_THRESHOLD", "500")),
         "vad_silence_duration": float(os.getenv("HUD_VAD_SILENCE_DURATION", "1.5")),

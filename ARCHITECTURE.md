@@ -31,10 +31,10 @@ Consult this file before creating new files or modules. Update it as planned pac
 - Async playback methods (`play_async`, `stop_playback`, `is_playing`) are concrete with default fallbacks — override for real non-blocking playback
 
 **`src/voice_pipeline.py`** — Voice loop
-- `start_voice_pipeline(audio, stt, wake, router, tts, config, running) -> Thread`
-- Daemon thread: stream audio → detect wake word → play feedback tone → record (VAD or fixed) → transcribe → route (feature or LLM) → TTS → play (with barge-in support)
+- `start_voice_pipeline(audio, stt, wake, router, tts, config, running, wake_prompts) -> Thread`
+- Daemon thread: stream audio → detect wake word → play TTS prompt → record (VAD or fixed) → transcribe → route (feature or LLM) → TTS → play (with barge-in support)
 - Wake-word-triggered recording via continuous audio streaming
-- Optional wake feedback tone, VAD-based dynamic recording, barge-in interruption
+- Optional wake TTS prompts (via `PromptCache`), VAD-based dynamic recording, barge-in interruption
 - Per-cycle exception handling so one bad recording doesn't kill the pipeline
 
 **`src/wake/`** — Wake word detection
@@ -84,8 +84,11 @@ Consult this file before creating new files or modules. Update it as planned pac
 
 **`src/utils/`** — Shared helpers
 - `__init__.py`: Package marker
+- `phrases.py`: Phrase pool constants (`WAKE_PHRASES`, `STARTUP_PHRASES`, `DEPLOY_PHRASES`) and `pick_phrase(pool) -> str`
+- `prompt_cache.py`: `PromptCache` — pre-synthesizes phrases into PCM at construction for instant playback; `pick() -> bytes`
 - `tone.py`: `generate_tone(freq, duration_ms, sample_rate, volume) -> bytes` — sine wave PCM tone with fade-in/out
 - `vad.py`: `VoiceActivityDetector` — energy-based (RMS) voice activity detection for dynamic recording
+- `version.py`: `get_current_commit() -> str | None`, `is_new_deploy() -> bool` — deploy detection via git commit comparison
 - Common logic used by 2+ packages goes here
 - Do not duplicate helpers across packages — extract to utils instead
 

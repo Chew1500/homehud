@@ -118,6 +118,3 @@ jobs:
           sudo systemctl restart home-hud
           sleep 2
           sudo systemctl status home-hud --no-pager -l
-
-      - name: Deploy chime
-        run: aplay /opt/homehud/assets/deploy-chime.wav

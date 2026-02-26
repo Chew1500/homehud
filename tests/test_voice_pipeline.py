@@ -345,8 +345,8 @@ def test_pipeline_works_without_repeat_feature():
 # --- Phase 1: Wake feedback tests ---
 
 
-def test_pipeline_plays_tone_on_wake():
-    """Pipeline should play a tone after wake word detection when feedback is enabled."""
+def test_pipeline_plays_prompt_on_wake():
+    """Pipeline should play a TTS prompt after wake word detection when feedback is enabled."""
     audio = _make_audio()
     stt = MagicMock()
     stt.transcribe.return_value = "hello"
@@ -354,25 +354,30 @@ def test_pipeline_plays_tone_on_wake():
     router = _make_router()
     tts = _make_tts()
 
+    prompt_bytes = b"\x05\x00" * 100
+    wake_prompts = MagicMock()
+    wake_prompts.pick.return_value = prompt_bytes
+
     running = threading.Event()
     running.set()
 
     config = _make_config(wake_feedback=True)
-    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    thread = start_voice_pipeline(
+        audio, stt, wake, router, tts, config, running, wake_prompts=wake_prompts,
+    )
     time.sleep(0.3)
     running.clear()
     thread.join(timeout=3)
 
-    # play() should have been called at least twice: once for tone, once for TTS
+    # play() should have been called at least twice: once for prompt, once for TTS
     assert audio.play.call_count >= 2
-    # First play call should be the tone (short PCM data)
-    tone_data = audio.play.call_args_list[0][0][0]
-    assert isinstance(tone_data, bytes)
-    assert len(tone_data) > 0
+    # First play call should be the wake prompt
+    audio.play.assert_any_call(prompt_bytes)
+    wake_prompts.pick.assert_called()
 
 
-def test_pipeline_skips_tone_when_feedback_disabled():
-    """Pipeline should NOT play a tone when wake feedback is disabled."""
+def test_pipeline_skips_prompt_when_feedback_disabled():
+    """Pipeline should NOT play a prompt when wake feedback is disabled."""
     audio = _make_audio()
     stt = MagicMock()
     stt.transcribe.return_value = "hello"
@@ -393,12 +398,47 @@ def test_pipeline_skips_tone_when_feedback_disabled():
     running.set()
 
     config = _make_config(wake_feedback=False)
-    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    thread = start_voice_pipeline(
+        audio, stt, wake, router, tts, config, running, wake_prompts=None,
+    )
     time.sleep(0.3)
     running.clear()
     thread.join(timeout=3)
 
-    # play() should be called exactly once (for TTS), no tone
+    # play() should be called exactly once (for TTS), no prompt
+    assert audio.play.call_count == 1
+    audio.play.assert_called_with(speech_bytes)
+
+
+def test_pipeline_skips_prompt_when_no_wake_prompts():
+    """Pipeline should NOT play a prompt when wake_prompts is None even if feedback enabled."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.return_value = "hello"
+    wake = MagicMock()
+    wake_calls = {"n": 0}
+
+    def detect_once(chunk):
+        wake_calls["n"] += 1
+        return wake_calls["n"] == 1
+
+    wake.detect.side_effect = detect_once
+    router = _make_router("response")
+    speech_bytes = b"\x01\x00" * 16000
+    tts = _make_tts(speech=speech_bytes)
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(wake_feedback=True)
+    thread = start_voice_pipeline(
+        audio, stt, wake, router, tts, config, running, wake_prompts=None,
+    )
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    # play() should be called exactly once (for TTS), no prompt
     assert audio.play.call_count == 1
     audio.play.assert_called_with(speech_bytes)
 

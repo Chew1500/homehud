@@ -8,7 +8,6 @@ from audio.base import BaseAudio
 from intent.router import IntentRouter
 from speech.base import BaseSTT
 from speech.base_tts import BaseTTS
-from utils.tone import generate_tone
 from utils.vad import VoiceActivityDetector
 from wake.base import BaseWakeWord
 
@@ -24,6 +23,7 @@ def start_voice_pipeline(
     config: dict,
     running: threading.Event,
     repeat_feature=None,
+    wake_prompts=None,
 ) -> threading.Thread:
     """Start the voice pipeline in a daemon thread.
 
@@ -34,15 +34,7 @@ def start_voice_pipeline(
     """
     record_duration = config.get("voice_record_duration", 5)
 
-    # Pre-generate wake feedback tone
-    wake_feedback = config.get("voice_wake_feedback", True)
-    wake_tone = None
-    if wake_feedback:
-        wake_tone = generate_tone(
-            freq=config.get("voice_wake_tone_freq", 880),
-            duration_ms=config.get("voice_wake_tone_duration", 150),
-            sample_rate=audio.sample_rate,
-        )
+    wake_feedback = config.get("voice_wake_feedback", True) and wake_prompts is not None
 
     # VAD setup
     vad_enabled = config.get("voice_vad_enabled", True)
@@ -125,14 +117,14 @@ def start_voice_pipeline(
                         wake_detected = True
                         break  # stream's finally block frees the mic device
                 if wake_detected:
-                    if wake_tone is not None:
-                        audio.play(wake_tone)
+                    if wake_feedback:
+                        audio.play(wake_prompts.pick())
                     # Loop handles barge-in: _handle_command returns True
                     # when wake word interrupts playback, so we immediately
-                    # process the next command (with a new tone).
+                    # process the next command (with a new prompt).
                     while _handle_command():
-                        if wake_tone is not None:
-                            audio.play(wake_tone)
+                        if wake_feedback:
+                            audio.play(wake_prompts.pick())
                     wake.reset()
             except Exception:
                 consecutive_errors += 1

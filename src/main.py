@@ -127,6 +127,9 @@ def main():
             from intent import get_router
             from llm import get_llm
             from speech import get_stt, get_tts
+            from utils.phrases import DEPLOY_PHRASES, STARTUP_PHRASES, WAKE_PHRASES, pick_phrase
+            from utils.prompt_cache import PromptCache
+            from utils.version import is_new_deploy
             from voice_pipeline import start_voice_pipeline
             from wake import get_wake
 
@@ -135,6 +138,9 @@ def main():
             wake = get_wake(config)
             llm = get_llm(config)
             tts = get_tts(config)
+
+            # Pre-synthesize wake prompts for instant playback
+            wake_prompts = PromptCache(tts, WAKE_PHRASES, audio.sample_rate)
 
             repeat_feature = RepeatFeature(config)
 
@@ -160,8 +166,18 @@ def main():
             voice_thread = start_voice_pipeline(
                 audio, stt, wake, router, tts, config, running,
                 repeat_feature=repeat_feature,
+                wake_prompts=wake_prompts,
             )
             log.info("Voice pipeline enabled.")
+
+            # Startup / deploy announcements
+            try:
+                if config.get("voice_deploy_announcement", True) and is_new_deploy():
+                    audio.play(tts.synthesize(pick_phrase(DEPLOY_PHRASES)))
+                elif config.get("voice_startup_announcement", True):
+                    audio.play(tts.synthesize(pick_phrase(STARTUP_PHRASES)))
+            except Exception:
+                log.exception("Announcement playback failed (non-fatal)")
         except Exception:
             log.exception("Voice pipeline failed to start — running without voice")
 
