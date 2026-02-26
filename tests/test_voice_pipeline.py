@@ -63,6 +63,7 @@ def _make_router(response="Mock router response."):
     """Create a mock router that returns a fixed response."""
     router = MagicMock()
     router.route.return_value = response
+    router.expects_follow_up = False
     return router
 
 
@@ -563,3 +564,137 @@ def test_pipeline_stops_playback_on_bargein():
     thread.join(timeout=3)
 
     audio.stop_playback.assert_called()
+
+
+# --- Phase 4: Follow-up mode tests ---
+
+
+def test_pipeline_follow_up_loops_without_wake_word():
+    """When router.expects_follow_up is True, pipeline should loop
+    back to record another command without waiting for wake word."""
+    audio = _make_audio()
+    stt = MagicMock()
+    # First transcription triggers a feature that wants follow-up,
+    # second transcription confirms, third is empty (exits loop)
+    stt.transcribe.side_effect = ["track batman", "yes", ""]
+    wake = _make_wake(trigger_on_chunk=1)
+    router = MagicMock()
+    # First call: router.expects_follow_up True, second: False
+    follow_up_values = [True, False, False]
+    follow_up_iter = iter(follow_up_values)
+    type(router).expects_follow_up = property(lambda self: next(follow_up_iter, False))
+    router.route.side_effect = [
+        "I found 7 results. Can you tell me the year?",
+        "Done! Added The Batman to your movies.",
+        "",
+    ]
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.5)
+    running.clear()
+    thread.join(timeout=3)
+
+    # Router should have been called at least twice (follow-up looped)
+    assert router.route.call_count >= 2
+    router.route.assert_any_call("track batman")
+    router.route.assert_any_call("yes")
+
+
+def test_pipeline_follow_up_with_wake_feedback():
+    """When follow-up is active with wake feedback, a prompt should play
+    between follow-up turns."""
+    audio = _make_audio()
+    stt = MagicMock()
+    stt.transcribe.side_effect = ["track batman", "2022", ""]
+    wake = _make_wake(trigger_on_chunk=1)
+    router = MagicMock()
+    follow_up_values = [True, False, False]
+    follow_up_iter = iter(follow_up_values)
+    type(router).expects_follow_up = property(lambda self: next(follow_up_iter, False))
+    router.route.side_effect = [
+        "I found 7 results.",
+        "Done!",
+        "",
+    ]
+    tts = _make_tts()
+
+    prompt_bytes = b"\x05\x00" * 100
+    wake_prompts = MagicMock()
+    wake_prompts.pick.return_value = prompt_bytes
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False, wake_feedback=True)
+    thread = start_voice_pipeline(
+        audio, stt, wake, router, tts, config, running, wake_prompts=wake_prompts,
+    )
+    time.sleep(0.5)
+    running.clear()
+    thread.join(timeout=3)
+
+    # Should have played prompts: once for initial wake + once for follow-up
+    assert wake_prompts.pick.call_count >= 2
+
+
+def test_pipeline_follow_up_empty_transcription_exits():
+    """If user stays silent during follow-up, empty transcription should
+    exit the command loop (no infinite loop)."""
+    audio = _make_audio()
+    stt = MagicMock()
+    # First transcription triggers follow-up, second is empty
+    stt.transcribe.side_effect = ["track batman", ""]
+    wake = _make_wake(trigger_on_chunk=1)
+    router = MagicMock()
+    type(router).expects_follow_up = property(lambda self: True)
+    router.route.return_value = "I found 7 results."
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.5)
+    running.clear()
+    thread.join(timeout=3)
+
+    # Router should only be called once (second transcription was empty)
+    assert router.route.call_count == 1
+
+
+def test_pipeline_follow_up_with_bargein():
+    """Follow-up should also work when barge-in is enabled but no barge-in occurs."""
+    audio = _make_audio()
+    audio.is_playing.return_value = False  # Playback ends immediately
+    stt = MagicMock()
+    stt.transcribe.side_effect = ["track batman", "yes", ""]
+    wake = _make_wake(trigger_on_chunk=1)
+    router = MagicMock()
+    follow_up_values = [True, False, False]
+    follow_up_iter = iter(follow_up_values)
+    type(router).expects_follow_up = property(lambda self: next(follow_up_iter, False))
+    router.route.side_effect = [
+        "I found 7 results.",
+        "Done!",
+        "",
+    ]
+    speech_bytes = b"\x01\x00" * 16000
+    tts = _make_tts(speech=speech_bytes)
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=True)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.5)
+    running.clear()
+    thread.join(timeout=3)
+
+    # Router should have been called at least twice
+    assert router.route.call_count >= 2

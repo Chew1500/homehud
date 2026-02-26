@@ -92,9 +92,10 @@ def start_voice_pipeline(
                             break  # close stream before recursing
                     if not bargein:
                         wake.reset()
-                    return bargein
+                    return bargein or router.expects_follow_up
                 else:
                     audio.play(speech)
+                    return router.expects_follow_up
             except Exception:
                 log.exception("TTS error (non-fatal)")
         except Exception:

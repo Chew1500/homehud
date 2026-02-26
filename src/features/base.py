@@ -54,6 +54,16 @@ class BaseFeature(ABC):
         """
         return ""
 
+    @property
+    def expects_follow_up(self) -> bool:
+        """Whether this feature expects an immediate follow-up response.
+
+        When True, the voice pipeline stays in the command loop instead of
+        returning to wake word listening. Override in subclasses that have
+        multi-turn flows (e.g., disambiguation).
+        """
+        return False
+
     def close(self) -> None:
         """Clean up resources. Override if needed."""
         pass

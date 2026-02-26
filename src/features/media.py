@@ -18,6 +18,16 @@ _CANCEL = re.compile(
     r"\b(cancel|never\s*mind|forget\s*it|stop|quit|done)\b", re.IGNORECASE
 )
 
+# -- Refining patterns (used during refining phase) --
+_REFINE_YEAR = re.compile(r"\b((?:19|20)\d{2})\b")
+_REFINE_MOVIE = re.compile(r"\b(movie|film)\b", re.IGNORECASE)
+_REFINE_SHOW = re.compile(r"\b(show|series|tv)\b", re.IGNORECASE)
+_REFINE_RECENT = re.compile(r"\b(new|newest|latest|recent)\b", re.IGNORECASE)
+_REFINE_ANY = re.compile(
+    r"\b((?:19|20)\d{2}|movie|film|show|series|tv|new|newest|latest|recent)\b",
+    re.IGNORECASE,
+)
+
 # -- Command patterns --
 
 # List: "what movies do I have", "what shows am I tracking", "list my movies"
@@ -71,6 +81,12 @@ _ANY_MEDIA = re.compile(
     re.IGNORECASE,
 )
 
+# Union of all new-command patterns (for detecting new commands during refining)
+_NEW_COMMAND_PATTERNS = [
+    _LIST_MOVIES, _LIST_SHOWS, _CHECK,
+    _TRACK_MOVIE, _TRACK_SHOW, _TRACK_TO_MOVIES, _TRACK_TO_SHOWS, _TRACK_GENERIC,
+]
+
 
 class MediaFeature(BaseFeature):
     """Voice-controlled media library management via Sonarr and Radarr.
@@ -92,7 +108,10 @@ class MediaFeature(BaseFeature):
         self._ttl = config.get("media_disambiguation_ttl", 60)
 
         # Disambiguation state
-        self._pending: dict | None = None  # {type, results, index, timestamp}
+        # {results, index, phase, timestamp}
+        # phase: "confirming" (one-by-one) or "refining" (summary + filter)
+        # Each result has a "media_type" key ("movie" or "show").
+        self._pending: dict | None = None
 
     @property
     def name(self) -> str:
@@ -117,23 +136,56 @@ class MediaFeature(BaseFeature):
             '"add Severance to my shows", "download Dune".'
         )
 
+    @property
+    def expects_follow_up(self) -> bool:
+        return self._pending is not None and not self._is_expired()
+
     def matches(self, text: str) -> bool:
-        # Fast path: active disambiguation captures yes/no/next/cancel
+        # Fast path: active disambiguation captures yes/no/next/cancel/refinements
         if self._pending and not self._is_expired():
-            if _YES.search(text) or _NO_NEXT.search(text) or _CANCEL.search(text):
-                return True
+            phase = self._pending.get("phase", "confirming")
+            if phase == "confirming":
+                if _YES.search(text) or _NO_NEXT.search(text) or _CANCEL.search(text):
+                    return True
+            elif phase == "refining":
+                if _REFINE_ANY.search(text) or _CANCEL.search(text) or _YES.search(text):
+                    return True
+                # Also match new commands so handle() can intercept them
+                for pat in _NEW_COMMAND_PATTERNS:
+                    if pat.search(text):
+                        return True
 
         return bool(_ANY_MEDIA.search(text))
 
     def handle(self, text: str) -> str:
         # Disambiguation flow takes priority
         if self._pending and not self._is_expired():
-            if _YES.search(text):
-                return self._confirm_pending()
-            if _NO_NEXT.search(text):
-                return self._next_pending()
-            if _CANCEL.search(text):
-                return self._cancel_pending()
+            phase = self._pending.get("phase", "confirming")
+
+            if phase == "confirming":
+                if _YES.search(text):
+                    return self._confirm_pending()
+                if _NO_NEXT.search(text):
+                    return self._next_pending()
+                if _CANCEL.search(text):
+                    return self._cancel_pending()
+            elif phase == "refining":
+                if _CANCEL.search(text):
+                    return self._cancel_pending()
+                # Check for new commands — clear pending and fall through
+                for pat in _NEW_COMMAND_PATTERNS:
+                    if pat.search(text):
+                        self._pending = None
+                        break
+                else:
+                    # Not a new command — handle as refinement
+                    if _YES.search(text):
+                        # "yes" in refining = switch to confirming
+                        self._pending["phase"] = "confirming"
+                        self._pending["index"] = 0
+                        self._pending["timestamp"] = time.time()
+                        return self._describe_current_with_skip()
+                    return self._apply_refinement(text)
 
         # Expire stale pending state
         if self._pending and self._is_expired():
@@ -170,6 +222,7 @@ class MediaFeature(BaseFeature):
     # -- List handlers --
 
     def _list_movies(self) -> str:
+        self._pending = None
         if not self._radarr:
             return "Movie tracking isn't configured."
         movies = self._radarr.get_movies()
@@ -179,6 +232,7 @@ class MediaFeature(BaseFeature):
         return self._format_title_list(titles, "movie", "movies")
 
     def _list_shows(self) -> str:
+        self._pending = None
         if not self._sonarr:
             return "TV show tracking isn't configured."
         shows = self._sonarr.get_series()
@@ -204,6 +258,7 @@ class MediaFeature(BaseFeature):
     # -- Check handler --
 
     def _check_title(self, title: str) -> str:
+        self._pending = None
         found = []
         if self._radarr:
             movies = self._radarr.get_movies()
@@ -226,61 +281,99 @@ class MediaFeature(BaseFeature):
     # -- Track handlers --
 
     def _track_movie(self, title: str) -> str:
+        self._pending = None
         if not self._radarr:
             return "Movie tracking isn't configured. Set up Radarr to enable it."
         results = self._radarr.search_movie(title)
         if not results:
             return f"I couldn't find any movies matching {title}."
-        return self._start_disambiguation("movie", results)
+        for r in results:
+            r["media_type"] = "movie"
+        return self._start_disambiguation(results)
 
     def _track_show(self, title: str) -> str:
+        self._pending = None
         if not self._sonarr:
             return "TV show tracking isn't configured. Set up Sonarr to enable it."
         results = self._sonarr.search_series(title)
         if not results:
             return f"I couldn't find any shows matching {title}."
-        return self._start_disambiguation("show", results)
+        for r in results:
+            r["media_type"] = "show"
+        return self._start_disambiguation(results)
 
     def _track_generic(self, title: str) -> str:
-        # Try movies first, then shows
+        self._pending = None
+        all_results = []
         if self._radarr:
-            results = self._radarr.search_movie(title)
-            if results:
-                return self._start_disambiguation("movie", results)
+            movies = self._radarr.search_movie(title)
+            for r in movies:
+                r["media_type"] = "movie"
+            all_results.extend(movies)
         if self._sonarr:
-            results = self._sonarr.search_series(title)
-            if results:
-                return self._start_disambiguation("show", results)
+            shows = self._sonarr.search_series(title)
+            for r in shows:
+                r["media_type"] = "show"
+            all_results.extend(shows)
         if not self._radarr and not self._sonarr:
             return "Media tracking isn't configured."
-        return f"I couldn't find anything matching {title}."
+        if not all_results:
+            return f"I couldn't find anything matching {title}."
+        return self._start_disambiguation(all_results)
 
     # -- Disambiguation --
 
-    def _start_disambiguation(self, media_type: str, results: list[dict]) -> str:
-        """Begin disambiguation flow with search results."""
-        first = results[0]
-        id_key = "tmdbId" if media_type == "movie" else "tvdbId"
+    def _start_disambiguation(self, results: list[dict]) -> str:
+        """Begin disambiguation flow with tagged search results."""
+        if len(results) >= 4:
+            # Many results — enter refining phase
+            self._pending = {
+                "results": results,
+                "index": 0,
+                "phase": "refining",
+                "timestamp": time.time(),
+            }
+            return self._describe_refining_summary()
 
-        # Check if already tracked
-        if media_type == "movie" and self._radarr:
-            if self._radarr.is_movie_tracked(first[id_key]):
+        # Few results — check if first is already tracked, then confirm one-by-one
+        first = results[0]
+        if self._is_result_tracked(first):
+            if len(results) == 1:
                 return (
                     f"You're already tracking {first['title']} from {first['year']}."
                 )
-        elif media_type == "show" and self._sonarr:
-            if self._sonarr.is_series_tracked(first[id_key]):
-                return (
-                    f"You're already tracking {first['title']} from {first['year']}."
-                )
+            # Skip tracked results at the front
+            for i, r in enumerate(results):
+                if not self._is_result_tracked(r):
+                    self._pending = {
+                        "results": results,
+                        "index": i,
+                        "phase": "confirming",
+                        "timestamp": time.time(),
+                    }
+                    already = f"You're already tracking {first['title']} from {first['year']}."
+                    return already + " " + self._describe_current()
+            # All tracked
+            return (
+                f"You're already tracking {first['title']} from {first['year']}."
+            )
 
         self._pending = {
-            "type": media_type,
             "results": results,
             "index": 0,
+            "phase": "confirming",
             "timestamp": time.time(),
         }
         return self._describe_current()
+
+    def _is_result_tracked(self, result: dict) -> bool:
+        """Check if a single result is already tracked."""
+        media_type = result["media_type"]
+        if media_type == "movie" and self._radarr:
+            return self._radarr.is_movie_tracked(result["tmdbId"])
+        if media_type == "show" and self._sonarr:
+            return self._sonarr.is_series_tracked(result["tvdbId"])
+        return False
 
     def _describe_current(self) -> str:
         """Describe the current disambiguation candidate."""
@@ -298,10 +391,20 @@ class MediaFeature(BaseFeature):
         desc += " Should I add this one?"
         return desc
 
+    def _describe_current_with_skip(self) -> str:
+        """Describe current candidate, auto-skipping any that are tracked."""
+        while self._pending["index"] < len(self._pending["results"]):
+            result = self._pending["results"][self._pending["index"]]
+            if not self._is_result_tracked(result):
+                return self._describe_current()
+            self._pending["index"] += 1
+        self._pending = None
+        return "All of those are already tracked."
+
     def _confirm_pending(self) -> str:
         """User confirmed the current candidate — add it."""
         result = self._pending["results"][self._pending["index"]]
-        media_type = self._pending["type"]
+        media_type = result["media_type"]
         self._pending = None
 
         if media_type == "movie" and self._radarr:
@@ -330,28 +433,15 @@ class MediaFeature(BaseFeature):
                 "You can try searching again with different words."
             )
 
-        # Check if next result is already tracked
+        # Check if next result is already tracked — auto-advance
         result = self._pending["results"][self._pending["index"]]
-        media_type = self._pending["type"]
-        id_key = "tmdbId" if media_type == "movie" else "tvdbId"
-
-        if media_type == "movie" and self._radarr:
-            if self._radarr.is_movie_tracked(result[id_key]):
-                already = f"You're already tracking {result['title']} from {result['year']}."
-                # Auto-advance to next
-                self._pending["index"] += 1
-                if self._pending["index"] >= len(self._pending["results"]):
-                    self._pending = None
-                    return already + " That's all the results."
-                return already + " " + self._describe_current()
-        elif media_type == "show" and self._sonarr:
-            if self._sonarr.is_series_tracked(result[id_key]):
-                already = f"You're already tracking {result['title']} from {result['year']}."
-                self._pending["index"] += 1
-                if self._pending["index"] >= len(self._pending["results"]):
-                    self._pending = None
-                    return already + " That's all the results."
-                return already + " " + self._describe_current()
+        if self._is_result_tracked(result):
+            already = f"You're already tracking {result['title']} from {result['year']}."
+            self._pending["index"] += 1
+            if self._pending["index"] >= len(self._pending["results"]):
+                self._pending = None
+                return already + " That's all the results."
+            return already + " " + self._describe_current()
 
         return self._describe_current()
 
@@ -365,6 +455,94 @@ class MediaFeature(BaseFeature):
         if not self._pending:
             return True
         return (time.time() - self._pending["timestamp"]) > self._ttl
+
+    # -- Refining phase --
+
+    def _describe_refining_summary(self) -> str:
+        """Generate a summary prompt for the refining phase."""
+        results = self._pending["results"]
+        total = len(results)
+        movies = [r for r in results if r["media_type"] == "movie"]
+        shows = [r for r in results if r["media_type"] == "show"]
+        years = sorted({r["year"] for r in results})
+
+        parts = []
+        if movies and shows:
+            parts.append(f"{len(movies)} movie{'s' if len(movies) != 1 else ''}")
+            parts.append(f"{len(shows)} show{'s' if len(shows) != 1 else ''}")
+            type_desc = " and ".join(parts)
+            summary = f"I found {total} results — {type_desc}"
+        elif movies:
+            summary = f"I found {total} movies"
+        else:
+            summary = f"I found {total} shows"
+
+        if len(years) >= 2:
+            summary += f", from {years[0]} to {years[-1]}"
+        summary += "."
+
+        hints = []
+        if len(years) >= 2:
+            hints.append("the year")
+        if movies and shows:
+            hints.append("whether it's a movie or a show")
+        if not hints:
+            hints.append("the year or say 'the newest one'")
+
+        summary += " Can you tell me " + ", or ".join(hints) + "?"
+        return summary
+
+    def _apply_refinement(self, text: str) -> str:
+        """Parse refinement input and filter results."""
+        results = self._pending["results"]
+        filtered = list(results)
+
+        # Year filter
+        m = _REFINE_YEAR.search(text)
+        if m:
+            year = int(m.group(1))
+            filtered = [r for r in filtered if r["year"] == year]
+
+        # Type filter
+        if _REFINE_MOVIE.search(text):
+            filtered = [r for r in filtered if r["media_type"] == "movie"]
+        elif _REFINE_SHOW.search(text):
+            filtered = [r for r in filtered if r["media_type"] == "show"]
+
+        # Recency filter
+        if _REFINE_RECENT.search(text):
+            filtered.sort(key=lambda r: r["year"], reverse=True)
+            filtered = filtered[:3]
+
+        if not filtered:
+            self._pending = None
+            return "None of my results match that."
+
+        # Update pending with filtered results
+        self._pending["results"] = filtered
+        self._pending["index"] = 0
+        self._pending["timestamp"] = time.time()
+
+        if len(filtered) == 1:
+            # Single result — check tracked, then confirm
+            if self._is_result_tracked(filtered[0]):
+                self._pending = None
+                return (
+                    f"You're already tracking {filtered[0]['title']} "
+                    f"from {filtered[0]['year']}."
+                )
+            self._pending["phase"] = "confirming"
+            return self._describe_current()
+
+        if len(filtered) <= 3:
+            self._pending["phase"] = "confirming"
+            return self._describe_current_with_skip()
+
+        # Still too many
+        return (
+            f"Still {len(filtered)} results. "
+            "Try being more specific — a year, or movie vs show."
+        )
 
     # -- Status --
 

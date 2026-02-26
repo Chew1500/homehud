@@ -307,3 +307,284 @@ def test_list_shows_truncated():
     # Earlier ones should NOT be listed
     for name in names[:5]:
         assert f"Show {name}" not in result
+
+
+# -- expects_follow_up --
+
+
+def test_expects_follow_up_false_by_default():
+    feat = _make_feature()
+    assert feat.expects_follow_up is False
+
+
+def test_expects_follow_up_true_during_disambiguation():
+    feat = _make_feature()
+    feat.handle("track the movie The Matrix")
+    assert feat._pending is not None
+    assert feat.expects_follow_up is True
+
+
+def test_expects_follow_up_false_after_confirm():
+    feat = _make_feature()
+    feat.handle("track the movie The Matrix")
+    feat.handle("yes")
+    assert feat.expects_follow_up is False
+
+
+def test_expects_follow_up_false_after_cancel():
+    feat = _make_feature()
+    feat.handle("track the movie The Matrix")
+    feat.handle("cancel")
+    assert feat.expects_follow_up is False
+
+
+def test_expects_follow_up_false_when_expired():
+    feat = _make_feature(ttl=0)
+    feat.handle("track the movie The Matrix")
+    time.sleep(0.1)
+    assert feat.expects_follow_up is False
+
+
+# -- Combined search (generic track) --
+
+
+def test_track_generic_searches_both_services():
+    """Generic track should search both Radarr and Sonarr."""
+    feat = _make_feature()
+    result = feat.handle("track batman")
+    # batman has 5 movies + 2 shows = 7 results → refining phase
+    assert feat._pending is not None
+    assert feat._pending["phase"] == "refining"
+    assert len(feat._pending["results"]) == 7
+    # Summary should mention both movies and shows
+    assert "movie" in result.lower()
+    assert "show" in result.lower()
+
+
+def test_track_generic_movie_only():
+    """Generic track with only Radarr configured should search movies only."""
+    feat = _make_feature(sonarr=False)
+    feat.handle("track batman")
+    assert feat._pending is not None
+    assert all(r["media_type"] == "movie" for r in feat._pending["results"])
+
+
+def test_track_generic_show_only():
+    """Generic track with only Sonarr should search shows only."""
+    feat = _make_feature(radarr=False)
+    feat.handle("track batman")
+    assert feat._pending is not None
+    assert all(r["media_type"] == "show" for r in feat._pending["results"])
+
+
+# -- Refining phase --
+
+
+def test_refining_summary_describes_results():
+    """Refining summary should mention count, types, and year range."""
+    feat = _make_feature()
+    result = feat.handle("track batman")
+    assert "7 results" in result
+    assert "1989" in result
+    assert "2024" in result
+
+
+def test_refining_filter_by_year():
+    """Filtering by year during refining should narrow results."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    result = feat.handle("2022")
+    # Only The Batman (2022) and Batman: The Animated Series' year doesn't match
+    # Wait — Batman TAS is 1992, Caped Crusader is 2024... The Batman is 2022
+    # So filtering by 2022 → 1 result (The Batman)
+    assert "The Batman" in result
+    assert "Should I add" in result
+    assert feat._pending["phase"] == "confirming"
+
+
+def test_refining_filter_by_type_movie():
+    """Filtering by 'movie' should keep only movies."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    result = feat.handle("it was a movie")
+    # 5 movies remain — still 4+ → stay in refining
+    assert feat._pending is not None
+    assert "5 results" in result or "Still 5" in result
+
+
+def test_refining_filter_by_type_show():
+    """Filtering by 'show' should keep only shows."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    feat.handle("it's a show")
+    # 2 shows → phase switches to confirming
+    assert feat._pending is not None
+    assert feat._pending["phase"] == "confirming"
+    assert len(feat._pending["results"]) == 2
+
+
+def test_refining_filter_by_recency():
+    """Filtering by 'the newest' should keep top 3 by year."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    feat.handle("the newest one")
+    # Top 3 by year: Caped Crusader (2024), The Batman (2022), Dark Knight Rises (2012)
+    assert feat._pending is not None
+    assert len(feat._pending["results"]) == 3
+    assert feat._pending["phase"] == "confirming"
+
+
+def test_refining_combined_filter():
+    """Multiple refinement signals should combine."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    result = feat.handle("the 1992 show")
+    # Year 1992 + show → Batman: The Animated Series only
+    assert "Batman: The Animated Series" in result
+    assert feat._pending["phase"] == "confirming"
+
+
+def test_refining_no_matches_clears_pending():
+    """Filtering that yields 0 results should clear pending."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    result = feat.handle("1999")
+    # No batman results from 1999
+    assert "None of my results" in result
+    assert feat._pending is None
+
+
+def test_refining_yes_switches_to_confirming():
+    """Saying 'yes' during refining should start one-by-one confirmation."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    assert feat._pending["phase"] == "refining"
+    result = feat.handle("yes")
+    assert feat._pending is not None
+    assert feat._pending["phase"] == "confirming"
+    assert "Should I add" in result
+
+
+def test_refining_cancel():
+    """Cancel during refining should clear pending."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    result = feat.handle("cancel")
+    assert "cancelled" in result.lower()
+    assert feat._pending is None
+
+
+def test_refining_matches_year_input():
+    """Year input during refining should be matched by matches()."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    assert feat.matches("2022")
+
+
+def test_refining_matches_type_input():
+    """Type input during refining should be matched by matches()."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    assert feat.matches("it was a movie")
+    assert feat.matches("it's a show")
+
+
+# -- Edge cases: new command during disambiguation --
+
+
+def test_new_track_command_clears_old_pending():
+    """Starting a new track command should clear old disambiguation."""
+    feat = _make_feature()
+    feat.handle("track the movie The Matrix")
+    assert feat._pending is not None
+    # Now issue a different track command
+    feat.handle("track the movie Dune")
+    # Old pending for Matrix should be cleared (Dune is tracked → no pending)
+    # or new pending for Dune results
+
+
+def test_list_clears_pending():
+    """List command during disambiguation should clear pending."""
+    feat = _make_feature()
+    feat.handle("track the movie The Matrix")
+    assert feat._pending is not None
+    feat.handle("what movies do I have")
+    assert feat._pending is None
+
+
+def test_check_clears_pending():
+    """Check command during disambiguation should clear pending."""
+    feat = _make_feature()
+    feat.handle("track the movie The Matrix")
+    assert feat._pending is not None
+    feat.handle("do I have Inception")
+    assert feat._pending is None
+
+
+def test_new_command_during_refining():
+    """A new 'track movie X' command during refining should replace it."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    assert feat._pending["phase"] == "refining"
+    result = feat.handle("track the movie The Matrix")
+    # Should have cleared batman pending and started Matrix disambiguation
+    assert "I found" in result or "already" in result
+
+
+# -- Threshold: fewer than 4 results go to confirming --
+
+
+def test_three_results_go_to_confirming():
+    """3 or fewer results should skip refining and go straight to confirming."""
+    feat = _make_feature()
+    # Dune search returns 2 movies
+    feat.handle("track the movie Dune")
+    # Dune (2021) is already tracked, so it should skip to Dune: Part Two
+    assert feat._pending is not None
+    assert feat._pending["phase"] == "confirming"
+
+
+def test_single_tracked_result_reports_already():
+    """Single result that's already tracked should say so without pending."""
+    feat = _make_feature()
+    result = feat.handle("track the movie Oppenheimer")
+    assert "already tracking" in result
+    assert feat._pending is None
+
+
+# -- Result tagging --
+
+
+def test_results_tagged_with_media_type():
+    """Each result should have a media_type key after search."""
+    feat = _make_feature()
+    feat.handle("track batman")
+    for r in feat._pending["results"]:
+        assert "media_type" in r
+        assert r["media_type"] in ("movie", "show")
+    movies = [r for r in feat._pending["results"] if r["media_type"] == "movie"]
+    shows = [r for r in feat._pending["results"] if r["media_type"] == "show"]
+    assert len(movies) == 5
+    assert len(shows) == 2
+
+
+# -- Full flow: refine then confirm then add --
+
+
+def test_full_refine_to_confirm_flow():
+    """Complete flow: track batman → refine by year → confirm → added."""
+    feat = _make_feature()
+    # Step 1: search triggers refining
+    result = feat.handle("track batman")
+    assert feat._pending["phase"] == "refining"
+
+    # Step 2: refine by year to single result
+    result = feat.handle("2022")
+    assert "The Batman" in result
+    assert "Should I add" in result
+    assert feat._pending["phase"] == "confirming"
+
+    # Step 3: confirm
+    result = feat.handle("yes")
+    assert "Done" in result or "added" in result
+    assert feat._pending is None

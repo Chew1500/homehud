@@ -45,6 +45,21 @@ _CANNED_SEARCH = {
             "to run his family's sandwich shop.",
         },
     ],
+    "batman": [
+        {
+            "tvdbId": 76168,
+            "title": "Batman: The Animated Series",
+            "year": 1992,
+            "overview": "The Dark Knight battles crime in Gotham City with the "
+            "help of Robin and Batgirl.",
+        },
+        {
+            "tvdbId": 403172,
+            "title": "Batman: Caped Crusader",
+            "year": 2024,
+            "overview": "An all-new animated series following the Dark Knight.",
+        },
+    ],
 }
 
 

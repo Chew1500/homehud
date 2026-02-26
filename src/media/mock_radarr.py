@@ -53,6 +53,44 @@ _CANNED_SEARCH = {
             "and his role in the development of the atomic bomb.",
         },
     ],
+    "batman": [
+        {
+            "tmdbId": 272,
+            "title": "Batman Begins",
+            "year": 2005,
+            "overview": "Driven by tragedy, billionaire Bruce Wayne dedicates "
+            "his life to uncovering and defeating the corruption that plagues "
+            "Gotham City.",
+        },
+        {
+            "tmdbId": 155,
+            "title": "The Dark Knight",
+            "year": 2008,
+            "overview": "Batman raises the stakes in his war on crime.",
+        },
+        {
+            "tmdbId": 49026,
+            "title": "The Dark Knight Rises",
+            "year": 2012,
+            "overview": "Eight years after the Joker's reign of chaos, Batman "
+            "is forced to return from his imposed exile.",
+        },
+        {
+            "tmdbId": 414906,
+            "title": "The Batman",
+            "year": 2022,
+            "overview": "In his second year of fighting crime, Batman uncovers "
+            "corruption in Gotham City.",
+        },
+        {
+            "tmdbId": 142061,
+            "title": "Batman",
+            "year": 1989,
+            "overview": "Batman must face his most ruthless nemesis when a "
+            "deformed madman calling himself The Joker seizes control of "
+            "Gotham's criminal underworld.",
+        },
+    ],
 }
 
 

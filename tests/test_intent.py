@@ -171,3 +171,43 @@ def test_recovery_skipped_when_no_descriptions():
 
     assert result == "LLM answer"
     llm.classify_intent.assert_not_called()
+
+
+# --- Follow-up mode tests ---
+
+
+def test_expects_follow_up_false_by_default():
+    """Router should report no follow-up when no feature has been matched."""
+    llm = _make_llm()
+    router = IntentRouter({}, [], llm)
+    assert router.expects_follow_up is False
+
+
+def test_expects_follow_up_delegates_to_feature():
+    """Router should delegate expects_follow_up to the last matched feature."""
+    feat = _make_feature(matches=True)
+    feat.expects_follow_up = True
+    llm = _make_llm()
+    router = IntentRouter({}, [feat], llm)
+
+    router.route("test")
+
+    assert router.expects_follow_up is True
+
+
+def test_expects_follow_up_cleared_on_llm_fallback():
+    """LLM fallback should clear _last_feature, making expects_follow_up False."""
+    feat = _make_feature(matches=True)
+    feat.expects_follow_up = True
+    llm = _make_llm()
+    router = IntentRouter({}, [feat], llm)
+
+    # First route matches feature
+    router.route("test")
+    assert router.expects_follow_up is True
+
+    # Second route falls through to LLM
+    feat.matches.return_value = False
+    llm.classify_intent.return_value = None
+    router.route("what is the weather")
+    assert router.expects_follow_up is False

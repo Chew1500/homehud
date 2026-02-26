@@ -24,16 +24,25 @@ class IntentRouter:
         self._llm = llm
         self._recovery_enabled = config.get("intent_recovery_enabled", True)
         self._feature_descriptions = self._collect_descriptions()
+        self._last_feature: BaseFeature | None = None
 
     def _collect_descriptions(self) -> list[str]:
         """Gather non-empty descriptions from all features."""
         return [f.description for f in self._features if f.description]
+
+    @property
+    def expects_follow_up(self) -> bool:
+        """Whether the last matched feature expects an immediate follow-up."""
+        if self._last_feature is None:
+            return False
+        return self._last_feature.expects_follow_up
 
     def _try_features(self, text: str) -> str | None:
         """Try matching text against features. Returns response or None."""
         for feature in self._features:
             if feature.matches(text):
                 log.info("Matched feature: %s", feature.__class__.__name__)
+                self._last_feature = feature
                 return feature.handle(text)
         return None
 
@@ -61,6 +70,7 @@ class IntentRouter:
 
         # 3. LLM fallback
         log.info("No feature matched, falling back to LLM")
+        self._last_feature = None
         return self._llm.respond(text)
 
     def close(self) -> None:
