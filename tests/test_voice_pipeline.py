@@ -605,15 +605,30 @@ def test_pipeline_follow_up_loops_without_wake_word():
     router.route.assert_any_call("yes")
 
 
-def test_pipeline_follow_up_with_wake_feedback():
-    """When follow-up is active with wake feedback, a prompt should play
-    between follow-up turns."""
+def test_pipeline_follow_up_suppresses_wake_prompt():
+    """When follow-up is active with wake feedback, the wake prompt should
+    NOT play between follow-up turns (the bot's question is the indicator)."""
     audio = _make_audio()
     stt = MagicMock()
     stt.transcribe.side_effect = ["track batman", "2022", ""]
-    wake = _make_wake(trigger_on_chunk=1)
+
+    # Wake triggers exactly once
+    wake = MagicMock()
+    wake_calls = {"n": 0}
+
+    def detect_once(chunk):
+        wake_calls["n"] += 1
+        return wake_calls["n"] == 1
+
+    wake.detect.side_effect = detect_once
+
     router = MagicMock()
-    follow_up_values = [True, False, False]
+    # expects_follow_up is read at two points: once in _handle_command (return)
+    # and once in the loop (prompt decision). Values must cover all reads:
+    #   read 1 (after route #1 return): True  → loop continues
+    #   read 2 (loop prompt check):     True  → prompt suppressed
+    #   read 3 (after route #2 return): False → loop exits
+    follow_up_values = [True, True, False]
     follow_up_iter = iter(follow_up_values)
     type(router).expects_follow_up = property(lambda self: next(follow_up_iter, False))
     router.route.side_effect = [
@@ -638,8 +653,9 @@ def test_pipeline_follow_up_with_wake_feedback():
     running.clear()
     thread.join(timeout=3)
 
-    # Should have played prompts: once for initial wake + once for follow-up
-    assert wake_prompts.pick.call_count >= 2
+    # Prompt should play only once: for the initial wake word detection.
+    # Follow-up turns should NOT get a wake prompt.
+    assert wake_prompts.pick.call_count == 1
 
 
 def test_pipeline_follow_up_empty_transcription_exits():
@@ -698,3 +714,42 @@ def test_pipeline_follow_up_with_bargein():
 
     # Router should have been called at least twice
     assert router.route.call_count >= 2
+
+
+def test_pipeline_follow_up_max_iterations(caplog):
+    """Pipeline should break out of follow-up loop after MAX_FOLLOW_UPS iterations."""
+    audio = _make_audio()
+    stt = MagicMock()
+    # Always return valid text so _handle_command never exits via empty transcription
+    stt.transcribe.return_value = "yes"
+
+    # Wake triggers exactly once so the outer loop doesn't restart
+    wake = MagicMock()
+    wake_calls = {"n": 0}
+
+    def detect_once(chunk):
+        wake_calls["n"] += 1
+        return wake_calls["n"] == 1
+
+    wake.detect.side_effect = detect_once
+
+    router = MagicMock()
+    # Router always expects follow-up (would loop forever without cap)
+    type(router).expects_follow_up = property(lambda self: True)
+    router.route.return_value = "Still going..."
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False)
+    with caplog.at_level(logging.WARNING, logger="home-hud.voice"):
+        thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+        time.sleep(1.0)
+        running.clear()
+        thread.join(timeout=3)
+
+    # Should have hit the max iterations cap:
+    # 1 initial _handle_command + 9 more before follow_ups reaches 10 = 10 total
+    assert router.route.call_count == 10
+    assert any("Max follow-up iterations" in record.message for record in caplog.records)

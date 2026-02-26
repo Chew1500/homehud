@@ -78,24 +78,34 @@ def start_voice_pipeline(
                     # Skip initial chunks to avoid speaker-to-mic feedback.
                     bargein = False
                     chunks_heard = 0
-                    for chunk in audio.stream():
-                        if not audio.is_playing():
-                            break
-                        chunks_heard += 1
-                        if chunks_heard <= BARGEIN_DEBOUNCE_CHUNKS:
-                            continue
-                        if wake.detect(chunk):
-                            log.info("Barge-in detected, stopping playback")
-                            audio.stop_playback()
-                            wake.reset()
-                            bargein = True
-                            break  # close stream before recursing
+                    stream = audio.stream()
+                    try:
+                        for chunk in stream:
+                            if not audio.is_playing():
+                                break
+                            chunks_heard += 1
+                            if chunks_heard <= BARGEIN_DEBOUNCE_CHUNKS:
+                                continue
+                            if wake.detect(chunk):
+                                log.info("Barge-in detected, stopping playback")
+                                audio.stop_playback()
+                                wake.reset()
+                                bargein = True
+                                break
+                    finally:
+                        stream.close()
                     if not bargein:
                         wake.reset()
-                    return bargein or router.expects_follow_up
+                    follow_up = router.expects_follow_up
+                    if not bargein and follow_up:
+                        log.info("Follow-up mode: continuing command loop")
+                    return bargein or follow_up
                 else:
                     audio.play(speech)
-                    return router.expects_follow_up
+                    follow_up = router.expects_follow_up
+                    if follow_up:
+                        log.info("Follow-up mode: continuing command loop")
+                    return follow_up
             except Exception:
                 log.exception("TTS error (non-fatal)")
         except Exception:
@@ -120,11 +130,17 @@ def start_voice_pipeline(
                 if wake_detected:
                     if wake_feedback:
                         audio.play(wake_prompts.pick())
-                    # Loop handles barge-in: _handle_command returns True
-                    # when wake word interrupts playback, so we immediately
-                    # process the next command (with a new prompt).
+                    # Loop handles barge-in and follow-up: _handle_command
+                    # returns True when wake word interrupts playback or
+                    # when the router expects a follow-up response.
+                    MAX_FOLLOW_UPS = 10
+                    follow_ups = 0
                     while _handle_command():
-                        if wake_feedback:
+                        follow_ups += 1
+                        if follow_ups >= MAX_FOLLOW_UPS:
+                            log.warning("Max follow-up iterations reached, exiting command loop")
+                            break
+                        if wake_feedback and not router.expects_follow_up:
                             audio.play(wake_prompts.pick())
                     wake.reset()
             except Exception:
