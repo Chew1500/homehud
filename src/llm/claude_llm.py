@@ -1,5 +1,7 @@
 """Claude LLM backend using the Anthropic API."""
 
+from __future__ import annotations
+
 import logging
 
 from llm.base import BaseLLM
@@ -11,19 +13,26 @@ DEFAULT_SYSTEM_PROMPT = (
     "Keep responses concise — 2 to 3 sentences max. "
     "Be conversational and direct. "
     "If the user corrects a previous statement (e.g. 'no, I meant...'), "
-    "use the conversation history to understand what they're correcting.\n\n"
-    "You are part of a voice assistant that has these built-in features "
-    "(handled before you):\n"
-    '- Grocery/shopping list: "add X to grocery list", "remove X", '
-    '"what\'s on my grocery list", "clear grocery list"\n'
-    '- Reminders: "remind me to X in Y minutes"\n'
-    "- Solar monitoring: questions about solar panels, production, energy, "
-    "inverters\n"
-    '- Repeat: "what did you say", "repeat that"\n\n'
-    "If a query seems related to these features but was likely misheard by "
-    "speech recognition, suggest the correct phrasing rather than trying to "
-    'answer yourself. For example, if someone says "what\'s on the growth '
-    'unit", they probably meant "what\'s on the grocery list".'
+    "use the conversation history to understand what they're correcting."
+)
+
+_CLASSIFY_SYSTEM_PROMPT = (
+    "You are a speech-recognition error detector for a voice assistant. "
+    "The assistant has these built-in features:\n\n"
+    "{features}\n\n"
+    "Your job: determine if the user's text is a misheard version of a command "
+    "for one of these features. Speech recognition often garbles key trigger words "
+    '(e.g. "grocery list" → "gross free list", "remind me" → "rye mend me").\n\n'
+    "If the text is a misheard command, respond with ONLY the corrected command text. "
+    "Nothing else — no explanation, no quotes, no punctuation beyond what the command needs.\n\n"
+    "If the text is a genuine question or not related to any feature, respond with "
+    "exactly: NONE\n\n"
+    "Examples:\n"
+    '- "what is on the gross free list" → what is on the grocery list\n'
+    '- "add milk to the grow shriek list" → add milk to the grocery list\n'
+    '- "rye mend me to buy eggs in ten minutes" → remind me to buy eggs in ten minutes\n'
+    '- "what is the capital of France" → NONE\n'
+    '- "tell me a joke" → NONE'
 )
 
 
@@ -63,3 +72,25 @@ class ClaudeLLM(BaseLLM):
         except Exception:
             log.exception("Claude API error")
             return "Sorry, I wasn't able to process that. Please try again."
+
+    def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
+        """Detect misheard command via a focused, stateless API call."""
+        try:
+            features_block = "\n".join(
+                f"- {desc}" for desc in feature_descriptions if desc
+            )
+            system = _CLASSIFY_SYSTEM_PROMPT.format(features=features_block)
+            message = self._client.messages.create(
+                model=self._model,
+                max_tokens=100,
+                system=system,
+                messages=[{"role": "user", "content": text}],
+            )
+            result = message.content[0].text.strip()
+            if result == "NONE":
+                return None
+            log.info("Intent classification corrected %r → %r", text, result)
+            return result
+        except Exception:
+            log.exception("Intent classification error")
+            return None

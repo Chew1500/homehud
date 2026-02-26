@@ -123,6 +123,23 @@ def test_clear_history():
     assert len(llm._history) == 0
 
 
+def test_mock_classify_intent_returns_none():
+    """MockLLM.classify_intent should always return None."""
+    llm = MockLLM({})
+    result = llm.classify_intent("what is on the gross free list", ["Grocery feature"])
+    assert result is None
+
+
+def test_classify_intent_does_not_affect_history():
+    """classify_intent should not pollute conversation history."""
+    llm = MockLLM({})
+    llm.respond("hello")
+    assert len(llm._history) == 1
+
+    llm.classify_intent("garbled text", ["Some feature"])
+    assert len(llm._history) == 1  # unchanged
+
+
 @pytest.mark.skipif(
     not os.getenv("ANTHROPIC_API_KEY"),
     reason="ANTHROPIC_API_KEY not set",
@@ -135,3 +152,23 @@ def test_claude_llm_integration():
     result = llm.respond("Say hello in exactly three words.")
     assert isinstance(result, str)
     assert len(result) > 0
+
+
+@pytest.mark.skipif(
+    not os.getenv("ANTHROPIC_API_KEY"),
+    reason="ANTHROPIC_API_KEY not set",
+)
+def test_claude_classify_intent_integration():
+    """classify_intent should correct a misheard grocery list command."""
+    from llm.claude_llm import ClaudeLLM
+
+    llm = ClaudeLLM({"anthropic_api_key": os.getenv("ANTHROPIC_API_KEY")})
+    descriptions = [
+        'Grocery/shopping list: triggered by "grocery list" or "shopping list". '
+        'Commands: "add X to grocery list", "what\'s on the grocery list".',
+    ]
+    result = llm.classify_intent("what is on the gross free list", descriptions)
+    assert result is not None
+    assert "grocery" in result.lower()
+    # Should not affect history
+    assert len(llm._history) == 0

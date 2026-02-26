@@ -87,6 +87,14 @@ class ReminderFeature(BaseFeature):
             )
             self._checker_thread.start()
 
+    @property
+    def description(self) -> str:
+        return (
+            'Reminders: triggered by "remind" or "reminder". '
+            'Commands: "remind me to X in Y minutes", "remind me to X at 3pm", '
+            '"what are my reminders", "cancel reminder to X", "clear all reminders".'
+        )
+
     def matches(self, text: str) -> bool:
         return bool(_ANY_REMINDER.search(text))
 

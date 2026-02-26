@@ -37,6 +37,13 @@ class RepeatFeature(BaseFeature):
         self._last_query: str | None = None
         self._last_response: str | None = None
 
+    @property
+    def description(self) -> str:
+        return (
+            'Repeat last response: triggered by "what did you say", "repeat that", '
+            '"say that again", "I didn\'t catch that", "pardon".'
+        )
+
     def matches(self, text: str) -> bool:
         return bool(_TRIGGER.search(text))
 

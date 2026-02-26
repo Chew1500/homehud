@@ -1,5 +1,7 @@
 """Abstract base class for LLM backends."""
 
+from __future__ import annotations
+
 import time
 from abc import ABC, abstractmethod
 
@@ -57,6 +59,22 @@ class BaseLLM(ABC):
 
         Returns:
             LLM response string.
+        """
+        ...
+
+    @abstractmethod
+    def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
+        """Detect whether text is a misheard command and return corrected text.
+
+        This is a stateless call — it must not affect conversation history.
+
+        Args:
+            text: User's spoken text (from STT transcription).
+            feature_descriptions: Descriptions of available features.
+
+        Returns:
+            Corrected command text if a misheard command was detected,
+            or None if the text appears to be a genuine question.
         """
         ...
 

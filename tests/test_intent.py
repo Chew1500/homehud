@@ -9,19 +9,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from intent.router import IntentRouter
 
 
-def _make_feature(name="TestFeature", matches=False, response="feature response"):
+def _make_feature(name="TestFeature", matches=False, response="feature response",
+                  description=""):
     """Create a mock feature."""
     feat = MagicMock()
     feat.__class__.__name__ = name
     feat.matches.return_value = matches
     feat.handle.return_value = response
+    feat.description = description
     return feat
 
 
-def _make_llm(response="LLM response"):
+def _make_llm(response="LLM response", classify_result=None):
     """Create a mock LLM."""
     llm = MagicMock()
     llm.respond.return_value = response
+    llm.classify_intent.return_value = classify_result
     return llm
 
 
@@ -83,3 +86,88 @@ def test_close_cascades():
     feat1.close.assert_called_once()
     feat2.close.assert_called_once()
     llm.close.assert_called_once()
+
+
+# --- Intent recovery tests ---
+
+
+def test_recovery_corrects_misheard_command():
+    """When classify_intent returns corrected text that matches a feature, use it."""
+    feat = _make_feature(
+        name="Grocery", description="Grocery list feature"
+    )
+    # First call (original text) → no match; second call (corrected) → match
+    feat.matches.side_effect = [False, True]
+    feat.handle.return_value = "grocery list is empty"
+    llm = _make_llm(classify_result="what is on the grocery list")
+    router = IntentRouter({}, [feat], llm)
+
+    result = router.route("what is on the gross free list")
+
+    assert result == "grocery list is empty"
+    feat.handle.assert_called_with("what is on the grocery list")
+    llm.respond.assert_not_called()
+
+
+def test_recovery_returns_none_falls_to_llm():
+    """When classify_intent returns None, fall through to LLM."""
+    feat = _make_feature(matches=False, description="Some feature")
+    llm = _make_llm("LLM answer", classify_result=None)
+    router = IntentRouter({}, [feat], llm)
+
+    result = router.route("what is the capital of France")
+
+    assert result == "LLM answer"
+    llm.classify_intent.assert_called_once()
+    llm.respond.assert_called_with("what is the capital of France")
+
+
+def test_recovery_corrected_no_match_falls_to_llm():
+    """When corrected text still doesn't match features, fall to LLM."""
+    feat = _make_feature(matches=False, description="Some feature")
+    llm = _make_llm("LLM answer", classify_result="some corrected text")
+    router = IntentRouter({}, [feat], llm)
+
+    result = router.route("garbled input")
+
+    assert result == "LLM answer"
+    llm.respond.assert_called_with("garbled input")
+
+
+def test_recovery_disabled_skips_classification():
+    """When intent_recovery_enabled is False, skip classify_intent entirely."""
+    feat = _make_feature(matches=False, description="Some feature")
+    llm = _make_llm("LLM answer")
+    config = {"intent_recovery_enabled": False}
+    router = IntentRouter(config, [feat], llm)
+
+    result = router.route("what is on the gross free list")
+
+    assert result == "LLM answer"
+    llm.classify_intent.assert_not_called()
+    llm.respond.assert_called_once()
+
+
+def test_recovery_exception_falls_to_llm():
+    """When classify_intent raises an exception, fall through to LLM."""
+    feat = _make_feature(matches=False, description="Some feature")
+    llm = _make_llm("LLM answer")
+    llm.classify_intent.side_effect = RuntimeError("API error")
+    router = IntentRouter({}, [feat], llm)
+
+    result = router.route("garbled input")
+
+    assert result == "LLM answer"
+    llm.respond.assert_called_with("garbled input")
+
+
+def test_recovery_skipped_when_no_descriptions():
+    """When no features have descriptions, skip classification."""
+    feat = _make_feature(matches=False, description="")
+    llm = _make_llm("LLM answer")
+    router = IntentRouter({}, [feat], llm)
+
+    result = router.route("anything")
+
+    assert result == "LLM answer"
+    llm.classify_intent.assert_not_called()

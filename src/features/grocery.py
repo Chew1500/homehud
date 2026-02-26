@@ -39,6 +39,14 @@ class GroceryFeature(BaseFeature):
         super().__init__(config)
         self._path = Path(config.get("grocery_file", "data/grocery.json"))
 
+    @property
+    def description(self) -> str:
+        return (
+            'Grocery/shopping list: triggered by "grocery list" or "shopping list". '
+            'Commands: "add X to grocery list", "remove X from grocery list", '
+            '"what\'s on the grocery list", "clear the grocery list".'
+        )
+
     def matches(self, text: str) -> bool:
         return bool(_ANY_GROCERY.search(text))
 

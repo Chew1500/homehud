@@ -34,6 +34,14 @@ class BaseFeature(ABC):
         """
         ...
 
+    @property
+    def description(self) -> str:
+        """Human-readable description of trigger patterns for intent classification.
+
+        Override in subclasses to help the LLM identify misheard commands.
+        """
+        return ""
+
     def close(self) -> None:
         """Clean up resources. Override if needed."""
         pass

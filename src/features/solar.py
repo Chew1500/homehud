@@ -76,6 +76,15 @@ class SolarFeature(BaseFeature):
         self._storage = storage
         self._llm = llm
 
+    @property
+    def description(self) -> str:
+        return (
+            'Solar monitoring: triggered by "solar", "panels", "inverters", '
+            '"production", "generating", "energy", "power", "grid". '
+            'Commands: "how much solar am I producing", "how much energy have I used today", '
+            '"am I exporting to the grid", "how are my panels".'
+        )
+
     def matches(self, text: str) -> bool:
         return bool(_ANY_SOLAR.search(text))
 

@@ -3,6 +3,8 @@
 Returns a configurable canned response, ignoring actual input text.
 """
 
+from __future__ import annotations
+
 import logging
 
 from llm.base import BaseLLM
@@ -23,3 +25,7 @@ class MockLLM(BaseLLM):
         response = self._response
         self._record_exchange(text, response)
         return response
+
+    def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
+        """Mock always returns None — no intent recovery in local dev."""
+        return None
