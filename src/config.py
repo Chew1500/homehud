@@ -38,6 +38,9 @@ def load_config() -> dict:
         "tts_mode": os.getenv("HUD_TTS_MODE", "mock"),
         "tts_piper_model": os.getenv("HUD_TTS_PIPER_MODEL", "en_US-lessac-medium"),
         "tts_piper_speaker": os.getenv("HUD_TTS_PIPER_SPEAKER"),
+        "tts_kokoro_voice": os.getenv("HUD_TTS_KOKORO_VOICE", "af_heart"),
+        "tts_kokoro_speed": float(os.getenv("HUD_TTS_KOKORO_SPEED", "1.0")),
+        "tts_kokoro_lang": os.getenv("HUD_TTS_KOKORO_LANG", "a"),
         "tts_mock_duration": float(os.getenv("HUD_TTS_MOCK_DURATION", "2.0")),
 
         # LLM settings

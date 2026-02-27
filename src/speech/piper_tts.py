@@ -5,10 +5,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import numpy as np
-
 from config import PROJECT_ROOT
 from speech.base_tts import BaseTTS
+from utils.audio import resample_to_16k
 
 log = logging.getLogger("home-hud.tts.piper")
 
@@ -130,19 +129,6 @@ class PiperTTS(BaseTTS):
         raw = b"".join(chunks)
 
         if self._native_rate != 16000:
-            raw = self._resample_to_16k(raw, self._native_rate)
+            raw = resample_to_16k(raw, self._native_rate)
 
         return raw
-
-    @staticmethod
-    def _resample_to_16k(pcm: bytes, source_rate: int) -> bytes:
-        """Resample PCM int16 from source_rate to 16kHz using linear interpolation."""
-        samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
-        duration = len(samples) / source_rate
-        target_len = int(duration * 16000)
-
-        source_times = np.linspace(0, duration, len(samples), endpoint=False)
-        target_times = np.linspace(0, duration, target_len, endpoint=False)
-        resampled = np.interp(target_times, source_times, samples)
-
-        return resampled.clip(-32768, 32767).astype(np.int16).tobytes()

@@ -8,6 +8,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from unittest.mock import MagicMock
+
 from speech.mock_tts import MockTTS
 from speech.piper_tts import _ensure_model, _is_model_name, _model_name_to_hf_url
 
@@ -66,37 +68,45 @@ class TestTTSFactory:
 # --- Resampling tests ---
 
 
-class TestPiperResampling:
-    def _get_resample(self):
-        """Import the static resampling method."""
-        from speech.piper_tts import PiperTTS
-        return PiperTTS._resample_to_16k
-
+class TestResampling:
     def test_22050_to_16000_produces_correct_length(self):
-        """Resampling 22050Hz to 16kHz should produce correct sample count."""
-        resample = self._get_resample()
+        """Resampling 22050Hz (Piper) to 16kHz should produce correct sample count."""
+        from utils.audio import resample_to_16k
         source_rate = 22050
         duration = 1.0  # 1 second
         num_samples = int(source_rate * duration)
-        # Generate a simple sine wave
         t = np.linspace(0, duration, num_samples, endpoint=False)
         samples = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
         pcm_in = samples.tobytes()
 
-        pcm_out = resample(pcm_in, source_rate)
+        pcm_out = resample_to_16k(pcm_in, source_rate)
 
-        # Output should be ~16000 samples * 2 bytes = 32000 bytes
+        expected_samples = int(duration * 16000)
+        assert len(pcm_out) == expected_samples * 2
+
+    def test_24000_to_16000_produces_correct_length(self):
+        """Resampling 24000Hz (Kokoro) to 16kHz should produce correct sample count."""
+        from utils.audio import resample_to_16k
+        source_rate = 24000
+        duration = 1.0
+        num_samples = int(source_rate * duration)
+        t = np.linspace(0, duration, num_samples, endpoint=False)
+        samples = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
+        pcm_in = samples.tobytes()
+
+        pcm_out = resample_to_16k(pcm_in, source_rate)
+
         expected_samples = int(duration * 16000)
         assert len(pcm_out) == expected_samples * 2
 
     def test_identity_resample_at_16k(self):
         """Resampling from 16kHz to 16kHz should preserve length."""
-        resample = self._get_resample()
+        from utils.audio import resample_to_16k
         num_samples = 16000
         samples = np.zeros(num_samples, dtype=np.int16)
         pcm_in = samples.tobytes()
 
-        pcm_out = resample(pcm_in, 16000)
+        pcm_out = resample_to_16k(pcm_in, 16000)
 
         assert len(pcm_out) == len(pcm_in)
 
@@ -212,3 +222,150 @@ class TestEnsureModelDownload:
         assert len(downloads) == 2
         assert any(u.endswith(".onnx") and not u.endswith(".onnx.json") for u in downloads)
         assert any(u.endswith(".onnx.json") for u in downloads)
+
+
+# --- KokoroTTS tests ---
+
+
+class _FakeResult:
+    """Mimics a kokoro pipeline result with a .audio tensor."""
+
+    def __init__(self, audio_np):
+        self.audio = MagicMock()
+        self.audio.numpy.return_value = audio_np
+
+
+class _FakeResultNoAudio:
+    """Mimics a kokoro pipeline result with audio=None."""
+
+    audio = None
+
+
+def _make_fake_pipeline(results):
+    """Return a mock KPipeline class whose instances yield results when called."""
+    pipeline_instance = MagicMock()
+    pipeline_instance.side_effect = lambda *a, **kw: iter(results)
+    pipeline_cls = MagicMock(return_value=pipeline_instance)
+    return pipeline_cls, pipeline_instance
+
+
+class TestKokoroTTS:
+    """Tests for KokoroTTS with mocked kokoro.KPipeline."""
+
+    def _build(self, monkeypatch, config_overrides=None, pipeline_results=None):
+        """Helper: construct a KokoroTTS with mocked dependencies."""
+        # Mock espeak-ng as present
+        monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/espeak-ng")
+
+        # Build fake pipeline
+        if pipeline_results is None:
+            # 0.5s of sine wave at 24kHz
+            t = np.linspace(0, 0.5, 12000, endpoint=False)
+            audio_np = (np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+            pipeline_results = [_FakeResult(audio_np)]
+
+        pipeline_cls, pipeline_instance = _make_fake_pipeline(pipeline_results)
+
+        # Mock the kokoro module
+        fake_kokoro = MagicMock()
+        fake_kokoro.KPipeline = pipeline_cls
+        monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
+
+        config = _make_config(
+            tts_mode="kokoro",
+            tts_kokoro_voice="af_heart",
+            tts_kokoro_speed=1.0,
+            tts_kokoro_lang="a",
+        )
+        if config_overrides:
+            config.update(config_overrides)
+
+        from speech.kokoro_tts import KokoroTTS
+        tts = KokoroTTS(config)
+        return tts, pipeline_instance
+
+    def test_synthesize_returns_16k_pcm(self, monkeypatch):
+        """KokoroTTS.synthesize returns PCM int16 at 16kHz."""
+        tts, pipeline = self._build(monkeypatch)
+        pcm = tts.synthesize("hello world")
+
+        # Should be non-empty PCM bytes
+        assert isinstance(pcm, bytes)
+        assert len(pcm) > 0
+        # Length should be even (int16 = 2 bytes per sample)
+        assert len(pcm) % 2 == 0
+
+        # Verify resampled: 0.5s at 24kHz → 0.5s at 16kHz = 8000 samples * 2 bytes
+        expected_bytes = 8000 * 2
+        assert len(pcm) == expected_bytes
+
+    def test_empty_input_returns_silence(self, monkeypatch):
+        """KokoroTTS returns 0.1s silence for empty input."""
+        tts, _ = self._build(monkeypatch)
+        pcm = tts.synthesize("")
+        assert pcm == b"\x00\x00" * 1600
+
+    def test_whitespace_input_returns_silence(self, monkeypatch):
+        """KokoroTTS returns 0.1s silence for whitespace-only input."""
+        tts, _ = self._build(monkeypatch)
+        pcm = tts.synthesize("   ")
+        assert pcm == b"\x00\x00" * 1600
+
+    def test_no_audio_results_returns_silence(self, monkeypatch):
+        """KokoroTTS returns silence when pipeline yields no audio chunks."""
+        tts, _ = self._build(monkeypatch, pipeline_results=[_FakeResultNoAudio()])
+        pcm = tts.synthesize("hello")
+        assert pcm == b"\x00\x00" * 1600
+
+    def test_close_clears_pipeline(self, monkeypatch):
+        """KokoroTTS.close() sets pipeline to None."""
+        tts, _ = self._build(monkeypatch)
+        tts.close()
+        assert tts._pipeline is None
+
+    def test_missing_espeak_raises(self, monkeypatch):
+        """KokoroTTS raises RuntimeError if espeak-ng is not installed."""
+        monkeypatch.setattr("shutil.which", lambda cmd: None)
+
+        fake_kokoro = MagicMock()
+        monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
+
+        from speech.kokoro_tts import KokoroTTS
+        with pytest.raises(RuntimeError, match="espeak-ng is required"):
+            KokoroTTS(_make_config(tts_mode="kokoro"))
+
+    def test_missing_kokoro_package_raises(self, monkeypatch):
+        """KokoroTTS raises ImportError if kokoro package is not installed."""
+        monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/espeak-ng")
+
+        # Remove kokoro from sys.modules if cached, and make import fail
+        monkeypatch.delitem(sys.modules, "kokoro", raising=False)
+        import builtins
+        real_import = builtins.__import__
+
+        def fail_kokoro(name, *args, **kwargs):
+            if name == "kokoro":
+                raise ImportError("No module named 'kokoro'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fail_kokoro)
+
+        from speech.kokoro_tts import KokoroTTS
+        with pytest.raises(ImportError, match="kokoro is required"):
+            KokoroTTS(_make_config(tts_mode="kokoro"))
+
+    def test_factory_returns_kokoro(self, monkeypatch):
+        """get_tts returns KokoroTTS for 'kokoro' mode."""
+        # Mock espeak-ng
+        monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/espeak-ng")
+
+        # Mock kokoro module
+        pipeline_cls = MagicMock(return_value=MagicMock())
+        fake_kokoro = MagicMock()
+        fake_kokoro.KPipeline = pipeline_cls
+        monkeypatch.setitem(sys.modules, "kokoro", fake_kokoro)
+
+        from speech import get_tts
+        from speech.kokoro_tts import KokoroTTS
+        tts = get_tts(_make_config(tts_mode="kokoro"))
+        assert isinstance(tts, KokoroTTS)

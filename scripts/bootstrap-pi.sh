@@ -20,6 +20,7 @@ sudo apt-get install -y -qq \
     git \
     libopenjp2-7 libtiff6 libopenblas-dev \
     libportaudio2 portaudio19-dev ffmpeg \
+    espeak-ng \
     fonts-dejavu-core \
     > /dev/null
 sudo ldconfig
@@ -102,6 +103,12 @@ echo "  Downloading openWakeWord models..."
 sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/python" -c \
     "from openwakeword.utils import download_models; download_models()"
 
+# Download Kokoro TTS model (cached after first download)
+echo "  Downloading Kokoro TTS model..."
+sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/python" -c \
+    "from kokoro import KPipeline; KPipeline(lang_code='a'); print('Kokoro model ready')" \
+    2>/dev/null || echo "  Kokoro model download skipped (package not available or download failed)"
+
 # --- Install systemd service ---
 echo "[6/6] Installing systemd service..."
 sudo cp "$APP_DIR/systemd/home-hud.service" /etc/systemd/system/
@@ -121,6 +128,7 @@ echo "  2. For voice pipeline, set in .env:"
 echo "     HUD_AUDIO_MODE=hardware"
 echo "     HUD_WAKE_MODE=oww"
 echo "     HUD_STT_MODE=whisper"
+echo "     HUD_TTS_MODE=kokoro   (or piper for lighter-weight TTS)"
 echo ""
 echo "  3. Reboot to activate SPI and audio group:"
 echo "     sudo reboot"

@@ -2,7 +2,7 @@
 
 Provides unified interfaces for:
 - STT: MockSTT (dev) / WhisperSTT (production)
-- TTS: MockTTS (dev) / PiperTTS (production)
+- TTS: MockTTS (dev) / PiperTTS / KokoroTTS (production)
 """
 
 from speech.base import BaseSTT
@@ -29,5 +29,8 @@ def get_tts(config: dict) -> BaseTTS:
     if mode == "piper":
         from speech.piper_tts import PiperTTS
         return PiperTTS(config)
+    elif mode == "kokoro":
+        from speech.kokoro_tts import KokoroTTS
+        return KokoroTTS(config)
     else:
         return MockTTS(config)

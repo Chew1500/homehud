@@ -51,6 +51,7 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `base_tts.py`: `BaseTTS` ABC — `synthesize(text) -> bytes`, `close()`
 - `mock_tts.py`: `MockTTS` — generates silence for local dev
 - `piper_tts.py`: `PiperTTS` — Piper ONNX voice synthesis (requires piper-tts>=1.4)
+- `kokoro_tts.py`: `KokoroTTS` — Kokoro StyleTTS 2 voice synthesis (requires kokoro>=0.9.4, espeak-ng)
 - `__init__.py`: factory functions `get_stt(config) -> BaseSTT`, `get_tts(config) -> BaseTTS`
 - Input: raw PCM bytes from `audio.record()` (int16, little-endian, 16kHz mono)
 
@@ -96,6 +97,7 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `__init__.py`: Package marker
 - `phrases.py`: Phrase pool constants (`WAKE_PHRASES`, `STARTUP_PHRASES`, `DEPLOY_PHRASES`) and `pick_phrase(pool) -> str`
 - `prompt_cache.py`: `PromptCache` — pre-synthesizes phrases into PCM at construction for instant playback; `pick() -> bytes`
+- `audio.py`: `resample_to_16k(pcm, source_rate) -> bytes` — shared PCM resampling (used by PiperTTS, KokoroTTS)
 - `tone.py`: `generate_tone(freq, duration_ms, sample_rate, volume) -> bytes` — sine wave PCM tone with fade-in/out
 - `vad.py`: `VoiceActivityDetector` — energy-based (RMS) voice activity detection for dynamic recording
 - `version.py`: `get_current_commit() -> str | None`, `is_new_deploy() -> bool` — deploy detection via git commit comparison

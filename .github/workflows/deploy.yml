@@ -40,7 +40,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libportaudio2 portaudio19-dev ffmpeg libopenblas-dev \
-            libopenjp2-7 libtiff6
+            libopenjp2-7 libtiff6 espeak-ng
           sudo ldconfig
 
       - name: Ensure Python 3.11 venv
@@ -102,6 +102,12 @@ jobs:
         run: |
           sudo -H -u hud /opt/homehud/venv/bin/python -c \
             "from openwakeword.utils import download_models; download_models()"
+
+      - name: Download Kokoro TTS model
+        run: |
+          sudo -H -u hud /opt/homehud/venv/bin/python -c \
+            "from kokoro import KPipeline; KPipeline(lang_code='a'); print('Kokoro model ready')" \
+            2>/dev/null || echo "Kokoro model download skipped (package not available or download failed)"
 
       - name: Smoke test
         run: |
