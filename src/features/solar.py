@@ -93,6 +93,16 @@ class SolarFeature(BaseFeature):
             '"am I exporting to the grid", "how are my panels".'
         )
 
+    @property
+    def action_schema(self) -> dict:
+        return {"query": {"question": "str"}}
+
+    def execute(self, action: str, parameters: dict) -> str:
+        if action == "query":
+            question = parameters.get("question", "")
+            return self.handle(question)
+        return self.handle("")
+
     def matches(self, text: str) -> bool:
         return bool(_ANY_SOLAR.search(text))
 

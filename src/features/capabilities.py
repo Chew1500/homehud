@@ -48,6 +48,20 @@ class CapabilitiesFeature(BaseFeature):
             '"help me", "tell me about <feature>", "describe <feature>".'
         )
 
+    @property
+    def action_schema(self) -> dict:
+        return {"list": {}, "describe": {"feature": "str"}}
+
+    def execute(self, action: str, parameters: dict) -> str:
+        if action == "list":
+            return self._list_all()
+        if action == "describe":
+            feature = self._find_feature(parameters.get("feature", ""))
+            if feature:
+                return self._describe_one(feature)
+            return self._list_all()
+        return self._list_all()
+
     def matches(self, text: str) -> bool:
         if _LIST_ALL.search(text):
             return True

@@ -1,5 +1,7 @@
 """Abstract base class for built-in features."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 
 
@@ -63,6 +65,39 @@ class BaseFeature(ABC):
         multi-turn flows (e.g., disambiguation).
         """
         return False
+
+    @property
+    def action_schema(self) -> dict:
+        """Schema of actions and their parameters for LLM intent parsing.
+
+        Override in subclasses. Format: {"action_name": {"param": "type"}, ...}
+        """
+        return {}
+
+    def execute(self, action: str, parameters: dict) -> str:
+        """Execute a pre-parsed action with parameters.
+
+        Called by the intent router when the LLM has parsed the user's intent
+        into a structured action. Override in subclasses.
+
+        Args:
+            action: The action name (e.g., "add", "list").
+            parameters: Parsed parameters (e.g., {"item": "milk"}).
+
+        Returns:
+            Response string suitable for TTS.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement execute()"
+        )
+
+    def get_llm_context(self) -> str | None:
+        """Return current state context for multi-turn LLM interactions.
+
+        Override in subclasses with stateful flows (e.g., media disambiguation).
+        Returns None when no active state needs to be communicated.
+        """
+        return None
 
     def close(self) -> None:
         """Clean up resources. Override if needed."""

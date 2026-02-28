@@ -58,6 +58,27 @@ class GroceryFeature(BaseFeature):
     def matches(self, text: str) -> bool:
         return bool(_ANY_GROCERY.search(text))
 
+    @property
+    def action_schema(self) -> dict:
+        return {
+            "add": {"item": "str"},
+            "remove": {"item": "str"},
+            "list": {},
+            "clear": {},
+        }
+
+    def execute(self, action: str, parameters: dict) -> str:
+        actions = {
+            "add": lambda: self._add(parameters["item"]),
+            "remove": lambda: self._remove(parameters["item"]),
+            "list": self._list,
+            "clear": self._clear,
+        }
+        handler = actions.get(action)
+        if handler is None:
+            return self._list()
+        return handler()
+
     def handle(self, text: str) -> str:
         m = _ADD.search(text)
         if m:

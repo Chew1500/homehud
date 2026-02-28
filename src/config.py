@@ -49,6 +49,7 @@ def load_config() -> dict:
         "llm_max_tokens": int(os.getenv("HUD_LLM_MAX_TOKENS", "1024")),
         "llm_system_prompt": os.getenv("HUD_LLM_SYSTEM_PROMPT", ""),
         "llm_mock_response": os.getenv("HUD_LLM_MOCK_RESPONSE", "This is a mock LLM response."),
+        "llm_intent_max_tokens": int(os.getenv("HUD_LLM_INTENT_MAX_TOKENS", "300")),
         "llm_max_history": int(os.getenv("HUD_LLM_MAX_HISTORY", "10")),
         "llm_history_ttl": int(os.getenv("HUD_LLM_HISTORY_TTL", "300")),
 
@@ -64,7 +65,7 @@ def load_config() -> dict:
         ),
         "voice_vad_enabled": os.getenv("HUD_VOICE_VAD_ENABLED", "true").lower() == "true",
         "vad_silence_threshold": int(os.getenv("HUD_VAD_SILENCE_THRESHOLD", "500")),
-        "vad_silence_duration": float(os.getenv("HUD_VAD_SILENCE_DURATION", "1.5")),
+        "vad_silence_duration": float(os.getenv("HUD_VAD_SILENCE_DURATION", "2.0")),
         "vad_min_duration": float(os.getenv("HUD_VAD_MIN_DURATION", "0.5")),
         "vad_max_duration": float(os.getenv("HUD_VAD_MAX_DURATION", "15.0")),
         "voice_bargein_enabled": os.getenv("HUD_VOICE_BARGEIN_ENABLED", "true").lower() == "true",

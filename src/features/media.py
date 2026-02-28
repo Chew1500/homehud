@@ -164,6 +164,135 @@ class MediaFeature(BaseFeature):
     def expects_follow_up(self) -> bool:
         return self._pending is not None and not self._is_expired()
 
+    @property
+    def action_schema(self) -> dict:
+        return {
+            "track": {"title": "str", "media_type": "str"},
+            "list": {"media_type": "str"},
+            "check": {"title": "str"},
+            "confirm": {},
+            "skip": {},
+            "cancel": {},
+            "select": {"index": "int"},
+            "refine_year": {"year": "int"},
+            "refine_type": {"media_type": "str"},
+            "refine_recent": {},
+        }
+
+    def execute(self, action: str, parameters: dict) -> str:
+        # Disambiguation actions
+        if action == "confirm":
+            if not self._pending or self._is_expired():
+                return "There's nothing to confirm right now."
+            return self._confirm_pending()
+        if action == "skip":
+            if not self._pending or self._is_expired():
+                return "There's nothing to skip right now."
+            return self._next_pending()
+        if action == "cancel":
+            if not self._pending or self._is_expired():
+                return "Nothing to cancel."
+            return self._cancel_pending()
+        if action == "select":
+            return self._select(parameters.get("index", 1))
+
+        # Refining actions
+        if action == "refine_year":
+            if not self._pending or self._is_expired():
+                return "There's no active search to refine."
+            year = parameters.get("year", 0)
+            return self._apply_refinement(str(year))
+        if action == "refine_type":
+            if not self._pending or self._is_expired():
+                return "There's no active search to refine."
+            media_type = parameters.get("media_type", "")
+            return self._apply_refinement(media_type)
+        if action == "refine_recent":
+            if not self._pending or self._is_expired():
+                return "There's no active search to refine."
+            return self._apply_refinement("newest")
+
+        # List actions
+        if action == "list":
+            media_type = parameters.get("media_type", "any")
+            if media_type == "movie":
+                return self._list_movies()
+            if media_type == "show":
+                return self._list_shows()
+            # List both
+            parts = []
+            movies_resp = self._list_movies() if self._radarr else None
+            shows_resp = self._list_shows() if self._sonarr else None
+            if movies_resp:
+                parts.append(movies_resp)
+            if shows_resp:
+                parts.append(shows_resp)
+            return " ".join(parts) if parts else "Media tracking isn't configured."
+
+        # Check action
+        if action == "check":
+            return self._check_title(parameters.get("title", ""))
+
+        # Track action
+        if action == "track":
+            title = parameters.get("title", "")
+            media_type = parameters.get("media_type", "any")
+            if media_type == "movie":
+                return self._track_movie(title)
+            if media_type == "show":
+                return self._track_show(title)
+            return self._track_generic(title)
+
+        return self._status()
+
+    def _select(self, index: int) -> str:
+        """Jump to a specific result by 1-based index."""
+        if not self._pending or self._is_expired():
+            return "There's no active search to select from."
+        results = self._pending["results"]
+        # Convert 1-based to 0-based
+        idx = index - 1
+        if idx < 0 or idx >= len(results):
+            return f"Please pick a number between 1 and {len(results)}."
+        self._pending["index"] = idx
+        self._pending["phase"] = "confirming"
+        self._pending["timestamp"] = time.time()
+        result = results[idx]
+        if self._is_result_tracked(result):
+            self._pending = None
+            return f"You're already tracking {result['title']} from {result['year']}."
+        return self._describe_current()
+
+    def get_llm_context(self) -> str | None:
+        if not self._pending or self._is_expired():
+            return None
+        results = self._pending["results"]
+        index = self._pending["index"]
+        phase = self._pending.get("phase", "confirming")
+        search_term = self._pending.get("search_term", "")
+
+        lines = [f'Media disambiguation active for "{search_term}".']
+        if phase == "confirming":
+            lines.append(
+                f"Showing result {index + 1} of {len(results)}:"
+            )
+        else:
+            lines.append(f"{len(results)} results in refining phase:")
+
+        for i, r in enumerate(results):
+            marker = " [CURRENT]" if i == index and phase == "confirming" else ""
+            tracked = " [TRACKED]" if self._is_result_tracked(r) else ""
+            lines.append(
+                f"{i + 1}. {r['title']} ({r['year']}) - {r['media_type']}{tracked}{marker}"
+            )
+
+        if phase == "confirming":
+            lines.append("User can: confirm, skip, cancel, or say which one they want.")
+        else:
+            lines.append("User can: filter by year, type, recency, or cancel.")
+
+        return "\n".join(lines)
+
     def matches(self, text: str) -> bool:
         # Fast path: active disambiguation captures yes/no/next/cancel/refinements
         if self._pending and not self._is_expired():

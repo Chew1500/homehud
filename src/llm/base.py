@@ -63,6 +63,26 @@ class BaseLLM(ABC):
         ...
 
     @abstractmethod
+    def parse_intent(
+        self, text: str, feature_schemas: list[dict], context: str | None = None
+    ) -> dict | None:
+        """Parse user intent via structured tool output.
+
+        Args:
+            text: User's spoken text (from STT transcription).
+            feature_schemas: List of feature schema dicts for the system prompt.
+            context: Optional dynamic context (e.g., media disambiguation state).
+
+        Returns:
+            Dict with {type, feature, action, parameters, speech} or None on failure.
+        """
+        ...
+
+    def record_exchange(self, user: str, assistant: str) -> None:
+        """Public API to record a user/assistant exchange in history."""
+        self._record_exchange(user, assistant)
+
+    @abstractmethod
     def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
         """Detect whether text is a misheard command and return corrected text.
 

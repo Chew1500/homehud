@@ -52,6 +52,15 @@ class RepeatFeature(BaseFeature):
             '"say that again", "I didn\'t catch that", "pardon".'
         )
 
+    @property
+    def action_schema(self) -> dict:
+        return {"replay": {}}
+
+    def execute(self, action: str, parameters: dict) -> str:
+        if action == "replay":
+            return self.handle("")
+        return self.handle("")
+
     def matches(self, text: str) -> bool:
         return bool(_TRIGGER.search(text))
 

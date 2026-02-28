@@ -19,6 +19,12 @@ class MockLLM(BaseLLM):
         super().__init__(config)
         self._response = config.get("llm_mock_response", "This is a mock LLM response.")
 
+    def parse_intent(
+        self, text: str, feature_schemas: list[dict], context: str | None = None
+    ) -> dict | None:
+        """Mock always returns None — no structured parsing in local dev."""
+        return None
+
     def respond(self, text: str) -> str:
         """Return the configured canned response, ignoring input text."""
         log.info("Mock LLM called with: %r", text)

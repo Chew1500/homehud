@@ -36,6 +36,79 @@ _CLASSIFY_SYSTEM_PROMPT = (
 )
 
 
+_INTENT_SYSTEM_PROMPT = (
+    "You are an intent parser for a Raspberry Pi voice assistant called Home HUD.\n"
+    "The user's speech has been transcribed by Whisper and may contain recognition errors.\n"
+    "Use the route_intent tool to respond. ALWAYS use this tool.\n\n"
+    "## Available Features\n\n"
+    "### grocery\n"
+    "Actions: add(item), remove(item), list(), clear()\n"
+    'Example triggers: "add milk to grocery list", "what\'s on the shopping list"\n\n'
+    "### reminder\n"
+    "Actions: set(task, time), list(), cancel(task), clear()\n"
+    'The "time" parameter should be a natural language time expression.\n'
+    'Example triggers: "remind me to call mom in 20 minutes", "remind me at 3pm to..."\n\n'
+    "### media\n"
+    "Actions: track(title, media_type), list(media_type), check(title),\n"
+    "         confirm(), skip(), cancel(), select(index),\n"
+    "         refine_year(year), refine_type(media_type), refine_recent()\n"
+    'media_type: "movie", "show", or "any"\n'
+    'Example triggers: "track the movie Inception", "what shows do I have"\n\n'
+    "### solar\n"
+    "Actions: query(question)\n"
+    'Example triggers: "how much solar am I producing", "am I exporting to the grid"\n\n'
+    "### repeat\n"
+    "Actions: replay()\n"
+    'Example triggers: "what did you say", "repeat that", "say that again"\n\n'
+    "### capabilities\n"
+    "Actions: list(), describe(feature)\n"
+    'Example triggers: "what can you do", "tell me about reminders"\n\n'
+    "## Guidelines\n"
+    '- Use "action" when the user clearly wants a feature. Use "conversation" for general Q&A.\n'
+    '  Use "clarification" only when the transcription is too ambiguous to determine intent.\n'
+    '- Common STT errors: "gross free"→"grocery", "rye mend"→"remind", garbled movie titles\n'
+    '- Keep "speech" concise (1-2 sentences), suitable for text-to-speech\n'
+    "- For actions, still provide a brief speech (used as fallback if feature errors)\n\n"
+    "## Follow-up Signal\n"
+    '- Set "expects_follow_up": true when asking a question, presenting options, '
+    "in a multi-turn flow, or when the input appears cut off\n"
+    '- Set "expects_follow_up": false for complete answers and terminal actions\n\n'
+    "## Context Priority\n"
+    "- When [CONTEXT: ...] is present, ALWAYS prioritize routing to the relevant feature\n"
+    "- Partial transcriptions in follow-up should be interpreted in the active context, "
+    "not as standalone statements"
+)
+
+_ROUTE_INTENT_TOOL = {
+    "name": "route_intent",
+    "description": (
+        "Parse the user's voice command and route to the appropriate "
+        "action or respond conversationally."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "type": {
+                "type": "string",
+                "enum": ["action", "conversation", "clarification"],
+            },
+            "feature": {"type": "string"},
+            "action": {"type": "string"},
+            "parameters": {"type": "object"},
+            "speech": {"type": "string"},
+            "expects_follow_up": {
+                "type": "boolean",
+                "description": (
+                    "True when this response asks the user a question, "
+                    "presents options, or needs further input."
+                ),
+            },
+        },
+        "required": ["type", "speech", "expects_follow_up"],
+    },
+}
+
+
 class ClaudeLLM(BaseLLM):
     """LLM backend that calls the Anthropic Claude API."""
 
@@ -54,7 +127,58 @@ class ClaudeLLM(BaseLLM):
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = config.get("llm_model", "claude-sonnet-4-5-20250929")
         self._max_tokens = config.get("llm_max_tokens", 1024)
+        self._intent_max_tokens = config.get("llm_intent_max_tokens", 300)
         self._system_prompt = config.get("llm_system_prompt") or DEFAULT_SYSTEM_PROMPT
+
+    def parse_intent(
+        self, text: str, feature_schemas: list[dict], context: str | None = None
+    ) -> dict | None:
+        """Parse user intent via Claude tool_use for structured output."""
+        try:
+            user_content = text
+            if context:
+                user_content = f"[CONTEXT: {context}]\n\n{text}"
+
+            messages = self._get_messages(user_content)
+
+            message = self._client.messages.create(
+                model=self._model,
+                max_tokens=self._intent_max_tokens,
+                system=[{
+                    "type": "text",
+                    "text": _INTENT_SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=messages,
+                tools=[_ROUTE_INTENT_TOOL],
+                tool_choice={"type": "tool", "name": "route_intent"},
+            )
+
+            for block in message.content:
+                if block.type == "tool_use" and block.name == "route_intent":
+                    result = block.input
+                    log.info(
+                        "Intent parsed: type=%s feature=%s action=%s",
+                        result.get("type"),
+                        result.get("feature"),
+                        result.get("action"),
+                    )
+                    return result
+
+            block_summary = [
+                f"{b.type}({b.text[:80]}...)" if b.type == "text" else b.type
+                for b in message.content
+            ]
+            log.warning(
+                "No tool_use block in parse_intent response: "
+                "stop_reason=%s blocks=%s",
+                getattr(message, "stop_reason", "unknown"),
+                block_summary,
+            )
+            return None
+        except Exception:
+            log.exception("parse_intent error")
+            return None
 
     def respond(self, text: str) -> str:
         """Send text to Claude and return the response."""

@@ -1,5 +1,7 @@
 """Reminder feature — set, list, cancel, and fire timed reminders via voice."""
 
+from __future__ import annotations
+
 import json
 import logging
 import re
@@ -164,6 +166,72 @@ class ReminderFeature(BaseFeature):
             'Commands: "remind me to X in Y minutes", "remind me to X at 3pm", '
             '"what are my reminders", "cancel reminder to X", "clear all reminders".'
         )
+
+    @property
+    def action_schema(self) -> dict:
+        return {
+            "set": {"task": "str", "time": "str"},
+            "list": {},
+            "cancel": {"task": "str"},
+            "clear": {},
+        }
+
+    def execute(self, action: str, parameters: dict) -> str:
+        if action == "set":
+            due = self._parse_time_expression(parameters.get("time", ""))
+            if due is None:
+                return (
+                    "I didn't understand the time. "
+                    "Try something like 'in 5 minutes' or 'at 3pm'."
+                )
+            return self._set(parameters["task"], due)
+        if action == "list":
+            return self._list()
+        if action == "cancel":
+            return self._cancel(parameters["task"])
+        if action == "clear":
+            return self._clear()
+        return self._list()
+
+    def _parse_time_expression(self, expr: str) -> datetime | None:
+        """Parse a natural language time expression into a datetime.
+
+        Supports relative ("in 5 minutes", "5 minutes") and absolute
+        ("at 3pm", "3pm", "tomorrow", "tomorrow at 3pm") expressions.
+        """
+        if not expr:
+            return None
+
+        expr = expr.strip().lower()
+
+        # "tomorrow at TIME" or "tomorrow TIME"
+        m = re.match(
+            rf"(?:tomorrow\s+(?:at\s+)?){_TIME}", expr, re.IGNORECASE
+        )
+        if m:
+            return self._parse_absolute(m.group(1), m.group(2), m.group(3), tomorrow=True)
+
+        # "tomorrow" alone → 9am tomorrow
+        if expr == "tomorrow":
+            return (datetime.now() + timedelta(days=1)).replace(
+                hour=9, minute=0, second=0, microsecond=0
+            )
+
+        # Relative: "in N units" or just "N units"
+        m = re.match(
+            r"(?:in\s+)?(\d+|an?|half(?:\s+an?)?)\s+(seconds?|minutes?|hours?|days?)\s*$",
+            expr, re.IGNORECASE,
+        )
+        if m:
+            delta = self._parse_relative(m.group(1), m.group(2))
+            return datetime.now() + delta
+
+        # Absolute: "at TIME" or just "TIME"
+        m = re.match(rf"(?:at\s+)?{_TIME}\s*$", expr, re.IGNORECASE)
+        if m:
+            return self._parse_absolute(m.group(1), m.group(2), m.group(3))
+
+        return None
 
     def matches(self, text: str) -> bool:
         return bool(_ANY_REMINDER.search(text))
