@@ -96,7 +96,7 @@ jobs:
 
       - name: Update dependencies
         run: |
-          sudo -H -u hud /opt/homehud/venv/bin/pip install -q -r /opt/homehud/requirements-pi.txt
+          sudo -H -u hud /opt/homehud/venv/bin/pip install -q --upgrade -r /opt/homehud/requirements-pi.txt
 
       - name: Download openWakeWord models
         run: |
