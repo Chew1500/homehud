@@ -26,6 +26,8 @@ class IntentRouter:
         self._feature_descriptions = self._collect_descriptions()
         self._last_feature: BaseFeature | None = None
         self._llm_expects_follow_up = False
+        self._last_route_info: dict | None = None
+        self._last_llm_calls: list[dict] = []
 
         # Build feature lookup map: lowercase key → feature instance
         self._feature_map: dict[str, BaseFeature] = {}
@@ -49,12 +51,17 @@ class IntentRouter:
             return True
         return self._llm_expects_follow_up
 
-    def _try_features(self, text: str) -> str | None:
+    def _try_features(self, text: str, path: str = "regex") -> str | None:
         """Try matching text against features. Returns response or None."""
         for feature in self._features:
             if feature.matches(text):
                 log.info("Matched feature: %s", feature.__class__.__name__)
                 self._last_feature = feature
+                self._last_route_info = {
+                    "path": path,
+                    "matched_feature": feature.name,
+                    "feature_action": None,
+                }
                 return feature.handle(text)
         return None
 
@@ -80,6 +87,7 @@ class IntentRouter:
         context = "\n".join(context_parts) if context_parts else None
 
         parsed = self._llm.parse_intent(text, schemas, context)
+        self._collect_llm_call()
         if parsed is None:
             return None
 
@@ -99,6 +107,11 @@ class IntentRouter:
             try:
                 self._last_feature = feature
                 self._llm_expects_follow_up = parsed.get("expects_follow_up", False)
+                self._last_route_info = {
+                    "path": "llm_parse",
+                    "matched_feature": feature_name,
+                    "feature_action": action,
+                }
                 result = feature.execute(action, parameters)
                 self._llm.record_exchange(text, result)
                 return result
@@ -113,11 +126,21 @@ class IntentRouter:
         if intent_type == "conversation":
             self._last_feature = None
             self._llm_expects_follow_up = parsed.get("expects_follow_up", False)
+            self._last_route_info = {
+                "path": "llm_parse",
+                "matched_feature": None,
+                "feature_action": None,
+            }
             self._llm.record_exchange(text, speech)
             return speech
 
         if intent_type == "clarification":
             self._llm_expects_follow_up = parsed.get("expects_follow_up", True)
+            self._last_route_info = {
+                "path": "llm_parse",
+                "matched_feature": None,
+                "feature_action": None,
+            }
             self._llm.record_exchange(text, speech)
             return speech
 
@@ -145,8 +168,16 @@ class IntentRouter:
                 return feature
         return None
 
+    def _collect_llm_call(self) -> None:
+        """Append the LLM's last call info to _last_llm_calls if present."""
+        if self._llm._last_call_info is not None:
+            self._last_llm_calls.append(self._llm._last_call_info)
+
     def route(self, text: str) -> str:
         """Route text to the appropriate handler and return a response."""
+        self._last_route_info = None
+        self._last_llm_calls = []
+
         # 1. Try LLM-first structured parsing
         parsed = self._try_llm_parse(text)
         if parsed is not None:
@@ -165,9 +196,10 @@ class IntentRouter:
                 corrected = self._llm.classify_intent(
                     text, self._feature_descriptions
                 )
+                self._collect_llm_call()
                 if corrected:
                     log.info("Intent recovery: %r → %r", text, corrected)
-                    result = self._try_features(corrected)
+                    result = self._try_features(corrected, path="recovery")
                     if result is not None:
                         self._llm.record_exchange(text, result)
                         return result
@@ -179,7 +211,14 @@ class IntentRouter:
         log.info("No feature matched, falling back to LLM")
         self._last_feature = None
         self._llm_expects_follow_up = False
-        return self._llm.respond(text)
+        result = self._llm.respond(text)
+        self._collect_llm_call()
+        self._last_route_info = {
+            "path": "llm_fallback",
+            "matched_feature": None,
+            "feature_action": None,
+        }
+        return result
 
     def close(self) -> None:
         """Close all features and the LLM."""

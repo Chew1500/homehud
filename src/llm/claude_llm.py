@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 
 from llm.base import BaseLLM
 
@@ -134,6 +136,8 @@ class ClaudeLLM(BaseLLM):
         self, text: str, feature_schemas: list[dict], context: str | None = None
     ) -> dict | None:
         """Parse user intent via Claude tool_use for structured output."""
+        self._last_call_info = None
+        t0 = time.monotonic()
         try:
             user_content = text
             if context:
@@ -154,16 +158,34 @@ class ClaudeLLM(BaseLLM):
                 tool_choice={"type": "tool", "name": "route_intent"},
             )
 
+            # Extract response for telemetry
+            response_text = None
+            result = None
             for block in message.content:
                 if block.type == "tool_use" and block.name == "route_intent":
                     result = block.input
-                    log.info(
-                        "Intent parsed: type=%s feature=%s action=%s",
-                        result.get("type"),
-                        result.get("feature"),
-                        result.get("action"),
-                    )
-                    return result
+                    response_text = json.dumps(result)
+
+            self._last_call_info = {
+                "call_type": "parse_intent",
+                "model": self._model,
+                "system_prompt": _INTENT_SYSTEM_PROMPT,
+                "user_message": user_content,
+                "response_text": response_text,
+                "input_tokens": message.usage.input_tokens,
+                "output_tokens": message.usage.output_tokens,
+                "stop_reason": message.stop_reason,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+            }
+
+            if result is not None:
+                log.info(
+                    "Intent parsed: type=%s feature=%s action=%s",
+                    result.get("type"),
+                    result.get("feature"),
+                    result.get("action"),
+                )
+                return result
 
             block_summary = [
                 f"{b.type}({b.text[:80]}...)" if b.type == "text" else b.type
@@ -176,12 +198,26 @@ class ClaudeLLM(BaseLLM):
                 block_summary,
             )
             return None
-        except Exception:
+        except Exception as exc:
+            self._last_call_info = {
+                "call_type": "parse_intent",
+                "model": self._model,
+                "system_prompt": _INTENT_SYSTEM_PROMPT,
+                "user_message": text,
+                "response_text": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "stop_reason": None,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+                "error": str(exc),
+            }
             log.exception("parse_intent error")
             return None
 
     def respond(self, text: str) -> str:
         """Send text to Claude and return the response."""
+        self._last_call_info = None
+        t0 = time.monotonic()
         try:
             messages = self._get_messages(text)
             message = self._client.messages.create(
@@ -191,14 +227,39 @@ class ClaudeLLM(BaseLLM):
                 messages=messages,
             )
             response = message.content[0].text
+            self._last_call_info = {
+                "call_type": "respond",
+                "model": self._model,
+                "system_prompt": self._system_prompt,
+                "user_message": text,
+                "response_text": response,
+                "input_tokens": message.usage.input_tokens,
+                "output_tokens": message.usage.output_tokens,
+                "stop_reason": message.stop_reason,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+            }
             self._record_exchange(text, response)
             return response
-        except Exception:
+        except Exception as exc:
+            self._last_call_info = {
+                "call_type": "respond",
+                "model": self._model,
+                "system_prompt": self._system_prompt,
+                "user_message": text,
+                "response_text": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "stop_reason": None,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+                "error": str(exc),
+            }
             log.exception("Claude API error")
             return "Sorry, I wasn't able to process that. Please try again."
 
     def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
         """Detect misheard command via a focused, stateless API call."""
+        self._last_call_info = None
+        t0 = time.monotonic()
         try:
             features_block = "\n".join(
                 f"- {desc}" for desc in feature_descriptions if desc
@@ -211,10 +272,33 @@ class ClaudeLLM(BaseLLM):
                 messages=[{"role": "user", "content": text}],
             )
             result = message.content[0].text.strip()
+            self._last_call_info = {
+                "call_type": "classify_intent",
+                "model": self._model,
+                "system_prompt": system,
+                "user_message": text,
+                "response_text": result,
+                "input_tokens": message.usage.input_tokens,
+                "output_tokens": message.usage.output_tokens,
+                "stop_reason": message.stop_reason,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+            }
             if result == "NONE":
                 return None
             log.info("Intent classification corrected %r → %r", text, result)
             return result
-        except Exception:
+        except Exception as exc:
+            self._last_call_info = {
+                "call_type": "classify_intent",
+                "model": self._model,
+                "system_prompt": None,
+                "user_message": text,
+                "response_text": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "stop_reason": None,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+                "error": str(exc),
+            }
             log.exception("Intent classification error")
             return None

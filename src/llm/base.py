@@ -22,6 +22,7 @@ class BaseLLM(ABC):
         self._max_history = config.get("llm_max_history", 10)
         self._history_ttl = config.get("llm_history_ttl", 300)
         self._history: list[tuple[str, str, float]] = []  # (user, assistant, timestamp)
+        self._last_call_info: dict | None = None
 
     def _expire_history(self) -> None:
         """Remove history entries older than TTL."""

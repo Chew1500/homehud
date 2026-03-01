@@ -115,6 +115,7 @@ def main():
     solar_collector = None
     sonarr_client = None
     radarr_client = None
+    telemetry_store = None
 
     if config.get("voice_enabled", True):
         try:
@@ -174,11 +175,21 @@ def main():
             ]
             capabilities_feature = CapabilitiesFeature(config, features)
             features.append(capabilities_feature)
+            # Telemetry
+            if config.get("telemetry_enabled", True):
+                from telemetry.store import TelemetryStore
+
+                telemetry_store = TelemetryStore(
+                    config["telemetry_db_path"],
+                    max_size_mb=config.get("telemetry_max_size_mb", 10240),
+                )
+
             router = get_router(config, features, llm)
             voice_thread = start_voice_pipeline(
                 audio, stt, wake, router, tts, config, running,
                 repeat_feature=repeat_feature,
                 wake_prompts=wake_prompts,
+                telemetry_store=telemetry_store,
             )
             log.info("Voice pipeline enabled.")
 
@@ -213,6 +224,8 @@ def main():
             solar_collector.close()
         if router:
             router.close()  # cascades to features + LLM
+        if telemetry_store:
+            telemetry_store.close()
         if solar_storage:
             solar_storage.close()
         if enphase_client:

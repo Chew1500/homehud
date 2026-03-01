@@ -92,6 +92,11 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `radarr_client.py`: `RadarrClient` — real Radarr v3 REST API client (httpx, X-Api-Key auth)
 - `__init__.py`: factory functions `get_sonarr_client(config)`, `get_radarr_client(config)` — returns None when mode is empty (opt-in)
 
+**`src/telemetry/`** — Voice transaction telemetry
+- `models.py`: Dataclasses — `Session`, `Exchange`, `LLMCallInfo`; `Session` tracks 1+ exchanges per wake event; `Exchange` has `start_phase(name)` / `end_phase(name)` helpers for timing pipeline phases; `LLMCallInfo` holds per-API-call metadata
+- `store.py`: `TelemetryStore` — thread-safe SQLite storage following the `SolarStorage` pattern; `save_session()` persists a complete session with all exchanges and LLM calls in one transaction; `_maybe_prune()` enforces a configurable size limit (default 10GB) by deleting the oldest 10% of sessions with cascading deletes
+- No ABC pattern — telemetry isn't hardware-dependent; when disabled, `telemetry_store` is `None` and the pipeline skips persistence
+
 **`src/utils/`** — Shared helpers
 - `__init__.py`: Package marker
 - `phrases.py`: Phrase pool constants (`WAKE_PHRASES`, `STARTUP_PHRASES`, `DEPLOY_PHRASES`) and `pick_phrase(pool) -> str`

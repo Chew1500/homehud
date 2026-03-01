@@ -127,6 +127,13 @@ def load_config() -> dict:
         # Media feature
         "media_disambiguation_ttl": int(os.getenv("HUD_MEDIA_DISAMBIGUATION_TTL", "60")),
 
+        # Telemetry
+        "telemetry_enabled": os.getenv("HUD_TELEMETRY_ENABLED", "true").lower() == "true",
+        "telemetry_db_path": os.getenv(
+            "HUD_TELEMETRY_DB_PATH", str(PROJECT_ROOT / "data" / "telemetry.db")
+        ),
+        "telemetry_max_size_mb": int(os.getenv("HUD_TELEMETRY_MAX_SIZE_MB", "10240")),
+
         # Anthropic API (Phase 6)
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
     }
