@@ -103,11 +103,19 @@ echo "  Downloading openWakeWord models..."
 sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/python" -c \
     "from openwakeword.utils import download_models; download_models()"
 
-# Download Kokoro TTS model (cached after first download)
-echo "  Downloading Kokoro TTS model..."
-sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/python" -c \
-    "from kokoro import KPipeline; KPipeline(lang_code='a'); print('Kokoro model ready')" \
-    2>/dev/null || echo "  Kokoro model download skipped (package not available or download failed)"
+# Download Kokoro ONNX model files (INT8 quantized)
+echo "  Downloading Kokoro ONNX model files..."
+KOKORO_MODEL_URL="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+sudo -H -u "$APP_USER" mkdir -p "$APP_DIR/models"
+if [ ! -f "$APP_DIR/models/kokoro-v1.0.int8.onnx" ]; then
+    sudo -H -u "$APP_USER" wget -q -O "$APP_DIR/models/kokoro-v1.0.int8.onnx" \
+        "$KOKORO_MODEL_URL/kokoro-v1.0.int8.onnx"
+fi
+if [ ! -f "$APP_DIR/models/voices-v1.0.bin" ]; then
+    sudo -H -u "$APP_USER" wget -q -O "$APP_DIR/models/voices-v1.0.bin" \
+        "$KOKORO_MODEL_URL/voices-v1.0.bin"
+fi
+echo "  Kokoro ONNX model ready"
 
 # --- Install systemd service ---
 echo "[6/6] Installing systemd service..."

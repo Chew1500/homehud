@@ -1,6 +1,8 @@
-"""Kokoro TTS backend for natural-sounding speech synthesis."""
+"""Kokoro TTS backend using ONNX Runtime for fast inference on ARM."""
 
+import asyncio
 import logging
+import os
 import shutil
 from collections.abc import Generator
 
@@ -13,11 +15,17 @@ log = logging.getLogger("home-hud.tts.kokoro")
 
 _KOKORO_NATIVE_RATE = 24000
 
+# Map short lang codes to full codes accepted by kokoro-onnx
+_LANG_ALIASES = {
+    "a": "en-us",
+    "b": "en-gb",
+}
+
 
 class KokoroTTS(BaseTTS):
-    """Text-to-speech using Kokoro (StyleTTS 2 + ISTFTNet).
+    """Text-to-speech using Kokoro via ONNX Runtime (INT8 quantized).
 
-    Requires the ``kokoro`` package and ``espeak-ng`` system dependency.
+    Requires the ``kokoro-onnx`` package and ``espeak-ng`` system dependency.
     Produces PCM int16 @ 16kHz mono (resampled from Kokoro's native 24kHz).
     """
 
@@ -32,42 +40,61 @@ class KokoroTTS(BaseTTS):
             )
 
         try:
-            from kokoro import KPipeline
+            import onnxruntime
+            from kokoro_onnx import Kokoro
         except ImportError:
             raise ImportError(
-                "kokoro is required for KokoroTTS. "
-                "Install it with: pip install kokoro"
+                "kokoro-onnx is required for KokoroTTS. "
+                "Install it with: pip install kokoro-onnx"
             )
 
         self._voice = config.get("tts_kokoro_voice", "af_heart")
         self._speed = config.get("tts_kokoro_speed", 1.0)
         lang = config.get("tts_kokoro_lang", "a")
+        self._lang = _LANG_ALIASES.get(lang, lang)
 
-        log.info("Loading Kokoro pipeline (lang=%s, voice=%s)", lang, self._voice)
-        self._pipeline = KPipeline(lang_code=lang)
-        log.info("Kokoro ready (native rate=%dHz)", _KOKORO_NATIVE_RATE)
+        model_path = config.get("tts_kokoro_model", "models/kokoro-v1.0.int8.onnx")
+        voices_path = config.get("tts_kokoro_voices", "models/voices-v1.0.bin")
+
+        # Configure ONNX session for optimal Pi 5 performance
+        session_opts = onnxruntime.SessionOptions()
+        session_opts.intra_op_num_threads = os.cpu_count() or 4
+        session_opts.graph_optimization_level = (
+            onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+        )
+
+        log.info(
+            "Loading Kokoro ONNX model (model=%s, voices=%s, threads=%d)",
+            model_path,
+            voices_path,
+            session_opts.intra_op_num_threads,
+        )
+        session = onnxruntime.InferenceSession(model_path, session_opts)
+        self._kokoro = Kokoro.from_session(session, voices_path)
+        log.info(
+            "Kokoro ready (lang=%s, voice=%s, native rate=%dHz)",
+            self._lang,
+            self._voice,
+            _KOKORO_NATIVE_RATE,
+        )
 
     def synthesize(self, text: str) -> bytes:
         """Synthesize text to PCM int16 @ 16kHz mono."""
         if not text or not text.strip():
             return b"\x00\x00" * 1600
 
-        chunks = []
-        for result in self._pipeline(
-            text, voice=self._voice, speed=self._speed
-        ):
-            if result.audio is not None:
-                chunks.append(result.audio.numpy())
+        samples, sample_rate = self._kokoro.create(
+            text, voice=self._voice, speed=self._speed, lang=self._lang
+        )
 
-        if not chunks:
+        if samples is None or len(samples) == 0:
             return b"\x00\x00" * 1600
 
-        # Kokoro outputs float32 samples in [-1, 1] at 24kHz
-        audio_f32 = np.concatenate(chunks)
-        audio_int16 = (audio_f32 * 32767).clip(-32768, 32767).astype(np.int16)
+        # Kokoro outputs float32 samples in [-1, 1]
+        audio_int16 = (samples * 32767).clip(-32768, 32767).astype(np.int16)
         raw = audio_int16.tobytes()
 
-        return resample_to_16k(raw, _KOKORO_NATIVE_RATE)
+        return resample_to_16k(raw, sample_rate)
 
     def synthesize_stream(self, text: str) -> Generator[bytes, None, None]:
         """Yield PCM chunks as Kokoro synthesizes each sentence/phrase."""
@@ -75,20 +102,28 @@ class KokoroTTS(BaseTTS):
             yield b"\x00\x00" * 1600
             return
 
+        # kokoro-onnx's create_stream() is async — collect chunks via asyncio
+        async def _collect():
+            chunks = []
+            async for samples, sample_rate in self._kokoro.create_stream(
+                text, voice=self._voice, speed=self._speed, lang=self._lang
+            ):
+                chunks.append((samples, sample_rate))
+            return chunks
+
+        stream_chunks = asyncio.run(_collect())
+
         yielded = False
-        for result in self._pipeline(
-            text, voice=self._voice, speed=self._speed
-        ):
-            if result.audio is not None:
-                audio_f32 = result.audio.numpy()
-                audio_int16 = (audio_f32 * 32767).clip(-32768, 32767).astype(np.int16)
+        for samples, sample_rate in stream_chunks:
+            if samples is not None and len(samples) > 0:
+                audio_int16 = (samples * 32767).clip(-32768, 32767).astype(np.int16)
                 raw = audio_int16.tobytes()
-                yield resample_to_16k(raw, _KOKORO_NATIVE_RATE)
+                yield resample_to_16k(raw, sample_rate)
                 yielded = True
 
         if not yielded:
             yield b"\x00\x00" * 1600
 
     def close(self) -> None:
-        """Release pipeline resources."""
-        self._pipeline = None
+        """Release resources."""
+        self._kokoro = None

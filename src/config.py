@@ -41,6 +41,12 @@ def load_config() -> dict:
         "tts_kokoro_voice": os.getenv("HUD_TTS_KOKORO_VOICE", "af_heart"),
         "tts_kokoro_speed": float(os.getenv("HUD_TTS_KOKORO_SPEED", "1.0")),
         "tts_kokoro_lang": os.getenv("HUD_TTS_KOKORO_LANG", "a"),
+        "tts_kokoro_model": os.getenv(
+            "HUD_TTS_KOKORO_MODEL", str(PROJECT_ROOT / "models" / "kokoro-v1.0.int8.onnx")
+        ),
+        "tts_kokoro_voices": os.getenv(
+            "HUD_TTS_KOKORO_VOICES", str(PROJECT_ROOT / "models" / "voices-v1.0.bin")
+        ),
         "tts_mock_duration": float(os.getenv("HUD_TTS_MOCK_DURATION", "2.0")),
 
         # LLM settings
