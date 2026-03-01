@@ -58,6 +58,15 @@ make test         # pytest tests/ -v
 - CI/CD: Push to `main` → lint/test on GitHub cloud → deploy via self-hosted runner on Pi
 - Logs: `sudo journalctl -u home-hud -f`
 
+## Telemetry Dashboard
+
+- The Pi serves a telemetry web dashboard at `http://homehud.local:8080`
+- Claude Code can access the API via `curl` from the dev machine (do NOT use `WebFetch` — it cannot resolve `.local` addresses)
+- Useful endpoints for inspecting voice pipeline behavior:
+  - `curl http://homehud.local:8080/api/stats` — aggregate stats (session/exchange counts, avg phase durations, token usage, error rate)
+  - `curl http://homehud.local:8080/api/sessions?limit=10` — recent sessions with transcriptions and features used
+  - `curl http://homehud.local:8080/api/sessions/<uuid>` — full session detail with exchange phase timings, LLM prompts/responses, and token counts
+
 ## Conventions
 
 - Follow the abstraction pattern — interfaces that can be mocked for local dev and swapped for real hardware on the Pi. This applies to audio I/O, speech engines, and display backends alike.
