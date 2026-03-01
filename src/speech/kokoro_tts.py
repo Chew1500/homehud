@@ -3,7 +3,9 @@
 import asyncio
 import logging
 import os
+import queue
 import shutil
+import threading
 from collections.abc import Generator
 
 import numpy as np
@@ -97,24 +99,43 @@ class KokoroTTS(BaseTTS):
         return resample_to_16k(raw, sample_rate)
 
     def synthesize_stream(self, text: str) -> Generator[bytes, None, None]:
-        """Yield PCM chunks as Kokoro synthesizes each sentence/phrase."""
+        """Yield PCM chunks as Kokoro synthesizes each sentence/phrase.
+
+        Uses a queue-based async-to-sync bridge so that audio chunks are
+        yielded to the caller (and played back) as soon as each one is
+        synthesized, rather than waiting for the entire text to finish.
+        """
         if not text or not text.strip():
             yield b"\x00\x00" * 1600
             return
 
-        # kokoro-onnx's create_stream() is async — collect chunks via asyncio
-        async def _collect():
-            chunks = []
-            async for samples, sample_rate in self._kokoro.create_stream(
-                text, voice=self._voice, speed=self._speed, lang=self._lang
-            ):
-                chunks.append((samples, sample_rate))
-            return chunks
+        chunk_queue: queue.Queue = queue.Queue()
+        sentinel = object()
 
-        stream_chunks = asyncio.run(_collect())
+        def _producer():
+            async def _stream():
+                async for samples, sample_rate in self._kokoro.create_stream(
+                    text, voice=self._voice, speed=self._speed, lang=self._lang
+                ):
+                    chunk_queue.put((samples, sample_rate))
+                chunk_queue.put(sentinel)
+
+            try:
+                asyncio.run(_stream())
+            except Exception as exc:
+                chunk_queue.put(exc)
+
+        thread = threading.Thread(target=_producer, daemon=True)
+        thread.start()
 
         yielded = False
-        for samples, sample_rate in stream_chunks:
+        while True:
+            item = chunk_queue.get()
+            if item is sentinel:
+                break
+            if isinstance(item, Exception):
+                raise item
+            samples, sample_rate = item
             if samples is not None and len(samples) > 0:
                 audio_int16 = (samples * 32767).clip(-32768, 32767).astype(np.int16)
                 raw = audio_int16.tobytes()
