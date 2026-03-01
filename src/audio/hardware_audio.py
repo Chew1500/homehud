@@ -185,6 +185,42 @@ class HardwareAudio(BaseAudio):
 
         threading.Thread(target=_wait_done, name="audio-play-wait", daemon=True).start()
 
+    def play_streamed(self, chunks):
+        """Stream audio chunks through speakers as they arrive.
+
+        Each chunk is written to a sounddevice OutputStream as it arrives,
+        so the user hears audio before the full response is synthesized.
+        Barge-in via stop_playback() breaks the loop.
+        """
+        import numpy as np
+
+        self._playing.set()
+
+        def _stream_worker():
+            stream = self._sd.OutputStream(
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype="int16",
+            )
+            try:
+                stream.start()
+                for chunk in chunks:
+                    if not self._playing.is_set():
+                        break
+                    audio = np.frombuffer(chunk, dtype=np.int16)
+                    if self.channels > 1:
+                        audio = audio.reshape(-1, self.channels)
+                    stream.write(audio)
+            finally:
+                stream.stop()
+                stream.close()
+                self._playing.clear()
+
+        log.info("Streaming TTS playback started")
+        threading.Thread(
+            target=_stream_worker, name="audio-stream-play", daemon=True,
+        ).start()
+
     def stop_playback(self) -> None:
         """Stop any in-progress async playback."""
         self._sd.stop()

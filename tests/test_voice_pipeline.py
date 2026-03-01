@@ -71,6 +71,7 @@ def _make_tts(speech=b"\x00\x00" * 16000):
     """Create a mock TTS that returns fixed PCM bytes."""
     tts = MagicMock()
     tts.synthesize.return_value = speech
+    tts.synthesize_stream.return_value = iter([speech])
     return tts
 
 
@@ -465,6 +466,7 @@ def test_pipeline_uses_vad_when_enabled():
     config["vad_silence_duration"] = 0.01
     config["vad_min_duration"] = 0.0
     config["vad_max_duration"] = 0.1
+    config["vad_speech_chunks_required"] = 0  # Disable gate for mock silence stream
 
     thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
     time.sleep(0.5)
@@ -501,8 +503,8 @@ def test_pipeline_uses_record_when_vad_disabled():
 # --- Phase 3: Barge-in tests ---
 
 
-def test_pipeline_uses_async_playback_with_bargein():
-    """Pipeline should use play_async when barge-in is enabled."""
+def test_pipeline_uses_streamed_playback_with_bargein():
+    """Pipeline should use play_streamed + synthesize_stream when barge-in is enabled."""
     audio = _make_audio()
     audio.is_playing.return_value = False
     stt = MagicMock()
@@ -521,7 +523,8 @@ def test_pipeline_uses_async_playback_with_bargein():
     running.clear()
     thread.join(timeout=3)
 
-    audio.play_async.assert_called_with(speech_bytes)
+    tts.synthesize_stream.assert_called_with("response")
+    audio.play_streamed.assert_called()
 
 
 def test_pipeline_stops_playback_on_bargein():

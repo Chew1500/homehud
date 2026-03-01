@@ -3,6 +3,7 @@
 import logging
 import urllib.error
 import urllib.request
+from collections.abc import Generator
 from pathlib import Path
 
 from config import PROJECT_ROOT
@@ -132,3 +133,15 @@ class PiperTTS(BaseTTS):
             raw = resample_to_16k(raw, self._native_rate)
 
         return raw
+
+    def synthesize_stream(self, text: str) -> Generator[bytes, None, None]:
+        """Yield PCM chunks as Piper synthesizes each segment."""
+        if not text or not text.strip():
+            yield b"\x00\x00" * 1600
+            return
+
+        for audio_chunk in self._voice.synthesize(text, syn_config=self._syn_config):
+            raw = audio_chunk.audio_int16_bytes
+            if self._native_rate != 16000:
+                raw = resample_to_16k(raw, self._native_rate)
+            yield raw

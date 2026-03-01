@@ -64,8 +64,11 @@ def load_config() -> dict:
             os.getenv("HUD_VOICE_DEPLOY_ANNOUNCEMENT", "true").lower() == "true"
         ),
         "voice_vad_enabled": os.getenv("HUD_VOICE_VAD_ENABLED", "true").lower() == "true",
-        "vad_silence_threshold": int(os.getenv("HUD_VAD_SILENCE_THRESHOLD", "500")),
-        "vad_silence_duration": float(os.getenv("HUD_VAD_SILENCE_DURATION", "2.0")),
+        "vad_silence_threshold": int(os.getenv("HUD_VAD_SILENCE_THRESHOLD", "300")),
+        "vad_silence_duration": float(os.getenv("HUD_VAD_SILENCE_DURATION", "2.5")),
+        "vad_speech_chunks_required": int(
+            os.getenv("HUD_VAD_SPEECH_CHUNKS_REQUIRED", "3")
+        ),
         "vad_min_duration": float(os.getenv("HUD_VAD_MIN_DURATION", "0.5")),
         "vad_max_duration": float(os.getenv("HUD_VAD_MAX_DURATION", "15.0")),
         "voice_bargein_enabled": os.getenv("HUD_VOICE_BARGEIN_ENABLED", "true").lower() == "true",

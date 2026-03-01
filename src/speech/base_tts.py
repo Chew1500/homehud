@@ -1,6 +1,7 @@
 """Abstract base class for text-to-speech backends."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 
 
 class BaseTTS(ABC):
@@ -24,6 +25,20 @@ class BaseTTS(ABC):
             Raw PCM bytes (int16, little-endian, 16kHz mono).
         """
         ...
+
+    def synthesize_stream(self, text: str) -> Generator[bytes, None, None]:
+        """Yield PCM audio chunks as they are synthesized.
+
+        Default implementation wraps synthesize() — yields the entire
+        result as a single chunk. Subclasses override for true streaming.
+
+        Args:
+            text: Text string to synthesize.
+
+        Yields:
+            Raw PCM bytes (int16, little-endian, 16kHz mono) per chunk.
+        """
+        yield self.synthesize(text)
 
     def close(self) -> None:
         """Clean up resources. Override if needed."""

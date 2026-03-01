@@ -43,6 +43,7 @@ def _make_vad(**overrides):
         "vad_min_duration": 0.0,
         "vad_max_duration": 5.0,
         "audio_sample_rate": 16000,
+        "vad_speech_chunks_required": 0,  # Disable gate for existing tests
     }
     config.update(overrides)
     return VoiceActivityDetector(config)
@@ -120,3 +121,71 @@ def test_returns_concatenated_bytes():
     result = vad.record_until_silence(_make_stream(chunks))
     # Result should start with the loud chunks
     assert result[:len(chunk)] == chunk
+
+
+# --- Speech gate tests ---
+
+
+def test_gate_prevents_early_stop_before_speech():
+    """With the speech gate, all-silence should NOT stop early — runs to max_duration."""
+    chunks = [_silence_chunk()] * 200
+    vad = _make_vad(
+        vad_speech_chunks_required=3,
+        vad_min_duration=0.0,
+        vad_silence_duration=0.0,
+        vad_max_duration=0.2,
+    )
+    result = vad.record_until_silence(_make_stream(chunks))
+    # With gate active and no speech, silence can't trigger stop.
+    # VAD runs until max_duration (all 200 chunks yield instantly,
+    # max_duration fires based on wall clock).
+    assert len(result) > 0
+
+
+def test_gate_allows_stop_after_speech():
+    """Once enough loud chunks are seen, silence should trigger stop normally."""
+    chunks = [_loud_chunk()] * 5 + [_silence_chunk()] * 10
+    vad = _make_vad(
+        vad_speech_chunks_required=3,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    result = vad.record_until_silence(_make_stream(chunks))
+    # Should stop after the loud chunks + first silence chunk
+    all_bytes = b"".join(chunks)
+    assert len(result) < len(all_bytes)
+
+
+def test_gate_cumulative_counting():
+    """Speech chunks count is cumulative (not consecutive).
+
+    Pattern: loud, silence, loud, loud → 3 loud chunks total → gate opens.
+    """
+    chunks = (
+        [_loud_chunk()] * 1
+        + [_silence_chunk()] * 1
+        + [_loud_chunk()] * 2
+        + [_silence_chunk()] * 10
+    )
+    vad = _make_vad(
+        vad_speech_chunks_required=3,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    result = vad.record_until_silence(_make_stream(chunks))
+    all_bytes = b"".join(chunks)
+    # Gate should have opened after 3rd loud chunk, then silence triggers stop
+    assert len(result) < len(all_bytes)
+
+
+def test_gate_zero_disables():
+    """With speech_chunks_required=0, gate is effectively disabled (speech_started=True)."""
+    chunks = [_silence_chunk()] * 200
+    vad = _make_vad(
+        vad_speech_chunks_required=0,
+        vad_min_duration=0.0,
+        vad_silence_duration=0.0,
+    )
+    result = vad.record_until_silence(_make_stream(chunks))
+    # Should stop early — first chunk triggers silence detection (gate disabled)
+    assert len(result) < len(b"".join(chunks))

@@ -50,6 +50,13 @@ class TestMockTTS:
         tts = MockTTS(_make_config())
         tts.close()
 
+    def test_synthesize_stream_yields_single_chunk(self):
+        """MockTTS.synthesize_stream() yields entire result as one chunk (default impl)."""
+        tts = MockTTS(_make_config())
+        chunks = list(tts.synthesize_stream("hello"))
+        assert len(chunks) == 1
+        assert chunks[0] == tts.synthesize("hello")
+
 
 class TestTTSFactory:
     def test_factory_returns_mock_by_default(self):
@@ -353,6 +360,37 @@ class TestKokoroTTS:
         from speech.kokoro_tts import KokoroTTS
         with pytest.raises(ImportError, match="kokoro is required"):
             KokoroTTS(_make_config(tts_mode="kokoro"))
+
+    def test_synthesize_stream_yields_per_result(self, monkeypatch):
+        """KokoroTTS.synthesize_stream() yields one chunk per pipeline result."""
+        # Two separate 0.25s audio segments
+        t = np.linspace(0, 0.25, 6000, endpoint=False)
+        audio1 = (np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        audio2 = (np.sin(2 * np.pi * 880 * t)).astype(np.float32)
+        results = [_FakeResult(audio1), _FakeResult(audio2)]
+
+        tts, _ = self._build(monkeypatch, pipeline_results=results)
+        chunks = list(tts.synthesize_stream("hello world"))
+
+        assert len(chunks) == 2
+        for chunk in chunks:
+            assert isinstance(chunk, bytes)
+            assert len(chunk) > 0
+            assert len(chunk) % 2 == 0
+
+    def test_synthesize_stream_empty_text(self, monkeypatch):
+        """KokoroTTS.synthesize_stream() yields silence for empty text."""
+        tts, _ = self._build(monkeypatch)
+        chunks = list(tts.synthesize_stream(""))
+        assert len(chunks) == 1
+        assert chunks[0] == b"\x00\x00" * 1600
+
+    def test_synthesize_stream_no_audio_yields_silence(self, monkeypatch):
+        """KokoroTTS.synthesize_stream() yields silence when pipeline has no audio."""
+        tts, _ = self._build(monkeypatch, pipeline_results=[_FakeResultNoAudio()])
+        chunks = list(tts.synthesize_stream("hello"))
+        assert len(chunks) == 1
+        assert chunks[0] == b"\x00\x00" * 1600
 
     def test_factory_returns_kokoro(self, monkeypatch):
         """get_tts returns KokoroTTS for 'kokoro' mode."""

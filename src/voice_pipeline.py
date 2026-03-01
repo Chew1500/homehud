@@ -68,9 +68,8 @@ def start_voice_pipeline(
             if repeat_feature is not None:
                 repeat_feature.record(text, response)
             try:
-                speech = tts.synthesize(response)
-                if bargein_enabled and hasattr(audio, "play_async"):
-                    audio.play_async(speech)
+                if bargein_enabled:
+                    audio.play_streamed(tts.synthesize_stream(response))
                     # Reset wake detector state to clear any residual
                     # audio patterns from the tone or prior detection.
                     wake.reset()
@@ -101,7 +100,7 @@ def start_voice_pipeline(
                         log.info("Follow-up mode: continuing command loop")
                     return bargein or follow_up
                 else:
-                    audio.play(speech)
+                    audio.play(tts.synthesize(response))
                     follow_up = router.expects_follow_up
                     if follow_up:
                         log.info("Follow-up mode: continuing command loop")

@@ -139,6 +139,27 @@ def test_mock_async_saves_wav(tmp_path):
     assert wav_path.exists()
 
 
+def test_mock_play_streamed(tmp_path):
+    """play_streamed should collect chunks and play via play_async."""
+    config = {"audio_mock_dir": str(tmp_path)}
+    audio = MockAudio(config)
+
+    chunk1 = b"\x01\x00" * 400
+    chunk2 = b"\x02\x00" * 400
+
+    def gen():
+        yield chunk1
+        yield chunk2
+
+    audio.play_streamed(gen())
+
+    # Should have saved a WAV (via play_async → play)
+    wav_path = tmp_path / "latest.wav"
+    assert wav_path.exists()
+    # Should be playing (play_async sets the flag)
+    assert audio.is_playing()
+
+
 def test_factory_returns_mock(tmp_path):
     """get_audio() should return MockAudio by default."""
     config = {

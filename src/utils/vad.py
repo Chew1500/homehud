@@ -22,6 +22,7 @@ class VoiceActivityDetector:
         self._min_duration = config.get("vad_min_duration", 0.5)
         self._max_duration = config.get("vad_max_duration", 15.0)
         self._sample_rate = config.get("audio_sample_rate", 16000)
+        self._speech_chunks_required = config.get("vad_speech_chunks_required", 3)
 
     @staticmethod
     def rms(chunk: bytes) -> float:
@@ -45,31 +46,41 @@ class VoiceActivityDetector:
         chunks: list[bytes] = []
         start = time.monotonic()
         silence_start: float | None = None
+        speech_chunks = 0
+        speech_started = self._speech_chunks_required <= 0
 
         try:
             for chunk in stream:
                 elapsed = time.monotonic() - start
                 chunks.append(chunk)
 
-                # Enforce max duration
+                # Enforce max duration (unconditional safety net)
                 if elapsed >= self._max_duration:
                     log.info("VAD: max duration reached (%.1fs)", elapsed)
                     break
 
                 energy = self.rms(chunk)
 
-                if energy < self._silence_threshold:
-                    if silence_start is None:
-                        silence_start = time.monotonic()
-                    silence_elapsed = time.monotonic() - silence_start
-                    if silence_elapsed >= self._silence_duration and elapsed >= self._min_duration:
-                        log.info(
-                            "VAD: silence detected after %.1fs (silence=%.1fs)",
-                            elapsed, silence_elapsed,
-                        )
-                        break
-                else:
+                if energy >= self._silence_threshold:
+                    speech_chunks += 1
+                    if not speech_started and speech_chunks >= self._speech_chunks_required:
+                        speech_started = True
+                        log.debug("VAD: speech started (%d chunks)", speech_chunks)
                     silence_start = None
+                else:
+                    # Only allow silence-triggered stop once speech has started
+                    if speech_started:
+                        if silence_start is None:
+                            silence_start = time.monotonic()
+                        silence_elapsed = time.monotonic() - silence_start
+                        past_silence = silence_elapsed >= self._silence_duration
+                        past_min = elapsed >= self._min_duration
+                        if past_silence and past_min:
+                            log.info(
+                                "VAD: silence detected after %.1fs (silence=%.1fs)",
+                                elapsed, silence_elapsed,
+                            )
+                            break
         finally:
             stream.close()
 

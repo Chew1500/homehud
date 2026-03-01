@@ -59,6 +59,15 @@ class BaseAudio(ABC):
         """
         self.play(data)
 
+    def play_streamed(self, chunks: Generator[bytes, None, None]) -> None:
+        """Play audio chunks as they arrive from a generator.
+
+        Default implementation collects all chunks and falls back to
+        play_async(). Override for true streaming playback.
+        """
+        data = b"".join(chunks)
+        self.play_async(data)
+
     def stop_playback(self) -> None:
         """Stop any in-progress playback. Override for real implementation."""
         pass

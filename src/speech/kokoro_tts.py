@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+from collections.abc import Generator
 
 import numpy as np
 
@@ -67,6 +68,26 @@ class KokoroTTS(BaseTTS):
         raw = audio_int16.tobytes()
 
         return resample_to_16k(raw, _KOKORO_NATIVE_RATE)
+
+    def synthesize_stream(self, text: str) -> Generator[bytes, None, None]:
+        """Yield PCM chunks as Kokoro synthesizes each sentence/phrase."""
+        if not text or not text.strip():
+            yield b"\x00\x00" * 1600
+            return
+
+        yielded = False
+        for result in self._pipeline(
+            text, voice=self._voice, speed=self._speed
+        ):
+            if result.audio is not None:
+                audio_f32 = result.audio.numpy()
+                audio_int16 = (audio_f32 * 32767).clip(-32768, 32767).astype(np.int16)
+                raw = audio_int16.tobytes()
+                yield resample_to_16k(raw, _KOKORO_NATIVE_RATE)
+                yielded = True
+
+        if not yielded:
+            yield b"\x00\x00" * 1600
 
     def close(self) -> None:
         """Release pipeline resources."""
