@@ -21,7 +21,10 @@ class OWWWakeWord(BaseWakeWord):
         self._np = np
         self._wake_model = config.get("wake_model", "hey_jarvis")
         self._threshold = config.get("wake_threshold", 0.5)
-        self._model = Model(wakeword_models=[self._wake_model])
+        self._model = Model(
+            wakeword_models=[self._wake_model],
+            inference_framework="onnx",
+        )
         log.info(
             "OWWWakeWord initialized: model=%s, threshold=%.2f",
             self._wake_model,
