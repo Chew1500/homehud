@@ -116,6 +116,7 @@ def main():
     sonarr_client = None
     radarr_client = None
     telemetry_store = None
+    telemetry_web = None
 
     if config.get("voice_enabled", True):
         try:
@@ -183,6 +184,15 @@ def main():
                     config["telemetry_db_path"],
                     max_size_mb=config.get("telemetry_max_size_mb", 10240),
                 )
+                if config.get("telemetry_web_enabled", True):
+                    from telemetry.web import TelemetryWeb
+
+                    telemetry_web = TelemetryWeb(
+                        config["telemetry_db_path"],
+                        host=config.get("telemetry_web_host", "0.0.0.0"),
+                        port=config.get("telemetry_web_port", 8080),
+                    )
+                    telemetry_web.start()
 
             router = get_router(config, features, llm)
             voice_thread = start_voice_pipeline(
@@ -224,6 +234,8 @@ def main():
             solar_collector.close()
         if router:
             router.close()  # cascades to features + LLM
+        if telemetry_web:
+            telemetry_web.close()
         if telemetry_store:
             telemetry_store.close()
         if solar_storage:

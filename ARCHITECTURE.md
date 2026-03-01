@@ -95,6 +95,8 @@ Consult this file before creating new files or modules. Update it as planned pac
 **`src/telemetry/`** — Voice transaction telemetry
 - `models.py`: Dataclasses — `Session`, `Exchange`, `LLMCallInfo`; `Session` tracks 1+ exchanges per wake event; `Exchange` has `start_phase(name)` / `end_phase(name)` helpers for timing pipeline phases; `LLMCallInfo` holds per-API-call metadata
 - `store.py`: `TelemetryStore` — thread-safe SQLite storage following the `SolarStorage` pattern; `save_session()` persists a complete session with all exchanges and LLM calls in one transaction; `_maybe_prune()` enforces a configurable size limit (default 10GB) by deleting the oldest 10% of sessions with cascading deletes
+- `web.py`: `TelemetryWeb` — lightweight HTTP server (daemon thread, `http.server`) serving a single-page dashboard and JSON API; opens its own read-only SQLite connection independent from the pipeline's writes; endpoints: `/` (dashboard), `/api/stats`, `/api/sessions`, `/api/sessions/<id>`
+- `dashboard.py`: `DASHBOARD_HTML` — self-contained HTML page with embedded CSS and vanilla JS; summary cards, phase performance table, feature/routing breakdowns, paginated session list with expandable exchange and LLM call details
 - No ABC pattern — telemetry isn't hardware-dependent; when disabled, `telemetry_store` is `None` and the pipeline skips persistence
 
 **`src/utils/`** — Shared helpers

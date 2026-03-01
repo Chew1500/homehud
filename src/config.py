@@ -133,6 +133,11 @@ def load_config() -> dict:
             "HUD_TELEMETRY_DB_PATH", str(PROJECT_ROOT / "data" / "telemetry.db")
         ),
         "telemetry_max_size_mb": int(os.getenv("HUD_TELEMETRY_MAX_SIZE_MB", "10240")),
+        "telemetry_web_enabled": (
+            os.getenv("HUD_TELEMETRY_WEB_ENABLED", "true").lower() == "true"
+        ),
+        "telemetry_web_host": os.getenv("HUD_TELEMETRY_WEB_HOST", "0.0.0.0"),
+        "telemetry_web_port": int(os.getenv("HUD_TELEMETRY_WEB_PORT", "8080")),
 
         # Anthropic API (Phase 6)
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
