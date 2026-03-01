@@ -80,8 +80,7 @@ home-hud/
 │   │   ├── mock_stt.py      # Canned responses for local dev
 │   │   ├── whisper_stt.py   # Local Whisper transcription
 │   │   ├── base_tts.py      # Abstract TTS interface
-│   │   ├── mock_tts.py      # Silence output for local dev
-│   │   └── piper_tts.py     # Piper ONNX voice synthesis
+│   │   └── mock_tts.py      # Silence output for local dev
 │   ├── llm/
 │   │   ├── base.py          # Abstract LLM interface
 │   │   ├── mock_llm.py      # Canned responses for local dev
@@ -117,7 +116,7 @@ home-hud/
   - [x] Reminders
   - Solar production queries
   - [x] General LLM fallback (Claude API)
-- [x] Phase 6: Text-to-speech (Piper)
+- [x] Phase 6: Text-to-speech (Kokoro)
 - [ ] Phase 7: Live Enphase energy data integration
 - [ ] Phase 8: E-ink display UI
 - [ ] Phase 9: Polish & enclosure
