@@ -31,9 +31,17 @@ def _make_llm(response="LLM response", classify_result=None, parse_result=None):
     """Create a mock LLM."""
     llm = MagicMock()
     llm.respond.return_value = response
+    llm.respond_stream.side_effect = lambda text: iter([response])
     llm.classify_intent.return_value = classify_result
     llm.parse_intent.return_value = parse_result
     return llm
+
+
+def _consume(result):
+    """Consume a route result (str or generator) into a string."""
+    if isinstance(result, str):
+        return result
+    return " ".join(result)
 
 
 def test_routes_to_matching_feature():
@@ -53,10 +61,10 @@ def test_falls_back_to_llm():
     llm = _make_llm("LLM says hi")
     router = IntentRouter({}, [feat], llm)
 
-    result = router.route("what time is it")
+    result = _consume(router.route("what time is it"))
 
     assert result == "LLM says hi"
-    llm.respond.assert_called_with("what time is it")
+    llm.respond_stream.assert_called_with("what time is it")
     feat.handle.assert_not_called()
 
 
@@ -77,10 +85,10 @@ def test_empty_features_uses_llm():
     llm = _make_llm("fallback")
     router = IntentRouter({}, [], llm)
 
-    result = router.route("hello")
+    result = _consume(router.route("hello"))
 
     assert result == "fallback"
-    llm.respond.assert_called_with("hello")
+    llm.respond_stream.assert_called_with("hello")
 
 
 def test_close_cascades():
@@ -123,11 +131,11 @@ def test_recovery_returns_none_falls_to_llm():
     llm = _make_llm("LLM answer", classify_result=None)
     router = IntentRouter({}, [feat], llm)
 
-    result = router.route("what is the capital of France")
+    result = _consume(router.route("what is the capital of France"))
 
     assert result == "LLM answer"
     llm.classify_intent.assert_called_once()
-    llm.respond.assert_called_with("what is the capital of France")
+    llm.respond_stream.assert_called_with("what is the capital of France")
 
 
 def test_recovery_corrected_no_match_falls_to_llm():
@@ -136,10 +144,10 @@ def test_recovery_corrected_no_match_falls_to_llm():
     llm = _make_llm("LLM answer", classify_result="some corrected text")
     router = IntentRouter({}, [feat], llm)
 
-    result = router.route("garbled input")
+    result = _consume(router.route("garbled input"))
 
     assert result == "LLM answer"
-    llm.respond.assert_called_with("garbled input")
+    llm.respond_stream.assert_called_with("garbled input")
 
 
 def test_recovery_disabled_skips_classification():
@@ -149,11 +157,11 @@ def test_recovery_disabled_skips_classification():
     config = {"intent_recovery_enabled": False}
     router = IntentRouter(config, [feat], llm)
 
-    result = router.route("what is on the gross free list")
+    result = _consume(router.route("what is on the gross free list"))
 
     assert result == "LLM answer"
     llm.classify_intent.assert_not_called()
-    llm.respond.assert_called_once()
+    llm.respond_stream.assert_called_once()
 
 
 def test_recovery_exception_falls_to_llm():
@@ -163,10 +171,10 @@ def test_recovery_exception_falls_to_llm():
     llm.classify_intent.side_effect = RuntimeError("API error")
     router = IntentRouter({}, [feat], llm)
 
-    result = router.route("garbled input")
+    result = _consume(router.route("garbled input"))
 
     assert result == "LLM answer"
-    llm.respond.assert_called_with("garbled input")
+    llm.respond_stream.assert_called_with("garbled input")
 
 
 def test_recovery_skipped_when_no_descriptions():
@@ -175,7 +183,7 @@ def test_recovery_skipped_when_no_descriptions():
     llm = _make_llm("LLM answer")
     router = IntentRouter({}, [feat], llm)
 
-    result = router.route("anything")
+    result = _consume(router.route("anything"))
 
     assert result == "LLM answer"
     llm.classify_intent.assert_not_called()
@@ -217,7 +225,7 @@ def test_expects_follow_up_cleared_on_llm_fallback():
     # Second route falls through to LLM
     feat.matches.return_value = False
     llm.classify_intent.return_value = None
-    router.route("what is the weather")
+    _consume(router.route("what is the weather"))
     assert router.expects_follow_up is False
 
 

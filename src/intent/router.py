@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
 
 from features.base import BaseFeature
 from llm.base import BaseLLM
@@ -173,7 +174,14 @@ class IntentRouter:
         if self._llm._last_call_info is not None:
             self._last_llm_calls.append(self._llm._last_call_info)
 
-    def route(self, text: str) -> str:
+    def _wrap_stream(self, stream: Generator[str, None, None]) -> Generator[str, None, None]:
+        """Wrap a sentence stream with post-completion bookkeeping."""
+        try:
+            yield from stream
+        finally:
+            self._collect_llm_call()
+
+    def route(self, text: str) -> str | Generator[str, None, None]:
         """Route text to the appropriate handler and return a response."""
         self._last_route_info = None
         self._last_llm_calls = []
@@ -207,18 +215,16 @@ class IntentRouter:
             except Exception:
                 log.exception("Intent recovery failed, falling through to LLM")
 
-        # 4. Final fallback: conversational LLM
+        # 4. Final fallback: conversational LLM (streamed)
         log.info("No feature matched, falling back to LLM")
         self._last_feature = None
         self._llm_expects_follow_up = False
-        result = self._llm.respond(text)
-        self._collect_llm_call()
         self._last_route_info = {
             "path": "llm_fallback",
             "matched_feature": None,
             "feature_action": None,
         }
-        return result
+        return self._wrap_stream(self._llm.respond_stream(text))
 
     def close(self) -> None:
         """Close all features and the LLM."""

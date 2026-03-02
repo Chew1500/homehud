@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
+from collections.abc import Generator
 
 from llm.base import BaseLLM
 
@@ -111,6 +113,15 @@ _ROUTE_INTENT_TOOL = {
 }
 
 
+_SENTENCE_END = re.compile(r'[.!?](?:\s|$)')
+
+
+def _find_sentence_boundary(text: str) -> int:
+    """Return index after first sentence-ending punctuation, or -1."""
+    match = _SENTENCE_END.search(text)
+    return match.end() if match else -1
+
+
 class ClaudeLLM(BaseLLM):
     """LLM backend that calls the Anthropic Claude API."""
 
@@ -128,6 +139,7 @@ class ClaudeLLM(BaseLLM):
 
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = config.get("llm_model", "claude-sonnet-4-5-20250929")
+        self._intent_model = config.get("llm_intent_model", "claude-haiku-4-5-20251001")
         self._max_tokens = config.get("llm_max_tokens", 1024)
         self._intent_max_tokens = config.get("llm_intent_max_tokens", 300)
         self._system_prompt = config.get("llm_system_prompt") or DEFAULT_SYSTEM_PROMPT
@@ -146,7 +158,7 @@ class ClaudeLLM(BaseLLM):
             messages = self._get_messages(user_content)
 
             message = self._client.messages.create(
-                model=self._model,
+                model=self._intent_model,
                 max_tokens=self._intent_max_tokens,
                 system=[{
                     "type": "text",
@@ -168,7 +180,7 @@ class ClaudeLLM(BaseLLM):
 
             self._last_call_info = {
                 "call_type": "parse_intent",
-                "model": self._model,
+                "model": self._intent_model,
                 "system_prompt": _INTENT_SYSTEM_PROMPT,
                 "user_message": user_content,
                 "response_text": response_text,
@@ -201,7 +213,7 @@ class ClaudeLLM(BaseLLM):
         except Exception as exc:
             self._last_call_info = {
                 "call_type": "parse_intent",
-                "model": self._model,
+                "model": self._intent_model,
                 "system_prompt": _INTENT_SYSTEM_PROMPT,
                 "user_message": text,
                 "response_text": None,
@@ -256,6 +268,62 @@ class ClaudeLLM(BaseLLM):
             log.exception("Claude API error")
             return "Sorry, I wasn't able to process that. Please try again."
 
+    def respond_stream(self, text: str) -> Generator[str, None, None]:
+        """Stream response sentences as they arrive from the Anthropic API."""
+        self._last_call_info = None
+        t0 = time.monotonic()
+        try:
+            messages = self._get_messages(text)
+            with self._client.messages.stream(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=self._system_prompt,
+                messages=messages,
+            ) as stream:
+                buf = ""
+                for token in stream.text_stream:
+                    buf += token
+                    while True:
+                        boundary = _find_sentence_boundary(buf)
+                        if boundary == -1:
+                            break
+                        sentence = buf[:boundary].strip()
+                        buf = buf[boundary:]
+                        if sentence:
+                            yield sentence
+                if buf.strip():
+                    yield buf.strip()
+
+                final = stream.get_final_message()
+                full_response = final.content[0].text
+                self._last_call_info = {
+                    "call_type": "respond",
+                    "model": self._model,
+                    "system_prompt": self._system_prompt,
+                    "user_message": text,
+                    "response_text": full_response,
+                    "input_tokens": final.usage.input_tokens,
+                    "output_tokens": final.usage.output_tokens,
+                    "stop_reason": final.stop_reason,
+                    "duration_ms": int((time.monotonic() - t0) * 1000),
+                }
+                self._record_exchange(text, full_response)
+        except Exception as exc:
+            self._last_call_info = {
+                "call_type": "respond",
+                "model": self._model,
+                "system_prompt": self._system_prompt,
+                "user_message": text,
+                "response_text": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "stop_reason": None,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+                "error": str(exc),
+            }
+            log.exception("Claude streaming API error")
+            yield "Sorry, I wasn't able to process that. Please try again."
+
     def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
         """Detect misheard command via a focused, stateless API call."""
         self._last_call_info = None
@@ -266,7 +334,7 @@ class ClaudeLLM(BaseLLM):
             )
             system = _CLASSIFY_SYSTEM_PROMPT.format(features=features_block)
             message = self._client.messages.create(
-                model=self._model,
+                model=self._intent_model,
                 max_tokens=100,
                 system=system,
                 messages=[{"role": "user", "content": text}],
@@ -274,7 +342,7 @@ class ClaudeLLM(BaseLLM):
             result = message.content[0].text.strip()
             self._last_call_info = {
                 "call_type": "classify_intent",
-                "model": self._model,
+                "model": self._intent_model,
                 "system_prompt": system,
                 "user_message": text,
                 "response_text": result,
@@ -290,7 +358,7 @@ class ClaudeLLM(BaseLLM):
         except Exception as exc:
             self._last_call_info = {
                 "call_type": "classify_intent",
-                "model": self._model,
+                "model": self._intent_model,
                 "system_prompt": None,
                 "user_message": text,
                 "response_text": None,

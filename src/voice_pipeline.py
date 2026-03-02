@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import types
 
 from audio.base import BaseAudio
 from intent.router import IntentRouter
@@ -109,44 +110,54 @@ def start_voice_pipeline(
                 except Exception:
                     pass
             response = router.route(text)
+            is_streaming = isinstance(response, types.GeneratorType)
+
             if exchange is not None:
                 try:
                     exchange.end_phase("routing")
-                    exchange.response_text = response
-                    # Collect routing metadata
+                    # Routing metadata is available for both paths
                     if router._last_route_info:
                         exchange.routing_path = router._last_route_info.get("path")
                         exchange.matched_feature = router._last_route_info.get("matched_feature")
                         exchange.feature_action = router._last_route_info.get("feature_action")
-                    # Collect LLM call info
-                    for call_dict in router._last_llm_calls:
-                        exchange.llm_calls.append(LLMCallInfo(
-                            call_type=call_dict.get("call_type", ""),
-                            model=call_dict.get("model"),
-                            system_prompt=call_dict.get("system_prompt"),
-                            user_message=call_dict.get("user_message"),
-                            response_text=call_dict.get("response_text"),
-                            input_tokens=call_dict.get("input_tokens"),
-                            output_tokens=call_dict.get("output_tokens"),
-                            stop_reason=call_dict.get("stop_reason"),
-                            duration_ms=call_dict.get("duration_ms"),
-                            error=call_dict.get("error"),
-                        ))
+                    if not is_streaming:
+                        exchange.response_text = response
+                        # LLM call info available immediately for non-streaming
+                        for call_dict in router._last_llm_calls:
+                            exchange.llm_calls.append(LLMCallInfo(
+                                call_type=call_dict.get("call_type", ""),
+                                model=call_dict.get("model"),
+                                system_prompt=call_dict.get("system_prompt"),
+                                user_message=call_dict.get("user_message"),
+                                response_text=call_dict.get("response_text"),
+                                input_tokens=call_dict.get("input_tokens"),
+                                output_tokens=call_dict.get("output_tokens"),
+                                stop_reason=call_dict.get("stop_reason"),
+                                duration_ms=call_dict.get("duration_ms"),
+                                error=call_dict.get("error"),
+                            ))
                 except Exception:
                     pass
 
-            log.info("Response: %r", response)
-            if repeat_feature is not None:
-                repeat_feature.record(text, response)
-            try:
-                if bargein_enabled:
-                    # --- TTS phase ---
+            if is_streaming:
+                # --- Streaming LLM fallback ---
+                # Chain: LLM sentences → per-sentence TTS → PCM chunks.
+                # Playback starts as the first sentence is synthesized.
+                sentences = []
+
+                def _chained_tts():
+                    for sentence in response:
+                        sentences.append(sentence)
+                        yield from tts.synthesize_stream(sentence)
+
+                try:
+                    # --- TTS phase (iterator creation) ---
                     if exchange is not None:
                         try:
                             exchange.start_phase("tts")
                         except Exception:
                             pass
-                    stream_iter = tts.synthesize_stream(response)
+                    stream_iter = _chained_tts()
                     if exchange is not None:
                         try:
                             exchange.end_phase("tts")
@@ -160,79 +171,180 @@ def start_voice_pipeline(
                         except Exception:
                             pass
                     audio.play_streamed(stream_iter)
-                    # Reset wake detector state to clear any residual
-                    # audio patterns from the tone or prior detection.
-                    wake.reset()
-                    # Monitor for wake word during playback.
-                    # Skip initial chunks to avoid speaker-to-mic feedback.
-                    bargein = False
-                    chunks_heard = 0
-                    stream = audio.stream()
-                    try:
-                        for chunk in stream:
-                            if not audio.is_playing():
-                                break
-                            chunks_heard += 1
-                            if chunks_heard <= BARGEIN_DEBOUNCE_CHUNKS:
-                                continue
-                            if wake.detect(chunk):
-                                log.info("Barge-in detected, stopping playback")
-                                audio.stop_playback()
-                                wake.reset()
-                                bargein = True
-                                break
-                    finally:
-                        stream.close()
-                    if exchange is not None:
-                        try:
-                            exchange.end_phase("playback")
-                            exchange.had_bargein = bargein
-                        except Exception:
-                            pass
-                    if not bargein:
+
+                    if bargein_enabled:
                         wake.reset()
-                    follow_up = router.expects_follow_up
-                    if not bargein and follow_up:
-                        log.info("Follow-up mode: continuing command loop")
-                    return bargein or follow_up
-                else:
-                    # --- TTS phase ---
+                        bargein = False
+                        chunks_heard = 0
+                        stream = audio.stream()
+                        try:
+                            for chunk in stream:
+                                if not audio.is_playing():
+                                    break
+                                chunks_heard += 1
+                                if chunks_heard <= BARGEIN_DEBOUNCE_CHUNKS:
+                                    continue
+                                if wake.detect(chunk):
+                                    log.info("Barge-in detected, stopping playback")
+                                    audio.stop_playback()
+                                    wake.reset()
+                                    bargein = True
+                                    break
+                        finally:
+                            stream.close()
+                        if exchange is not None:
+                            try:
+                                exchange.end_phase("playback")
+                                exchange.had_bargein = bargein
+                            except Exception:
+                                pass
+                        if not bargein:
+                            wake.reset()
+                    else:
+                        bargein = False
+                        if exchange is not None:
+                            try:
+                                exchange.end_phase("playback")
+                            except Exception:
+                                pass
+
+                    # Post-playback: collect telemetry from consumed generator
+                    full_response = " ".join(sentences)
+                    log.info("Response: %r", full_response)
                     if exchange is not None:
                         try:
-                            exchange.start_phase("tts")
+                            exchange.response_text = full_response
+                            for call_dict in router._last_llm_calls:
+                                exchange.llm_calls.append(LLMCallInfo(
+                                    call_type=call_dict.get("call_type", ""),
+                                    model=call_dict.get("model"),
+                                    system_prompt=call_dict.get("system_prompt"),
+                                    user_message=call_dict.get("user_message"),
+                                    response_text=call_dict.get("response_text"),
+                                    input_tokens=call_dict.get("input_tokens"),
+                                    output_tokens=call_dict.get("output_tokens"),
+                                    stop_reason=call_dict.get("stop_reason"),
+                                    duration_ms=call_dict.get("duration_ms"),
+                                    error=call_dict.get("error"),
+                                ))
                         except Exception:
                             pass
-                    speech = tts.synthesize(response)
+                    if repeat_feature is not None:
+                        repeat_feature.record(text, full_response)
+
+                    follow_up = router.expects_follow_up
+                    if bargein_enabled:
+                        if not bargein and follow_up:
+                            log.info("Follow-up mode: continuing command loop")
+                        return bargein or follow_up
+                    else:
+                        if follow_up:
+                            log.info("Follow-up mode: continuing command loop")
+                        return follow_up
+                except Exception:
+                    log.exception("TTS error (non-fatal)")
                     if exchange is not None:
                         try:
-                            exchange.end_phase("tts")
+                            exchange.error = "TTS error"
                         except Exception:
                             pass
 
-                    # --- Playback phase ---
-                    if exchange is not None:
-                        try:
-                            exchange.start_phase("playback")
-                        except Exception:
-                            pass
-                    audio.play(speech)
-                    if exchange is not None:
-                        try:
-                            exchange.end_phase("playback")
-                        except Exception:
-                            pass
+            else:
+                # --- Non-streaming path (string response) ---
+                log.info("Response: %r", response)
+                if repeat_feature is not None:
+                    repeat_feature.record(text, response)
+                try:
+                    if bargein_enabled:
+                        # --- TTS phase ---
+                        if exchange is not None:
+                            try:
+                                exchange.start_phase("tts")
+                            except Exception:
+                                pass
+                        stream_iter = tts.synthesize_stream(response)
+                        if exchange is not None:
+                            try:
+                                exchange.end_phase("tts")
+                            except Exception:
+                                pass
 
-                    follow_up = router.expects_follow_up
-                    if follow_up:
-                        log.info("Follow-up mode: continuing command loop")
-                    return follow_up
-            except Exception:
-                log.exception("TTS error (non-fatal)")
-                if exchange is not None:
-                    try:
-                        exchange.error = "TTS error"
-                    except Exception:
-                        pass
+                        # --- Playback phase ---
+                        if exchange is not None:
+                            try:
+                                exchange.start_phase("playback")
+                            except Exception:
+                                pass
+                        audio.play_streamed(stream_iter)
+                        wake.reset()
+                        bargein = False
+                        chunks_heard = 0
+                        stream = audio.stream()
+                        try:
+                            for chunk in stream:
+                                if not audio.is_playing():
+                                    break
+                                chunks_heard += 1
+                                if chunks_heard <= BARGEIN_DEBOUNCE_CHUNKS:
+                                    continue
+                                if wake.detect(chunk):
+                                    log.info("Barge-in detected, stopping playback")
+                                    audio.stop_playback()
+                                    wake.reset()
+                                    bargein = True
+                                    break
+                        finally:
+                            stream.close()
+                        if exchange is not None:
+                            try:
+                                exchange.end_phase("playback")
+                                exchange.had_bargein = bargein
+                            except Exception:
+                                pass
+                        if not bargein:
+                            wake.reset()
+                        follow_up = router.expects_follow_up
+                        if not bargein and follow_up:
+                            log.info("Follow-up mode: continuing command loop")
+                        return bargein or follow_up
+                    else:
+                        # --- TTS phase ---
+                        if exchange is not None:
+                            try:
+                                exchange.start_phase("tts")
+                            except Exception:
+                                pass
+                        speech = tts.synthesize(response)
+                        if exchange is not None:
+                            try:
+                                exchange.end_phase("tts")
+                            except Exception:
+                                pass
+
+                        # --- Playback phase ---
+                        if exchange is not None:
+                            try:
+                                exchange.start_phase("playback")
+                            except Exception:
+                                pass
+                        audio.play(speech)
+                        if exchange is not None:
+                            try:
+                                exchange.end_phase("playback")
+                            except Exception:
+                                pass
+
+                        follow_up = router.expects_follow_up
+                        if follow_up:
+                            log.info("Follow-up mode: continuing command loop")
+                        return follow_up
+                except Exception:
+                    log.exception("TTS error (non-fatal)")
+                    if exchange is not None:
+                        try:
+                            exchange.error = "TTS error"
+                        except Exception:
+                            pass
         except Exception:
             log.exception("Routing error (non-fatal)")
             if exchange is not None:

@@ -52,6 +52,7 @@ def load_config() -> dict:
         "llm_model": os.getenv("HUD_LLM_MODEL", "claude-sonnet-4-5-20250929"),
         "llm_max_tokens": int(os.getenv("HUD_LLM_MAX_TOKENS", "1024")),
         "llm_system_prompt": os.getenv("HUD_LLM_SYSTEM_PROMPT", ""),
+        "llm_intent_model": os.getenv("HUD_LLM_INTENT_MODEL", "claude-haiku-4-5-20251001"),
         "llm_mock_response": os.getenv("HUD_LLM_MOCK_RESPONSE", "This is a mock LLM response."),
         "llm_intent_max_tokens": int(os.getenv("HUD_LLM_INTENT_MAX_TOKENS", "300")),
         "llm_max_history": int(os.getenv("HUD_LLM_MAX_HISTORY", "10")),

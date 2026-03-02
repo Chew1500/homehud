@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 
 
 class BaseLLM(ABC):
@@ -78,6 +79,14 @@ class BaseLLM(ABC):
             Dict with {type, feature, action, parameters, speech} or None on failure.
         """
         ...
+
+    def respond_stream(self, text: str) -> Generator[str, None, None]:
+        """Yield response sentences as they become available.
+
+        Default implementation wraps respond() — yields the entire result
+        as a single chunk. Subclasses override for true streaming.
+        """
+        yield self.respond(text)
 
     def record_exchange(self, user: str, assistant: str) -> None:
         """Public API to record a user/assistant exchange in history."""
