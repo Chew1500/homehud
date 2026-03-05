@@ -45,6 +45,12 @@ def load_config() -> dict:
         "tts_kokoro_voices": os.getenv(
             "HUD_TTS_KOKORO_VOICES", str(PROJECT_ROOT / "models" / "voices-v1.0.bin")
         ),
+        # ElevenLabs TTS settings
+        "elevenlabs_api_key": os.getenv("ELEVENLABS_API_KEY", ""),
+        "tts_elevenlabs_voice": os.getenv("HUD_TTS_ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb"),
+        "tts_elevenlabs_model": os.getenv("HUD_TTS_ELEVENLABS_MODEL", "eleven_flash_v2_5"),
+        "tts_elevenlabs_speed": float(os.getenv("HUD_TTS_ELEVENLABS_SPEED", "1.0")),
+
         "tts_mock_duration": float(os.getenv("HUD_TTS_MOCK_DURATION", "2.0")),
 
         # LLM settings

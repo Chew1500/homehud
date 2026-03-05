@@ -29,5 +29,8 @@ def get_tts(config: dict) -> BaseTTS:
     if mode == "kokoro":
         from speech.kokoro_tts import KokoroTTS
         return KokoroTTS(config)
+    elif mode == "elevenlabs":
+        from speech.elevenlabs_tts import ElevenLabsTTS
+        return ElevenLabsTTS(config)
     else:
         return MockTTS(config)

@@ -324,3 +324,131 @@ class TestKokoroTTS:
         from speech.kokoro_tts import KokoroTTS
         tts = get_tts(_make_config(tts_mode="kokoro"))
         assert isinstance(tts, KokoroTTS)
+
+
+# --- ElevenLabsTTS tests ---
+
+
+class TestElevenLabsTTS:
+    """Tests for ElevenLabsTTS with mocked elevenlabs SDK."""
+
+    def _build(self, monkeypatch, config_overrides=None, convert_chunks=None,
+               stream_chunks=None):
+        """Helper: construct an ElevenLabsTTS with mocked SDK."""
+        if convert_chunks is None:
+            convert_chunks = [b"\x01\x00" * 1600]
+        if stream_chunks is None:
+            stream_chunks = [b"\x01\x00" * 800, b"\x02\x00" * 800]
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.text_to_speech.convert.return_value = iter(convert_chunks)
+        mock_client_instance.text_to_speech.stream.return_value = iter(stream_chunks)
+
+        mock_elevenlabs_client = MagicMock()
+        mock_elevenlabs_client.ElevenLabs.return_value = mock_client_instance
+
+        fake_elevenlabs = MagicMock()
+        fake_elevenlabs.client = mock_elevenlabs_client
+        monkeypatch.setitem(sys.modules, "elevenlabs", fake_elevenlabs)
+        monkeypatch.setitem(sys.modules, "elevenlabs.client", mock_elevenlabs_client)
+
+        config = _make_config(
+            tts_mode="elevenlabs",
+            elevenlabs_api_key="test-key",
+            tts_elevenlabs_voice="JBFqnCBsd6RMkjVDRZzb",
+            tts_elevenlabs_model="eleven_flash_v2_5",
+            tts_elevenlabs_speed=1.0,
+        )
+        if config_overrides:
+            config.update(config_overrides)
+
+        from speech.elevenlabs_tts import ElevenLabsTTS
+        tts = ElevenLabsTTS(config)
+        return tts, mock_client_instance
+
+    def test_synthesize_returns_pcm_bytes(self, monkeypatch):
+        """ElevenLabsTTS.synthesize returns PCM bytes from the API."""
+        tts, _ = self._build(monkeypatch)
+        pcm = tts.synthesize("hello world")
+        assert isinstance(pcm, bytes)
+        assert len(pcm) > 0
+
+    def test_synthesize_calls_convert_with_correct_params(self, monkeypatch):
+        """ElevenLabsTTS.synthesize passes correct parameters to the SDK."""
+        tts, mock_client = self._build(monkeypatch)
+        tts.synthesize("test text")
+        mock_client.text_to_speech.convert.assert_called_once_with(
+            text="test text",
+            voice_id="JBFqnCBsd6RMkjVDRZzb",
+            model_id="eleven_flash_v2_5",
+            output_format="pcm_16000",
+        )
+
+    def test_synthesize_stream_yields_chunks(self, monkeypatch):
+        """ElevenLabsTTS.synthesize_stream() yields chunks from the API."""
+        tts, _ = self._build(monkeypatch)
+        chunks = list(tts.synthesize_stream("hello world"))
+        assert len(chunks) == 2
+        for chunk in chunks:
+            assert isinstance(chunk, bytes)
+            assert len(chunk) > 0
+
+    def test_synthesize_stream_calls_stream_with_correct_params(self, monkeypatch):
+        """ElevenLabsTTS.synthesize_stream passes correct parameters to the SDK."""
+        tts, mock_client = self._build(monkeypatch)
+        list(tts.synthesize_stream("test text"))
+        mock_client.text_to_speech.stream.assert_called_once_with(
+            text="test text",
+            voice_id="JBFqnCBsd6RMkjVDRZzb",
+            model_id="eleven_flash_v2_5",
+            output_format="pcm_16000",
+        )
+
+    def test_empty_input_returns_silence(self, monkeypatch):
+        """ElevenLabsTTS returns 0.1s silence for empty input."""
+        tts, _ = self._build(monkeypatch)
+        pcm = tts.synthesize("")
+        assert pcm == b"\x00\x00" * 1600
+
+    def test_whitespace_input_returns_silence(self, monkeypatch):
+        """ElevenLabsTTS returns 0.1s silence for whitespace-only input."""
+        tts, _ = self._build(monkeypatch)
+        pcm = tts.synthesize("   ")
+        assert pcm == b"\x00\x00" * 1600
+
+    def test_stream_empty_input_yields_silence(self, monkeypatch):
+        """ElevenLabsTTS.synthesize_stream() yields silence for empty text."""
+        tts, _ = self._build(monkeypatch)
+        chunks = list(tts.synthesize_stream(""))
+        assert len(chunks) == 1
+        assert chunks[0] == b"\x00\x00" * 1600
+
+    def test_missing_api_key_raises(self, monkeypatch):
+        """ElevenLabsTTS raises ValueError if API key is missing."""
+        from speech.elevenlabs_tts import ElevenLabsTTS
+        with pytest.raises(ValueError, match="ELEVENLABS_API_KEY is required"):
+            ElevenLabsTTS(_make_config(tts_mode="elevenlabs", elevenlabs_api_key=""))
+
+    def test_close_is_noop(self, monkeypatch):
+        """ElevenLabsTTS.close() doesn't raise."""
+        tts, _ = self._build(monkeypatch)
+        tts.close()
+
+    def test_factory_returns_elevenlabs(self, monkeypatch):
+        """get_tts returns ElevenLabsTTS for 'elevenlabs' mode."""
+        mock_client_instance = MagicMock()
+        mock_elevenlabs_client = MagicMock()
+        mock_elevenlabs_client.ElevenLabs.return_value = mock_client_instance
+
+        fake_elevenlabs = MagicMock()
+        fake_elevenlabs.client = mock_elevenlabs_client
+        monkeypatch.setitem(sys.modules, "elevenlabs", fake_elevenlabs)
+        monkeypatch.setitem(sys.modules, "elevenlabs.client", mock_elevenlabs_client)
+
+        from speech import get_tts
+        from speech.elevenlabs_tts import ElevenLabsTTS
+        tts = get_tts(_make_config(
+            tts_mode="elevenlabs",
+            elevenlabs_api_key="test-key",
+        ))
+        assert isinstance(tts, ElevenLabsTTS)

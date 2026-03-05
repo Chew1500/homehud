@@ -6,5 +6,8 @@ numpy>=1.24
 # Enphase local API + weather
 httpx>=0.27
 
+# ElevenLabs cloud TTS
+elevenlabs>=1.0
+
 # LLM fallback
 anthropic>=0.40
