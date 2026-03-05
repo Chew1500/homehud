@@ -33,7 +33,7 @@ class ElevenLabsTTS(BaseTTS):
             )
 
         self._client = ElevenLabs(api_key=api_key)
-        self._voice = config.get("tts_elevenlabs_voice", "JBFqnCBsd6RMkjVDRZzb")
+        self._voice = config.get("tts_elevenlabs_voice", "2EiwWnXFnvU5JabPnv8n")
         self._model = config.get("tts_elevenlabs_model", "eleven_flash_v2_5")
         self._speed = config.get("tts_elevenlabs_speed", 1.0)
 

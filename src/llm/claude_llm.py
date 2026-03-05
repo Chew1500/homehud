@@ -143,6 +143,9 @@ class ClaudeLLM(BaseLLM):
         self._max_tokens = config.get("llm_max_tokens", 1024)
         self._intent_max_tokens = config.get("llm_intent_max_tokens", 300)
         self._system_prompt = config.get("llm_system_prompt") or DEFAULT_SYSTEM_PROMPT
+        personality = config.get("llm_personality", "")
+        if personality:
+            self._system_prompt = personality + "\n\n" + self._system_prompt
 
     def parse_intent(
         self, text: str, feature_schemas: list[dict], context: str | None = None

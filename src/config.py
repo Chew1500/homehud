@@ -47,7 +47,7 @@ def load_config() -> dict:
         ),
         # ElevenLabs TTS settings
         "elevenlabs_api_key": os.getenv("ELEVENLABS_API_KEY", ""),
-        "tts_elevenlabs_voice": os.getenv("HUD_TTS_ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb"),
+        "tts_elevenlabs_voice": os.getenv("HUD_TTS_ELEVENLABS_VOICE", "2EiwWnXFnvU5JabPnv8n"),
         "tts_elevenlabs_model": os.getenv("HUD_TTS_ELEVENLABS_MODEL", "eleven_flash_v2_5"),
         "tts_elevenlabs_speed": float(os.getenv("HUD_TTS_ELEVENLABS_SPEED", "1.0")),
 
@@ -63,6 +63,7 @@ def load_config() -> dict:
         "llm_intent_max_tokens": int(os.getenv("HUD_LLM_INTENT_MAX_TOKENS", "300")),
         "llm_max_history": int(os.getenv("HUD_LLM_MAX_HISTORY", "10")),
         "llm_history_ttl": int(os.getenv("HUD_LLM_HISTORY_TTL", "300")),
+        "llm_personality": os.getenv("HUD_LLM_PERSONALITY", ""),
 
         # Voice pipeline settings
         "voice_enabled": os.getenv("HUD_VOICE_ENABLED", "true").lower() == "true",

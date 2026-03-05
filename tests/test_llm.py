@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -138,6 +139,34 @@ def test_classify_intent_does_not_affect_history():
 
     llm.classify_intent("garbled text", ["Some feature"])
     assert len(llm._history) == 1  # unchanged
+
+
+def test_claude_personality_prepended(monkeypatch):
+    """When llm_personality is set, it should be prepended to the system prompt."""
+    mock_anthropic = MagicMock()
+    monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic)
+
+    from llm.claude_llm import DEFAULT_SYSTEM_PROMPT, ClaudeLLM
+
+    personality = "You are Geralt of Rivia. Speak in a sardonic tone."
+    llm = ClaudeLLM({
+        "anthropic_api_key": "test-key",
+        "llm_personality": personality,
+    })
+    assert llm._system_prompt.startswith(personality)
+    assert DEFAULT_SYSTEM_PROMPT in llm._system_prompt
+    assert llm._system_prompt == personality + "\n\n" + DEFAULT_SYSTEM_PROMPT
+
+
+def test_claude_no_personality_uses_default(monkeypatch):
+    """When llm_personality is empty, the default system prompt is used unmodified."""
+    mock_anthropic = MagicMock()
+    monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic)
+
+    from llm.claude_llm import DEFAULT_SYSTEM_PROMPT, ClaudeLLM
+
+    llm = ClaudeLLM({"anthropic_api_key": "test-key", "llm_personality": ""})
+    assert llm._system_prompt == DEFAULT_SYSTEM_PROMPT
 
 
 @pytest.mark.skipif(
