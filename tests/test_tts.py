@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from unittest.mock import MagicMock
 
+from speech.cached_tts import CachedTTS
 from speech.mock_tts import MockTTS
 
 
@@ -452,3 +453,137 @@ class TestElevenLabsTTS:
             elevenlabs_api_key="test-key",
         ))
         assert isinstance(tts, ElevenLabsTTS)
+
+
+# --- CachedTTS tests ---
+
+
+class TestCachedTTS:
+    """Tests for CachedTTS disk-caching wrapper."""
+
+    def _build(self, tmp_path, inner=None, **config_overrides):
+        """Helper: construct a CachedTTS wrapping a mock inner TTS."""
+        if inner is None:
+            inner = MagicMock(spec=MockTTS)
+            inner.synthesize.return_value = b"\x01\x00" * 1600
+            inner.synthesize_stream.return_value = iter(
+                [b"\x01\x00" * 800, b"\x02\x00" * 800]
+            )
+            inner.close.return_value = None
+        config = _make_config(
+            tts_cache_enabled=True,
+            tts_cache_dir=str(tmp_path / "cache"),
+            **config_overrides,
+        )
+        cached = CachedTTS(inner, config)
+        return cached, inner
+
+    def test_cache_miss_delegates_to_inner(self, tmp_path):
+        """First call delegates to inner TTS."""
+        cached, inner = self._build(tmp_path)
+        result = cached.synthesize("hello world")
+        inner.synthesize.assert_called_once_with("hello world")
+        assert result == b"\x01\x00" * 1600
+
+    def test_cache_hit_skips_inner(self, tmp_path):
+        """Second call returns from disk without calling inner TTS again."""
+        cached, inner = self._build(tmp_path)
+        cached.synthesize("hello world")
+        inner.synthesize.reset_mock()
+
+        result = cached.synthesize("hello world")
+        inner.synthesize.assert_not_called()
+        assert result == b"\x01\x00" * 1600
+
+    def test_pcm_file_created_on_disk(self, tmp_path):
+        """A .pcm file is created in the cache dir after first synthesis."""
+        cached, _ = self._build(tmp_path)
+        cached.synthesize("test phrase")
+        cache_dir = tmp_path / "cache"
+        pcm_files = list(cache_dir.glob("*.pcm"))
+        assert len(pcm_files) == 1
+
+    def test_different_text_different_cache_files(self, tmp_path):
+        """Different text produces different cache files."""
+        cached, _ = self._build(tmp_path)
+        cached.synthesize("hello")
+        cached.synthesize("goodbye")
+        cache_dir = tmp_path / "cache"
+        pcm_files = list(cache_dir.glob("*.pcm"))
+        assert len(pcm_files) == 2
+
+    def test_different_voice_different_cache_key(self, tmp_path):
+        """Different voice config produces a different cache key."""
+        cached1, _ = self._build(tmp_path, tts_elevenlabs_voice="voice_a")
+        cached2, _ = self._build(tmp_path, tts_elevenlabs_voice="voice_b")
+        key1 = cached1._cache_key("hello")
+        key2 = cached2._cache_key("hello")
+        assert key1 != key2
+
+    def test_different_model_different_cache_key(self, tmp_path):
+        """Different model config produces a different cache key."""
+        cached1, _ = self._build(tmp_path, tts_elevenlabs_model="model_a")
+        cached2, _ = self._build(tmp_path, tts_elevenlabs_model="model_b")
+        key1 = cached1._cache_key("hello")
+        key2 = cached2._cache_key("hello")
+        assert key1 != key2
+
+    def test_stream_cache_miss_yields_and_caches(self, tmp_path):
+        """Stream cache miss yields chunks from inner and writes cache."""
+        cached, inner = self._build(tmp_path)
+        chunks = list(cached.synthesize_stream("hello stream"))
+        assert len(chunks) == 2
+        assert chunks[0] == b"\x01\x00" * 800
+        assert chunks[1] == b"\x02\x00" * 800
+        # File should exist on disk
+        cache_dir = tmp_path / "cache"
+        assert len(list(cache_dir.glob("*.pcm"))) == 1
+
+    def test_stream_cache_hit_yields_single_chunk(self, tmp_path):
+        """Stream cache hit yields full file as single chunk."""
+        cached, inner = self._build(tmp_path)
+        # First call: cache miss
+        list(cached.synthesize_stream("hello stream"))
+        inner.synthesize_stream.reset_mock()
+
+        # Second call: cache hit
+        chunks = list(cached.synthesize_stream("hello stream"))
+        inner.synthesize_stream.assert_not_called()
+        assert len(chunks) == 1
+        # Full accumulated result
+        assert chunks[0] == b"\x01\x00" * 800 + b"\x02\x00" * 800
+
+    def test_empty_text_bypasses_cache(self, tmp_path):
+        """Empty/whitespace text delegates directly without caching."""
+        cached, inner = self._build(tmp_path)
+        cached.synthesize("")
+        cached.synthesize("   ")
+        cache_dir = tmp_path / "cache"
+        assert len(list(cache_dir.glob("*.pcm"))) == 0
+
+    def test_close_delegates_to_inner(self, tmp_path):
+        """close() calls inner TTS close()."""
+        cached, inner = self._build(tmp_path)
+        cached.close()
+        inner.close.assert_called_once()
+
+    def test_cache_dir_auto_created(self, tmp_path):
+        """Cache dir is created automatically if it doesn't exist."""
+        cache_dir = tmp_path / "deep" / "nested" / "cache"
+        assert not cache_dir.exists()
+        config = _make_config(tts_cache_enabled=True, tts_cache_dir=str(cache_dir))
+        inner = MagicMock(spec=MockTTS)
+        CachedTTS(inner, config)
+        assert cache_dir.exists()
+
+    def test_factory_wraps_with_cache_when_enabled(self):
+        """get_tts wraps with CachedTTS when tts_cache_enabled=True."""
+        from speech import get_tts
+        tts = get_tts(_make_config(tts_cache_enabled=True))
+        assert isinstance(tts, CachedTTS)
+
+    def test_factory_returns_raw_when_cache_disabled(self):
+        """get_tts returns raw TTS when cache not enabled."""
+        from speech import get_tts
+        tts = get_tts(_make_config(tts_cache_enabled=False))
+        assert isinstance(tts, MockTTS)

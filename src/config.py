@@ -52,6 +52,10 @@ def load_config() -> dict:
         "tts_elevenlabs_model": os.getenv("HUD_TTS_ELEVENLABS_MODEL", "eleven_flash_v2_5"),
         "tts_elevenlabs_speed": float(os.getenv("HUD_TTS_ELEVENLABS_SPEED", "1.0")),
 
+        # TTS disk cache (persists synthesized audio across restarts)
+        "tts_cache_enabled": os.getenv("HUD_TTS_CACHE_ENABLED", "false").lower() == "true",
+        "tts_cache_dir": os.getenv("HUD_TTS_CACHE_DIR", str(PROJECT_ROOT / "data" / "tts_cache")),
+
         "tts_mock_duration": float(os.getenv("HUD_TTS_MOCK_DURATION", "2.0")),
 
         # LLM settings

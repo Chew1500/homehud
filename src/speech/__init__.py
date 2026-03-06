@@ -28,9 +28,15 @@ def get_tts(config: dict) -> BaseTTS:
 
     if mode == "kokoro":
         from speech.kokoro_tts import KokoroTTS
-        return KokoroTTS(config)
+        inner = KokoroTTS(config)
     elif mode == "elevenlabs":
         from speech.elevenlabs_tts import ElevenLabsTTS
-        return ElevenLabsTTS(config)
+        inner = ElevenLabsTTS(config)
     else:
-        return MockTTS(config)
+        inner = MockTTS(config)
+
+    if config.get("tts_cache_enabled", False):
+        from speech.cached_tts import CachedTTS
+        return CachedTTS(inner, config)
+
+    return inner

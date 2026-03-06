@@ -51,6 +51,7 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `base_tts.py`: `BaseTTS` ABC — `synthesize(text) -> bytes`, `close()`
 - `mock_tts.py`: `MockTTS` — generates silence for local dev
 - `kokoro_tts.py`: `KokoroTTS` — Kokoro StyleTTS 2 voice synthesis (requires kokoro>=0.9.4, espeak-ng)
+- `cached_tts.py`: `CachedTTS` — disk-caching decorator wrapping any `BaseTTS`; SHA-256 keyed `.pcm` files, thread-safe
 - `__init__.py`: factory functions `get_stt(config) -> BaseSTT`, `get_tts(config) -> BaseTTS`
 - Input: raw PCM bytes from `audio.record()` (int16, little-endian, 16kHz mono)
 
