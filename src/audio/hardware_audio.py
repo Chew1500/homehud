@@ -10,7 +10,7 @@ import sys
 import threading
 from collections.abc import Generator
 
-from audio.base import BaseAudio
+from audio.base import AudioStreamStaleError, BaseAudio
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ class HardwareAudio(BaseAudio):
                 "On Raspberry Pi, also ensure: sudo apt-get install libportaudio2"
             ) from e
         self._device = self._parse_device(config.get("audio_device"))
+        self._stale_timeout_s = config.get("audio_stale_timeout", 30)
 
         # Validate device at startup — fail fast with helpful message
         try:
@@ -131,13 +132,33 @@ class HardwareAudio(BaseAudio):
             device=self._device,
         )
         log.info("Hardware audio stream started (%dms chunks)", chunk_duration_ms)
+        stale_timeout = self._stale_timeout_s
         try:
             stream.start()
+            consecutive_empties = 0
             while True:
                 try:
-                    yield q.get(timeout=1.0)
+                    data = q.get(timeout=1.0)
+                    consecutive_empties = 0
+                    yield data
                 except queue.Empty:
-                    continue
+                    if stale_timeout <= 0:
+                        continue
+                    consecutive_empties += 1
+                    if not stream.active:
+                        raise AudioStreamStaleError(
+                            "PortAudio stream is no longer active"
+                        )
+                    if consecutive_empties % 10 == 0:
+                        log.warning(
+                            "Audio stream idle for %ds (threshold: %ds)",
+                            consecutive_empties, stale_timeout,
+                        )
+                    if consecutive_empties >= stale_timeout:
+                        raise AudioStreamStaleError(
+                            f"No audio data for {consecutive_empties}s "
+                            f"(threshold: {stale_timeout}s)"
+                        )
         finally:
             stream.stop()
             stream.close()

@@ -3,6 +3,7 @@
 import logging
 import logging.handlers
 import signal
+import sys
 import threading
 import time
 from pathlib import Path
@@ -225,6 +226,11 @@ def main():
             for _ in range(refresh_interval):
                 if not running.is_set():
                     break
+                if voice_thread and not voice_thread.is_alive():
+                    log.critical(
+                        "Voice pipeline thread died — exiting for systemd restart"
+                    )
+                    sys.exit(1)
                 time.sleep(1)
     finally:
         running.clear()

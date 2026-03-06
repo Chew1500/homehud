@@ -8,6 +8,14 @@ DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_CHANNELS = 1
 
 
+class AudioStreamStaleError(RuntimeError):
+    """Raised when the audio stream stops producing data for too long.
+
+    Typically caused by USB audio device power management (autosuspend),
+    ALSA/PortAudio stream issues, or device disconnection.
+    """
+
+
 class BaseAudio(ABC):
     """Common interface for mock and hardware audio backends.
 

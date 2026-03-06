@@ -26,6 +26,7 @@ def load_config() -> dict:
         "audio_channels": int(os.getenv("HUD_AUDIO_CHANNELS", "1")),
         "audio_device": os.getenv("HUD_AUDIO_DEVICE"),  # device index or name
         "audio_mock_dir": os.getenv("HUD_AUDIO_MOCK_DIR", str(PROJECT_ROOT / "output" / "audio")),
+        "audio_stale_timeout": int(os.getenv("HUD_AUDIO_STALE_TIMEOUT", "30")),
 
         # Speech-to-text settings
         "stt_mode": os.getenv("HUD_STT_MODE", "mock"),

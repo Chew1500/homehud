@@ -7,7 +7,7 @@ import threading
 import time
 import types
 
-from audio.base import BaseAudio
+from audio.base import AudioStreamStaleError, BaseAudio
 from intent.router import IntentRouter
 from speech.base import BaseSTT
 from speech.base_tts import BaseTTS
@@ -401,6 +401,14 @@ def start_voice_pipeline(
                             telemetry_store.save_session(session)
                         except Exception:
                             log.exception("Telemetry save failed (non-fatal)")
+            except AudioStreamStaleError:
+                consecutive_errors += 1
+                backoff = min(2 ** consecutive_errors, 30)
+                log.warning(
+                    "Audio stream stale (%d consecutive, retrying in %ds)",
+                    consecutive_errors, backoff,
+                )
+                time.sleep(backoff)
             except Exception:
                 consecutive_errors += 1
                 if consecutive_errors >= max_errors:
