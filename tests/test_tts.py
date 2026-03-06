@@ -356,7 +356,7 @@ class TestElevenLabsTTS:
         config = _make_config(
             tts_mode="elevenlabs",
             elevenlabs_api_key="test-key",
-            tts_elevenlabs_voice="2EiwWnXFnvU5JabPnv8n",
+            tts_elevenlabs_voice="N2lVS1w4EtoT3dr4eOWO",
             tts_elevenlabs_model="eleven_flash_v2_5",
             tts_elevenlabs_speed=1.0,
         )
@@ -380,7 +380,7 @@ class TestElevenLabsTTS:
         tts.synthesize("test text")
         mock_client.text_to_speech.convert.assert_called_once_with(
             text="test text",
-            voice_id="2EiwWnXFnvU5JabPnv8n",
+            voice_id="N2lVS1w4EtoT3dr4eOWO",
             model_id="eleven_flash_v2_5",
             output_format="pcm_16000",
         )
@@ -400,7 +400,7 @@ class TestElevenLabsTTS:
         list(tts.synthesize_stream("test text"))
         mock_client.text_to_speech.stream.assert_called_once_with(
             text="test text",
-            voice_id="2EiwWnXFnvU5JabPnv8n",
+            voice_id="N2lVS1w4EtoT3dr4eOWO",
             model_id="eleven_flash_v2_5",
             output_format="pcm_16000",
         )

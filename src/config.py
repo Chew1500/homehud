@@ -48,7 +48,7 @@ def load_config() -> dict:
         ),
         # ElevenLabs TTS settings
         "elevenlabs_api_key": os.getenv("ELEVENLABS_API_KEY", ""),
-        "tts_elevenlabs_voice": os.getenv("HUD_TTS_ELEVENLABS_VOICE", "2EiwWnXFnvU5JabPnv8n"),
+        "tts_elevenlabs_voice": os.getenv("HUD_TTS_ELEVENLABS_VOICE", "N2lVS1w4EtoT3dr4eOWO"),
         "tts_elevenlabs_model": os.getenv("HUD_TTS_ELEVENLABS_MODEL", "eleven_flash_v2_5"),
         "tts_elevenlabs_speed": float(os.getenv("HUD_TTS_ELEVENLABS_SPEED", "1.0")),
 
