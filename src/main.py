@@ -49,7 +49,7 @@ def render_frame(display, ctx=None):
     draw = ImageDraw.Draw(img)
 
     # -- Header --
-    draw.rectangle([(0, 0), (width, 48)], fill="black")
+    draw.rectangle([(0, 0), (width, 48)], fill="red")
     try:
         font_lg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
         font_md = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
@@ -69,8 +69,8 @@ def render_frame(display, ctx=None):
 
     # -- Placeholder panels --
     # Solar panel (left)
-    draw.rectangle([(12, 100), (width // 2 - 6, 260)], outline="black", width=2)
-    draw.text((20, 108), "Solar Production", fill="black", font=font_md)
+    draw.rectangle([(12, 100), (width // 2 - 6, 260)], outline="red", width=2)
+    draw.text((20, 108), "Solar Production", fill="red", font=font_md)
 
     solar_storage = ctx.solar_storage if ctx else None
     if solar_storage is None:
@@ -88,7 +88,7 @@ def render_frame(display, ctx=None):
                 draw.text((20, 200), f"Exporting {net_w / 1000:.1f} kW", fill="black", font=font_sm)
             else:
                 imp_kw = abs(net_w) / 1000
-                draw.text((20, 200), f"Importing {imp_kw:.1f} kW", fill="black", font=font_sm)
+                draw.text((20, 200), f"Importing {imp_kw:.1f} kW", fill="red", font=font_sm)
         else:
             draw.text((20, 140), "-- kW", fill="black", font=font_lg)
             draw.text((20, 180), "Waiting for Enphase...", fill="black", font=font_sm)
@@ -96,8 +96,8 @@ def render_frame(display, ctx=None):
     # Grocery list (right)
     panel_x = width // 2 + 6
     panel_inner_x = width // 2 + 14
-    draw.rectangle([(panel_x, 100), (width - 12, 260)], outline="black", width=2)
-    draw.text((panel_inner_x, 108), "Grocery List", fill="black", font=font_md)
+    draw.rectangle([(panel_x, 100), (width - 12, 260)], outline="red", width=2)
+    draw.text((panel_inner_x, 108), "Grocery List", fill="red", font=font_md)
 
     grocery = ctx.grocery if ctx else None
     if grocery is None:

@@ -49,17 +49,28 @@ class EinkDisplay(BaseDisplay):
         # Snapshot before 1-bit conversion so dashboard gets full-color image
         self._save_snapshot(image)
 
-        # The tri-color display expects separate black and red channel images.
-        # For now, we convert to the black/white image. Tri-color support
-        # will be added when we refine the UI.
-        bw_image = image.convert("1")  # 1-bit black/white
+        # Separate RGB image into black and red channels for tri-color display.
+        import numpy as np
 
-        # Blank red channel (all white = no red pixels).
-        # TODO: Extract red channel from source image for tri-color rendering.
-        red_image = Image.new("1", self.size, 255)
+        pixels = np.array(image)
+        r, g, b = pixels[:, :, 0], pixels[:, :, 1], pixels[:, :, 2]
+
+        is_red = (r > 200) & (g < 50) & (b < 50)
+        is_black = (r < 50) & (g < 50) & (b < 50)
+
+        # Black channel: 0 = black ink, 255 = no ink.
+        # Black pixels render as black; red pixels stay white (handled by red channel).
+        black_data = np.full(r.shape, 255, dtype=np.uint8)
+        black_data[is_black] = 0
+        bw_image = Image.fromarray(black_data, mode="L").convert("1")
+
+        # Red channel: 0 = red ink, 255 = no ink.
+        red_data = np.full(r.shape, 255, dtype=np.uint8)
+        red_data[is_red] = 0
+        red_image = Image.fromarray(red_data, mode="L").convert("1")
 
         self._epd.display(self._epd.getbuffer(bw_image), self._epd.getbuffer(red_image))
-        log.info("E-ink frame rendered.")
+        log.info("E-ink frame rendered (tri-color).")
 
     def clear(self) -> None:
         self._epd.Clear()
