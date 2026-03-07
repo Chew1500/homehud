@@ -21,16 +21,17 @@ sudo apt-get install -y -qq \
     libopenjp2-7 libtiff6 libopenblas-dev \
     libportaudio2 portaudio19-dev ffmpeg \
     espeak-ng \
+    python3-lgpio \
     fonts-dejavu-core \
     > /dev/null
 sudo ldconfig
 
 # Ensure Python 3.11 (tflite-runtime has no aarch64 wheels for 3.12+)
 PY311=""
-if command -v python3.11 &>/dev/null; then
-    PY311="python3.11"
-elif python3 -c "import sys; assert sys.version_info[:2] == (3, 11)" 2>/dev/null; then
+if python3 -c "import sys; assert sys.version_info[:2] == (3, 11)" 2>/dev/null; then
     PY311="python3"
+elif command -v python3.11 &>/dev/null; then
+    PY311="python3.11"
 fi
 
 if [ -z "$PY311" ]; then
@@ -94,7 +95,7 @@ fi
 
 # --- Python venv ---
 echo "[5/6] Setting up Python virtual environment..."
-sudo -H -u "$APP_USER" $PY311 -m venv "$APP_DIR/venv"
+sudo -H -u "$APP_USER" $PY311 -m venv --system-site-packages "$APP_DIR/venv"
 sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
 sudo -H -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements-pi.txt"
 

@@ -48,10 +48,10 @@ jobs:
         run: |
           # Find Python 3.11 — check versioned command, then system python3
           PY311=""
-          if command -v python3.11 &>/dev/null; then
-            PY311="python3.11"
-          elif python3 -c "import sys; assert sys.version_info[:2] == (3, 11)" 2>/dev/null; then
+          if python3 -c "import sys; assert sys.version_info[:2] == (3, 11)" 2>/dev/null; then
             PY311="python3"
+          elif command -v python3.11 &>/dev/null; then
+            PY311="python3.11"
           fi
 
           # Install if not found
@@ -97,6 +97,11 @@ jobs:
             sudo -H -u hud /opt/homehud/venv/bin/pip install -q --upgrade pip
           fi
 
+      - name: Verify lgpio importable
+        run: |
+          sudo -H -u hud /opt/homehud/venv/bin/python -c "import lgpio; print('lgpio OK')" || \
+            echo "WARNING: lgpio not importable in venv — gpiozero will fail"
+
       - name: Update dependencies
         run: |
           sudo -H -u hud /opt/homehud/venv/bin/pip install -q --upgrade -r /opt/homehud/requirements-pi.txt
@@ -132,5 +137,10 @@ jobs:
       - name: Restart service
         run: |
           sudo systemctl restart home-hud
-          sleep 2
+          sleep 3
+          if ! sudo systemctl is-active --quiet home-hud; then
+            echo "Service failed to start. Journal output:"
+            sudo journalctl -u home-hud -n 40 --no-pager
+            exit 1
+          fi
           sudo systemctl status home-hud --no-pager -l
