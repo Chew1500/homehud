@@ -42,6 +42,33 @@ def test_mock_display_clear(tmp_path):
     assert saved.getpixel((0, 0)) == (255, 255, 255)
 
 
+def test_snapshot_saved_when_configured(tmp_path):
+    """MockDisplay should save a display snapshot when display_snapshot_path is set."""
+    snapshot_path = tmp_path / "snapshot.png"
+    config = {
+        "mock_output_dir": str(tmp_path),
+        "display_snapshot_path": str(snapshot_path),
+    }
+    display = MockDisplay(config)
+    img = Image.new("RGB", display.size, "blue")
+    display.show(img)
+
+    assert snapshot_path.exists()
+    saved = Image.open(snapshot_path)
+    assert saved.size == (DEFAULT_WIDTH, DEFAULT_HEIGHT)
+
+
+def test_snapshot_skipped_when_not_configured(tmp_path):
+    """MockDisplay should not create a snapshot when display_snapshot_path is absent."""
+    config = {"mock_output_dir": str(tmp_path)}
+    display = MockDisplay(config)
+    img = Image.new("RGB", display.size, "green")
+    display.show(img)
+
+    # No snapshot file should exist (only latest.png)
+    assert not (tmp_path / "display_snapshot.png").exists()
+
+
 def test_render_frame(tmp_path):
     """render_frame should produce valid output without crashing."""
     config = {

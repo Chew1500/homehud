@@ -238,6 +238,39 @@ def test_sessions_limit_capped(store, server):
     assert data["limit"] == 200
 
 
+def test_display_returns_404_when_no_snapshot(server):
+    """GET /api/display should return 404 when no snapshot file exists."""
+    status, body = _get(server, "/api/display")
+    assert status == 404
+    data = json.loads(body)
+    assert "error" in data
+
+
+def test_display_serves_png(store, tmp_path):
+    """GET /api/display should serve PNG when snapshot file exists."""
+    from PIL import Image
+
+    snapshot_path = tmp_path / "snapshot.png"
+    img = Image.new("RGB", (100, 50), "red")
+    img.save(snapshot_path)
+
+    web = TelemetryWeb(
+        store._db_path,
+        host="127.0.0.1",
+        port=0,
+        display_snapshot_path=str(snapshot_path),
+    )
+    web.start()
+    try:
+        status, body = _get(web, "/api/display")
+        assert status == 200
+        assert len(body) > 0
+        # Verify it's a valid PNG (starts with PNG magic bytes)
+        assert body[:4] == b"\x89PNG"
+    finally:
+        web.close()
+
+
 def test_stats_avg_durations(store, server):
     """Stats should include average phase durations."""
     store.save_session(_make_session())

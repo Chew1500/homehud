@@ -19,6 +19,9 @@ def load_config() -> dict:
         "display_mode": os.getenv("HUD_DISPLAY_MODE", "mock"),  # "mock" or "eink"
         "mock_output_dir": os.getenv("HUD_MOCK_OUTPUT_DIR", str(PROJECT_ROOT / "output")),
         "mock_show_window": os.getenv("HUD_MOCK_SHOW_WINDOW", "false").lower() == "true",
+        "display_snapshot_path": os.getenv(
+            "HUD_DISPLAY_SNAPSHOT_PATH", str(PROJECT_ROOT / "output" / "display_snapshot.png")
+        ),
 
         # Audio settings
         "audio_mode": os.getenv("HUD_AUDIO_MODE", "mock"),  # "mock" or "hardware"

@@ -9,6 +9,7 @@ import sqlite3
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from telemetry.dashboard import DASHBOARD_HTML
@@ -34,6 +35,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_html(DASHBOARD_HTML)
         elif path == "/api/stats":
             self._handle_stats()
+        elif path == "/api/display":
+            self._handle_display()
         elif path == "/api/sessions":
             self._handle_sessions(params)
         elif m := _SESSION_RE.match(path):
@@ -42,6 +45,32 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     # --- API handlers ---
+
+    def _handle_display(self):
+        snapshot_path = getattr(self.server, "display_snapshot_path", None)
+        if not snapshot_path:
+            self._send_json(
+                {"error": "Display snapshot not configured"}, HTTPStatus.NOT_FOUND
+            )
+            return
+        p = Path(snapshot_path)
+        if not p.is_file():
+            self._send_json(
+                {"error": "No display snapshot available"}, HTTPStatus.NOT_FOUND
+            )
+            return
+        try:
+            body = p.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            self._send_json(
+                {"error": "Failed to read snapshot"}, HTTPStatus.INTERNAL_SERVER_ERROR
+            )
 
     def _handle_stats(self):
         db = self.server.db_path
@@ -249,10 +278,17 @@ class TelemetryWeb:
     Opens its own read-only SQLite connection — independent from the pipeline's writes.
     """
 
-    def __init__(self, db_path: str, host: str = "0.0.0.0", port: int = 8080):
+    def __init__(
+        self,
+        db_path: str,
+        host: str = "0.0.0.0",
+        port: int = 8080,
+        display_snapshot_path: str | None = None,
+    ):
         self._db_path = db_path
         self._host = host
         self._port = port
+        self._display_snapshot_path = display_snapshot_path
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -260,6 +296,7 @@ class TelemetryWeb:
         """Start the web server in a daemon thread."""
         self._server = HTTPServer((self._host, self._port), _Handler)
         self._server.db_path = self._db_path  # attach for handler access
+        self._server.display_snapshot_path = self._display_snapshot_path
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         log.info("Telemetry dashboard at http://%s:%d", self._host, self._port)

@@ -109,6 +109,17 @@ tr:hover td { background: #fafbfc; }
 .pagination button:hover:not(:disabled) { background: #f0f2f5; }
 .pagination .info { font-size: 0.8rem; color: #888; }
 
+/* Display preview */
+.display-preview {
+  background: #fff; border-radius: 8px; padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 1rem;
+}
+.display-preview img {
+  max-width: 100%; height: auto; border: 1px solid #eee; border-radius: 4px;
+  display: block;
+}
+.display-preview .meta { font-size: 0.75rem; color: #888; margin-top: 0.5rem; }
+
 /* Loading / error */
 .loading { text-align: center; padding: 2rem; color: #888; }
 .error-msg { text-align: center; padding: 1rem; color: #e74c3c; background: #fee2e2;
@@ -139,6 +150,12 @@ tr:hover td { background: #fafbfc; }
   </table>
 
   <div class="breakdown" id="breakdown-grid"></div>
+</div>
+
+<h2>Display Preview</h2>
+<div class="display-preview" id="display-preview">
+  <div id="display-img-container" class="loading">Loading display...</div>
+  <div class="meta" id="display-meta"></div>
 </div>
 
 <h2>Sessions</h2>
@@ -446,9 +463,34 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+async function loadDisplay() {
+  const container = document.getElementById('display-img-container');
+  const meta = document.getElementById('display-meta');
+  try {
+    const res = await fetch('/api/display');
+    if (!res.ok) {
+      container.innerHTML = '<span style="color:#888">No display snapshot available.</span>';
+      container.classList.remove('loading');
+      meta.textContent = '';
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    container.innerHTML = `<img src="${url}" alt="Display snapshot">`;
+    container.classList.remove('loading');
+    meta.textContent = 'Last refreshed: ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    container.innerHTML = '<span style="color:#888">Could not load display snapshot.</span>';
+    container.classList.remove('loading');
+    meta.textContent = '';
+  }
+}
+
 // Initial load
 loadStats();
 loadSessions(0);
+loadDisplay();
+setInterval(loadDisplay, 30000);
 </script>
 </body>
 </html>

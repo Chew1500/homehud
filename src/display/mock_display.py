@@ -18,7 +18,7 @@ class MockDisplay(BaseDisplay):
     """Renders frames to PNG files in an output directory."""
 
     def __init__(self, config: dict):
-        super().__init__()
+        super().__init__(snapshot_path=config.get("display_snapshot_path"))
         self._output_dir = Path(config.get("mock_output_dir", "output"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -33,6 +33,8 @@ class MockDisplay(BaseDisplay):
         # Save as latest (overwrite) for quick preview
         image.save(self._latest_path)
         log.info(f"Mock frame saved to {self._latest_path}")
+
+        self._save_snapshot(image)
 
     def clear(self) -> None:
         blank = Image.new("RGB", self.size, "white")

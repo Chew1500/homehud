@@ -17,7 +17,7 @@ class EinkDisplay(BaseDisplay):
     """Drives the Waveshare 7.5" tri-color e-Paper display."""
 
     def __init__(self, config: dict):
-        super().__init__()
+        super().__init__(snapshot_path=config.get("display_snapshot_path"))
         try:
             from waveshare_epd import epd7in5b_V2  # noqa: F401
             self._epd = epd7in5b_V2.EPD()
@@ -45,6 +45,9 @@ class EinkDisplay(BaseDisplay):
     def show(self, image: Image.Image) -> None:
         if image.size != self.size:
             image = image.resize(self.size)
+
+        # Snapshot before 1-bit conversion so dashboard gets full-color image
+        self._save_snapshot(image)
 
         # The tri-color display expects separate black and red channel images.
         # For now, we convert to the black/white image. Tri-color support
