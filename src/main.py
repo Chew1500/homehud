@@ -39,7 +39,7 @@ def setup_logging(config: dict) -> None:
     root.addHandler(file_handler)
 
 
-def render_frame(display):
+def render_frame(display, solar_storage=None):
     """Render a single frame to the display."""
     from PIL import Image, ImageDraw, ImageFont
 
@@ -70,8 +70,26 @@ def render_frame(display):
     # Solar panel (left)
     draw.rectangle([(12, 100), (width // 2 - 6, 260)], outline="black", width=2)
     draw.text((20, 108), "Solar Production", fill="black", font=font_md)
-    draw.text((20, 140), "-- kW", fill="black", font=font_lg)
-    draw.text((20, 180), "Waiting for Enphase...", fill="black", font=font_sm)
+
+    if solar_storage is None:
+        draw.text((20, 140), "-- kW", fill="black", font=font_lg)
+        draw.text((20, 180), "Solar: not configured", fill="black", font=font_sm)
+    else:
+        reading = solar_storage.get_latest()
+        if reading:
+            prod_kw = reading["production_w"] / 1000
+            cons_kw = reading["consumption_w"] / 1000
+            net_w = reading["net_w"]
+            draw.text((20, 140), f"{prod_kw:.1f} kW", fill="black", font=font_lg)
+            draw.text((20, 180), f"Using {cons_kw:.1f} kW", fill="black", font=font_sm)
+            if net_w >= 0:
+                draw.text((20, 200), f"Exporting {net_w / 1000:.1f} kW", fill="black", font=font_sm)
+            else:
+                imp_kw = abs(net_w) / 1000
+                draw.text((20, 200), f"Importing {imp_kw:.1f} kW", fill="black", font=font_sm)
+        else:
+            draw.text((20, 140), "-- kW", fill="black", font=font_lg)
+            draw.text((20, 180), "Waiting for Enphase...", fill="black", font=font_sm)
 
     # Grocery list (right)
     draw.rectangle([(width // 2 + 6, 100), (width - 12, 260)], outline="black", width=2)
@@ -221,7 +239,7 @@ def main():
 
     try:
         while running.is_set():
-            render_frame(display)
+            render_frame(display, solar_storage=solar_storage)
             log.info(f"Frame rendered. Next refresh in {refresh_interval}s.")
 
             # Sleep in small increments so we can catch signals
