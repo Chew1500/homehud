@@ -66,6 +66,7 @@ make test         # pytest tests/ -v
   - `curl http://homehud.local:8080/api/stats` — aggregate stats (session/exchange counts, avg phase durations, token usage, error rate)
   - `curl http://homehud.local:8080/api/sessions?limit=10` — recent sessions with transcriptions and features used
   - `curl http://homehud.local:8080/api/sessions/<uuid>` — full session detail with exchange phase timings, LLM prompts/responses, and token counts
+  - `curl http://homehud.local:8080/api/logs?lines=50&level=WARNING` — recent log entries with optional level filter and line limit
 
 ## Conventions
 
