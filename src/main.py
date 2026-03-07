@@ -193,6 +193,7 @@ def main():
                         host=config.get("telemetry_web_host", "0.0.0.0"),
                         port=config.get("telemetry_web_port", 8080),
                         display_snapshot_path=config.get("display_snapshot_path"),
+                        log_dir=config.get("log_dir"),
                     )
                     telemetry_web.start()
 

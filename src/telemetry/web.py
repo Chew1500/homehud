@@ -19,6 +19,15 @@ log = logging.getLogger("home-hud.telemetry.web")
 # Regex for /api/sessions/<uuid>
 _SESSION_RE = re.compile(r"^/api/sessions/([0-9a-f-]+)$")
 
+# Log line parsing: matches "2024-01-15 10:30:45,123 [INFO] home-hud: message"
+_LOG_LINE_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})"  # timestamp
+    r" \[(\w+)\]"  # level
+    r" ([\w.\-]+):"  # logger name
+    r" (.*)$"  # message
+)
+_LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
+
 
 class _Handler(BaseHTTPRequestHandler):
     """Request handler — routes to dashboard or JSON API endpoints."""
@@ -37,6 +46,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_stats()
         elif path == "/api/display":
             self._handle_display()
+        elif path == "/api/logs":
+            self._handle_logs(params)
         elif path == "/api/sessions":
             self._handle_sessions(params)
         elif m := _SESSION_RE.match(path):
@@ -245,6 +256,33 @@ class _Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
+    def _handle_logs(self, params):
+        log_dir = getattr(self.server, "log_dir", None)
+        if not log_dir:
+            self._send_json({"error": "Log directory not configured"}, HTTPStatus.NOT_FOUND)
+            return
+
+        log_path = Path(log_dir) / "homehud.log"
+        if not log_path.is_file():
+            self._send_json({
+                "lines": [], "total_lines": 0,
+                "log_file": "homehud.log", "filters": {},
+            })
+            return
+
+        limit = min(int(params.get("lines", [200])[0]), 2000)
+        level_filter = params.get("level", [None])[0]
+
+        raw_lines = _tail_log(log_path, max_lines=limit * 3)  # over-read for filtering
+        entries = _parse_log_lines(raw_lines, level_filter, limit)
+
+        self._send_json({
+            "lines": entries,
+            "total_lines": len(entries),
+            "log_file": "homehud.log",
+            "filters": {"level": level_filter, "limit": limit},
+        })
+
     # --- Response helpers ---
 
     def _send_json(self, data, status=HTTPStatus.OK):
@@ -271,6 +309,53 @@ def _ro_connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def _tail_log(path: Path, max_lines: int = 600) -> list[str]:
+    """Read the last `max_lines` lines from a log file efficiently."""
+    chunk_size = 8192
+    lines: list[str] = []
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)  # end of file
+            remaining = f.tell()
+            buf = b""
+            while remaining > 0 and len(lines) < max_lines:
+                read_size = min(chunk_size, remaining)
+                remaining -= read_size
+                f.seek(remaining)
+                buf = f.read(read_size) + buf
+                lines = buf.decode("utf-8", errors="replace").splitlines()
+            return lines[-max_lines:]
+    except Exception:
+        return []
+
+
+def _parse_log_lines(
+    raw_lines: list[str], level_filter: str | None, limit: int,
+) -> list[dict]:
+    """Parse raw log lines into structured entries, attaching continuations."""
+    min_level = 0
+    if level_filter and level_filter.upper() in _LEVEL_ORDER:
+        min_level = _LEVEL_ORDER[level_filter.upper()]
+
+    entries: list[dict] = []
+    for line in raw_lines:
+        m = _LOG_LINE_RE.match(line)
+        if m:
+            level = m.group(2).upper()
+            if _LEVEL_ORDER.get(level, 0) >= min_level:
+                entries.append({
+                    "timestamp": m.group(1),
+                    "level": level,
+                    "logger": m.group(3),
+                    "message": m.group(4),
+                })
+        elif entries:
+            # Continuation line (traceback, multi-line message)
+            entries[-1]["message"] += "\n" + line
+
+    return entries[-limit:]
+
+
 class TelemetryWeb:
     """Lightweight HTTP server for the telemetry dashboard.
 
@@ -284,11 +369,13 @@ class TelemetryWeb:
         host: str = "0.0.0.0",
         port: int = 8080,
         display_snapshot_path: str | None = None,
+        log_dir: str | None = None,
     ):
         self._db_path = db_path
         self._host = host
         self._port = port
         self._display_snapshot_path = display_snapshot_path
+        self._log_dir = log_dir
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -297,6 +384,7 @@ class TelemetryWeb:
         self._server = HTTPServer((self._host, self._port), _Handler)
         self._server.db_path = self._db_path  # attach for handler access
         self._server.display_snapshot_path = self._display_snapshot_path
+        self._server.log_dir = self._log_dir
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         log.info("Telemetry dashboard at http://%s:%d", self._host, self._port)
