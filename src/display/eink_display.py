@@ -41,10 +41,11 @@ class EinkDisplay(BaseDisplay):
         # will be added when we refine the UI.
         bw_image = image.convert("1")  # 1-bit black/white
 
-        # TODO: Extract red channel for tri-color rendering
-        # red_image = extract_red_channel(image)
+        # Blank red channel (all white = no red pixels).
+        # TODO: Extract red channel from source image for tri-color rendering.
+        red_image = Image.new("1", self.size, 255)
 
-        self._epd.display(self._epd.getbuffer(bw_image))
+        self._epd.display(self._epd.getbuffer(bw_image), self._epd.getbuffer(red_image))
         log.info("E-ink frame rendered.")
 
     def clear(self) -> None:
