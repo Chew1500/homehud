@@ -40,7 +40,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libportaudio2 portaudio19-dev ffmpeg libopenblas-dev \
-            libopenjp2-7 libtiff6 espeak-ng
+            libopenjp2-7 libtiff6 espeak-ng \
+            liblgpio-dev python3.11-dev
           sudo ldconfig
 
       - name: Ensure Python 3.11 venv
