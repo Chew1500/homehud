@@ -41,7 +41,7 @@ jobs:
           sudo apt-get install -y -qq \
             libportaudio2 portaudio19-dev ffmpeg libopenblas-dev \
             libopenjp2-7 libtiff6 espeak-ng \
-            liblgpio-dev python3.11-dev
+            liblgpio-dev python3-dev
           sudo ldconfig
 
       - name: Ensure Python 3.11 venv
@@ -58,7 +58,7 @@ jobs:
           if [ -z "$PY311" ]; then
             echo "Python 3.11 not found, attempting apt install..."
             sudo apt-get update -qq
-            if sudo apt-get install -y -qq python3.11 python3.11-venv python3.11-dev 2>/dev/null; then
+            if sudo apt-get install -y -qq python3.11 python3.11-venv python3-dev 2>/dev/null; then
               PY311="python3.11"
             else
               echo "apt install failed, building Python 3.11 from source..."
