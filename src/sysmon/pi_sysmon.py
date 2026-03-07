@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from collections import defaultdict
 
 from sysmon.base import BaseSystemMonitor, SystemMetrics
 
@@ -29,16 +30,33 @@ class PiSystemMonitor(BaseSystemMonitor):
                 text=True,
                 timeout=5,
             )
+            if result.returncode != 0:
+                log.warning(
+                    "vcgencmd measure_temp failed (rc=%d): stdout=%r stderr=%r",
+                    result.returncode,
+                    result.stdout.strip(),
+                    result.stderr.strip(),
+                )
+                return None
             # Output: "temp=45.2'C\n"
             match = re.search(r"temp=([\d.]+)", result.stdout)
             if match:
                 return float(match.group(1))
-        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
-            log.debug("Failed to read CPU temperature", exc_info=True)
+            log.warning(
+                "vcgencmd measure_temp output not parseable: %r",
+                result.stdout.strip(),
+            )
+        except Exception:
+            log.warning("Failed to read CPU temperature", exc_info=True)
         return None
 
     def _read_power(self) -> float | None:
-        """Parse total power from `vcgencmd pmic_read_adc` (RPi5 only)."""
+        """Parse total power from `vcgencmd pmic_read_adc` (RPi5 only).
+
+        Handles two output formats:
+        - Same-line:     "VDD_CORE  0.8800V  1.2300A"
+        - Separate-line: "VDD_CORE volt(V)=0.880V" / "VDD_CORE curr(A)=1.234A"
+        """
         try:
             result = subprocess.run(
                 ["vcgencmd", "pmic_read_adc"],
@@ -47,17 +65,47 @@ class PiSystemMonitor(BaseSystemMonitor):
                 timeout=5,
             )
             if result.returncode != 0:
+                log.warning(
+                    "vcgencmd pmic_read_adc failed (rc=%d): stdout=%r stderr=%r",
+                    result.returncode,
+                    result.stdout.strip(),
+                    result.stderr.strip(),
+                )
                 return None
-            # Each line: "label  V_val A_val"  e.g. "VDD_CORE  0.8800V  1.2300A"
-            total_w = 0.0
-            found = False
+
+            # Collect voltage and current per rail name, supporting both
+            # same-line and separate-line formats.
+            rails: dict[str, dict[str, float]] = defaultdict(dict)
+
             for line in result.stdout.splitlines():
+                parts = line.split()
+                if not parts:
+                    continue
+                rail = parts[0]
+
                 v_match = re.search(r"([\d.]+)V", line)
                 a_match = re.search(r"([\d.]+)A", line)
-                if v_match and a_match:
-                    total_w += float(v_match.group(1)) * float(a_match.group(1))
+
+                if v_match:
+                    rails[rail]["v"] = float(v_match.group(1))
+                if a_match:
+                    rails[rail]["a"] = float(a_match.group(1))
+
+            total_w = 0.0
+            found = False
+            for rail_data in rails.values():
+                if "v" in rail_data and "a" in rail_data:
+                    total_w += rail_data["v"] * rail_data["a"]
                     found = True
-            return round(total_w, 1) if found else None
-        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
-            log.debug("Failed to read power consumption", exc_info=True)
+
+            if not found:
+                log.warning(
+                    "vcgencmd pmic_read_adc: no parseable V/A pairs in output: %r",
+                    result.stdout.strip(),
+                )
+                return None
+
+            return round(total_w, 1)
+        except Exception:
+            log.warning("Failed to read power consumption", exc_info=True)
         return None
