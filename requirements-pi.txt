@@ -11,3 +11,4 @@ soundfile>=0.12
 waveshare-epd @ git+https://github.com/waveshareteam/e-Paper.git#subdirectory=RaspberryPi_JetsonNano/python
 spidev>=3.6
 gpiozero>=2.0
+lgpio>=0.2
