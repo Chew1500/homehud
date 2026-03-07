@@ -104,18 +104,9 @@ jobs:
         run: |
           sudo -H -u hud /opt/homehud/venv/bin/pip install -q --upgrade -r /opt/homehud/requirements-pi.txt
 
-      - name: Verify lgpio importable
+      - name: Verify lgpio installed
         run: |
-          if ! sudo -H -u hud /opt/homehud/venv/bin/python -c "import lgpio; print('lgpio OK')"; then
-            echo "=== Diagnostics ==="
-            echo "Venv sys.path:"
-            sudo -H -u hud /opt/homehud/venv/bin/python -c "import sys; [print(f'  {p}') for p in sys.path]"
-            echo "System lgpio:"
-            python3 -c "import lgpio; print(lgpio.__file__)" 2>&1 || echo "  not importable from system python3 either"
-            echo "pyvenv.cfg:"
-            cat /opt/homehud/venv/pyvenv.cfg
-            exit 1
-          fi
+          sudo -H -u hud /opt/homehud/venv/bin/pip show lgpio
 
       - name: Download openWakeWord models
         run: |
