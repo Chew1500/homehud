@@ -61,6 +61,21 @@ def render_frame(display, ctx=None):
 
     draw.text((12, 10), "HOME HUD", fill="white", font=font_lg)
 
+    # System metrics (right-aligned in header)
+    system_monitor = ctx.system_monitor if ctx else None
+    if system_monitor:
+        metrics = system_monitor.get_metrics()
+        parts = []
+        if metrics.cpu_temp_c is not None:
+            parts.append(f"{metrics.cpu_temp_c:.1f}\u00b0C")
+        if metrics.power_w is not None:
+            parts.append(f"{metrics.power_w:.1f}W")
+        if parts:
+            metrics_text = "  ".join(parts)
+            bbox = draw.textbbox((0, 0), metrics_text, font=font_sm)
+            text_w = bbox[2] - bbox[0]
+            draw.text((width - text_w - 12, 18), metrics_text, fill="white", font=font_sm)
+
     # -- Timestamp --
     from datetime import datetime
 
@@ -141,6 +156,12 @@ def main():
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
+
+    # System monitor (independent of voice pipeline)
+    from sysmon import get_system_monitor
+
+    system_monitor = get_system_monitor(config)
+    log.info(f"System monitor: {system_monitor.__class__.__name__}")
 
     # Voice pipeline (optional)
     audio = None
@@ -266,6 +287,7 @@ def main():
         solar_storage=solar_storage,
         grocery=grocery_feature,
         reminders=reminder_feature,
+        system_monitor=system_monitor,
     )
 
     try:
@@ -309,6 +331,8 @@ def main():
             wake.close()
         if stt:
             stt.close()
+        if system_monitor:
+            system_monitor.close()
         if audio:
             audio.close()
         display.close()

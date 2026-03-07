@@ -9,10 +9,13 @@ dev:
 	HUD_REFRESH_INTERVAL=0 cd src && python -c "\
 from config import load_config; \
 from display import get_display; \
+from display.context import DisplayContext; \
+from sysmon import get_system_monitor; \
 from main import render_frame; \
 config = load_config(); \
 d = get_display(config); \
-render_frame(d); \
+ctx = DisplayContext(system_monitor=get_system_monitor(config)); \
+render_frame(d, ctx=ctx); \
 print('Frame saved to output/latest.png')"
 
 # Lint with ruff

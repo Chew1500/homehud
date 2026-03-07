@@ -100,6 +100,12 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `dashboard.py`: `DASHBOARD_HTML` — self-contained HTML page with embedded CSS and vanilla JS; summary cards, phase performance table, feature/routing breakdowns, log viewer (color-coded, auto-refreshing), paginated session list with expandable exchange and LLM call details
 - No ABC pattern — telemetry isn't hardware-dependent; when disabled, `telemetry_store` is `None` and the pipeline skips persistence
 
+**`src/sysmon/`** — System hardware monitoring
+- `base.py`: `BaseSystemMonitor` ABC — `get_metrics() -> SystemMetrics`, `close()`; `SystemMetrics` dataclass with `cpu_temp_c` and `power_w`
+- `mock_sysmon.py`: `MockSystemMonitor` — static values (45.0°C, 3.5W) for local dev
+- `pi_sysmon.py`: `PiSystemMonitor` — reads real metrics via `vcgencmd` (temperature + PMIC power on RPi5)
+- `__init__.py`: factory function `get_system_monitor(config) -> BaseSystemMonitor`
+
 **`src/utils/`** — Shared helpers
 - `__init__.py`: Package marker
 - `phrases.py`: Phrase pool constants (`WAKE_PHRASES`, `STARTUP_PHRASES`, `DEPLOY_PHRASES`) and `pick_phrase(pool) -> str`

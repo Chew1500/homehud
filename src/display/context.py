@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from enphase.storage import SolarStorage
     from features.grocery import GroceryFeature
     from features.reminder import ReminderFeature
+    from sysmon.base import BaseSystemMonitor
 
 
 @dataclass
@@ -18,3 +19,4 @@ class DisplayContext:
     solar_storage: SolarStorage | None = None
     grocery: GroceryFeature | None = None
     reminders: ReminderFeature | None = None
+    system_monitor: BaseSystemMonitor | None = None

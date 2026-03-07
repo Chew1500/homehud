@@ -155,6 +155,9 @@ def load_config() -> dict:
         "telemetry_web_host": os.getenv("HUD_TELEMETRY_WEB_HOST", "0.0.0.0"),
         "telemetry_web_port": int(os.getenv("HUD_TELEMETRY_WEB_PORT", "8080")),
 
+        # System monitor
+        "sysmon_mode": os.getenv("HUD_SYSMON_MODE", "mock"),  # "mock" or "pi"
+
         # Anthropic API (Phase 6)
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
     }
