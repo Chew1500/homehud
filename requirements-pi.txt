@@ -8,4 +8,4 @@ kokoro-onnx>=0.4.0
 soundfile>=0.12
 
 # E-ink display (Waveshare 7.5" tri-color e-Paper HAT)
-waveshare-epd>=0.1
+waveshare-epd @ git+https://github.com/waveshareteam/e-Paper.git#subdirectory=RaspberryPi_JetsonNano/python
