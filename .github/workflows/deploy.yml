@@ -84,14 +84,17 @@ jobs:
           # Ensure venv module available (needed for system python3)
           sudo apt-get install -y -qq python3-venv python3.11-venv 2>/dev/null || true
 
-          # Recreate venv if missing, wrong version, or lacks system-site-packages
+          # Recreate venv if missing, wrong version, lacks system-site-packages,
+          # or was created with a different Python binary
           CURRENT_PY=$(sudo -H -u hud /opt/homehud/venv/bin/python3 -c \
             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
             2>/dev/null || echo "none")
           HAS_SYSTEM_PKGS=$(grep -c 'include-system-site-packages = true' \
             /opt/homehud/venv/pyvenv.cfg 2>/dev/null || echo "0")
-          if [ "$CURRENT_PY" != "3.11" ] || [ "$HAS_SYSTEM_PKGS" = "0" ]; then
-            echo "Venv needs update (Python=$CURRENT_PY, system-site-packages=$HAS_SYSTEM_PKGS), recreating..."
+          VENV_HOME=$(grep '^home = ' /opt/homehud/venv/pyvenv.cfg 2>/dev/null | sed 's/^home = //')
+          PY311_HOME=$(dirname "$(which $PY311)")
+          if [ "$CURRENT_PY" != "3.11" ] || [ "$HAS_SYSTEM_PKGS" = "0" ] || [ "$VENV_HOME" != "$PY311_HOME" ]; then
+            echo "Venv needs update (Python=$CURRENT_PY, system-site-packages=$HAS_SYSTEM_PKGS, home=$VENV_HOME, expected=$PY311_HOME), recreating..."
             sudo rm -rf /opt/homehud/venv
             sudo -H -u hud $PY311 -m venv --system-site-packages /opt/homehud/venv
             sudo -H -u hud /opt/homehud/venv/bin/pip install -q --upgrade pip
@@ -99,8 +102,7 @@ jobs:
 
       - name: Verify lgpio importable
         run: |
-          sudo -H -u hud /opt/homehud/venv/bin/python -c "import lgpio; print('lgpio OK')" || \
-            echo "WARNING: lgpio not importable in venv — gpiozero will fail"
+          sudo -H -u hud /opt/homehud/venv/bin/python -c "import lgpio; print('lgpio OK')"
 
       - name: Update dependencies
         run: |

@@ -30,7 +30,17 @@ class EinkDisplay(BaseDisplay):
                 "or run in mock mode (HUD_DISPLAY_MODE=mock)."
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize e-ink display: {e}")
+            error_name = type(e).__name__
+            if "BadPinFactory" in error_name or "lgpio" in str(e).lower():
+                raise RuntimeError(
+                    f"GPIO pin factory not available: {e}. "
+                    "Ensure python3-lgpio is installed and the venv uses "
+                    "--system-site-packages, or run in mock mode "
+                    "(HUD_DISPLAY_MODE=mock)."
+                ) from e
+            raise RuntimeError(
+                f"Failed to initialize e-ink display: {e}"
+            ) from e
 
     def show(self, image: Image.Image) -> None:
         if image.size != self.size:
