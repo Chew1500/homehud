@@ -10,6 +10,7 @@ from pathlib import Path
 
 from config import load_config
 from display import get_display
+from display.context import DisplayContext
 
 log = logging.getLogger("home-hud")
 
@@ -39,7 +40,7 @@ def setup_logging(config: dict) -> None:
     root.addHandler(file_handler)
 
 
-def render_frame(display, solar_storage=None):
+def render_frame(display, ctx=None):
     """Render a single frame to the display."""
     from PIL import Image, ImageDraw, ImageFont
 
@@ -71,6 +72,7 @@ def render_frame(display, solar_storage=None):
     draw.rectangle([(12, 100), (width // 2 - 6, 260)], outline="black", width=2)
     draw.text((20, 108), "Solar Production", fill="black", font=font_md)
 
+    solar_storage = ctx.solar_storage if ctx else None
     if solar_storage is None:
         draw.text((20, 140), "-- kW", fill="black", font=font_lg)
         draw.text((20, 180), "Solar: not configured", fill="black", font=font_sm)
@@ -92,9 +94,27 @@ def render_frame(display, solar_storage=None):
             draw.text((20, 180), "Waiting for Enphase...", fill="black", font=font_sm)
 
     # Grocery list (right)
-    draw.rectangle([(width // 2 + 6, 100), (width - 12, 260)], outline="black", width=2)
-    draw.text((width // 2 + 14, 108), "Grocery List", fill="black", font=font_md)
-    draw.text((width // 2 + 14, 140), "No items yet", fill="black", font=font_sm)
+    panel_x = width // 2 + 6
+    panel_inner_x = width // 2 + 14
+    draw.rectangle([(panel_x, 100), (width - 12, 260)], outline="black", width=2)
+    draw.text((panel_inner_x, 108), "Grocery List", fill="black", font=font_md)
+
+    grocery = ctx.grocery if ctx else None
+    if grocery is None:
+        draw.text((panel_inner_x, 140), "Not configured", fill="black", font=font_sm)
+    else:
+        items = grocery.get_items()
+        if not items:
+            draw.text((panel_inner_x, 140), "No items", fill="black", font=font_sm)
+        else:
+            max_visible = 6
+            y = 136
+            for item in items[:max_visible]:
+                draw.text((panel_inner_x, y), f"- {item}", fill="black", font=font_sm)
+                y += 18
+            overflow = len(items) - max_visible
+            if overflow > 0:
+                draw.text((panel_inner_x, y), f"+{overflow} more", fill="black", font=font_sm)
 
     # -- Footer --
     draw.line([(12, height - 40), (width - 12, height - 40)], fill="black", width=1)
@@ -136,6 +156,8 @@ def main():
     radarr_client = None
     telemetry_store = None
     telemetry_web = None
+    grocery_feature = None
+    reminder_feature = None
 
     if config.get("voice_enabled", True):
         try:
@@ -186,10 +208,12 @@ def main():
             sonarr_client = get_sonarr_client(config)
             radarr_client = get_radarr_client(config)
 
+            grocery_feature = GroceryFeature(config)
+            reminder_feature = ReminderFeature(config, on_due=on_reminder_due)
             features = [
                 repeat_feature,
-                GroceryFeature(config),
-                ReminderFeature(config, on_due=on_reminder_due),
+                grocery_feature,
+                reminder_feature,
                 SolarFeature(config, solar_storage, llm),
                 MediaFeature(config, sonarr=sonarr_client, radarr=radarr_client),
             ]
@@ -237,9 +261,16 @@ def main():
 
     refresh_interval = config.get("refresh_interval", 300)  # 5 min default
 
+    # Build display context from whatever data sources are available
+    display_ctx = DisplayContext(
+        solar_storage=solar_storage,
+        grocery=grocery_feature,
+        reminders=reminder_feature,
+    )
+
     try:
         while running.is_set():
-            render_frame(display, solar_storage=solar_storage)
+            render_frame(display, ctx=display_ctx)
             log.info(f"Frame rendered. Next refresh in {refresh_interval}s.")
 
             # Sleep in small increments so we can catch signals

@@ -135,6 +135,10 @@ class GroceryFeature(BaseFeature):
         self._save([])
         return "The grocery list has been cleared."
 
+    def get_items(self) -> list[str]:
+        """Return the current grocery list items (read-only snapshot)."""
+        return self._load()
+
     # -- Persistence --
 
     def _load(self) -> list[str]:

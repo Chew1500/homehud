@@ -367,6 +367,10 @@ class ReminderFeature(BaseFeature):
         self._save([])
         return "All reminders have been cleared."
 
+    def get_reminders(self) -> list[dict]:
+        """Return the current reminders (read-only snapshot)."""
+        return self._load()
+
     # -- Time parsing --
 
     def _parse_relative(self, amount_str: str, unit: str) -> timedelta:
