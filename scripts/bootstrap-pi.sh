@@ -76,7 +76,7 @@ fi
 echo "[3/6] Setting up app user..."
 if ! id "$APP_USER" &>/dev/null; then
     sudo useradd -r -m -s /bin/bash "$APP_USER"
-    sudo usermod -aG spi,gpio,audio "$APP_USER"
+    sudo usermod -aG spi,gpio,audio,video "$APP_USER"
     echo "  Created user: $APP_USER"
 else
     echo "  User $APP_USER already exists"
