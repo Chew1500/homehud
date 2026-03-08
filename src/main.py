@@ -48,18 +48,19 @@ def render_frame(display, ctx=None):
     img = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(img)
 
-    # -- Header --
-    draw.rectangle([(0, 0), (width, 48)], fill="red")
+    # -- Fonts (bold for e-ink clarity) --
     try:
-        font_lg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-        font_md = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        font_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        font_lg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_md = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
     except OSError:
         font_lg = ImageFont.load_default()
         font_md = font_lg
         font_sm = font_lg
 
-    draw.text((12, 10), "HOME HUD", fill="white", font=font_lg)
+    # -- Header (red bar) --
+    draw.rectangle([(0, 0), (width, 56)], fill="red")
+    draw.text((12, 12), "HOME HUD", fill="white", font=font_lg)
 
     # System metrics (right-aligned in header)
     system_monitor = ctx.system_monitor if ctx else None
@@ -74,62 +75,59 @@ def render_frame(display, ctx=None):
             metrics_text = "  ".join(parts)
             bbox = draw.textbbox((0, 0), metrics_text, font=font_sm)
             text_w = bbox[2] - bbox[0]
-            draw.text((width - text_w - 12, 18), metrics_text, fill="white", font=font_sm)
+            draw.text((width - text_w - 12, 20), metrics_text, fill="white", font=font_sm)
 
     # -- Timestamp --
     from datetime import datetime
 
     now = datetime.now().strftime("%B %d, %Y  %I:%M %p")
-    draw.text((12, 60), now, fill="black", font=font_md)
+    draw.text((12, 68), now, fill="black", font=font_md)
 
-    # -- Placeholder panels --
-    # Solar panel (left)
-    draw.rectangle([(12, 100), (width // 2 - 6, 260)], outline="red", width=2)
+    # -- Solar panel (full width) --
+    draw.rectangle([(12, 100), (width - 12, 360)], outline="red", width=2)
     draw.text((20, 108), "Solar Production", fill="red", font=font_md)
 
     solar_storage = ctx.solar_storage if ctx else None
     if solar_storage is None:
-        draw.text((20, 140), "-- kW", fill="black", font=font_lg)
-        draw.text((20, 180), "Solar: not configured", fill="black", font=font_sm)
+        draw.text((20, 145), "-- kW", fill="black", font=font_lg)
+        draw.text((20, 190), "Solar: not configured", fill="black", font=font_sm)
     else:
         reading = solar_storage.get_latest()
         if reading:
             prod_kw = reading["production_w"] / 1000
             cons_kw = reading["consumption_w"] / 1000
             net_w = reading["net_w"]
-            draw.text((20, 140), f"{prod_kw:.1f} kW", fill="black", font=font_lg)
-            draw.text((20, 180), f"Using {cons_kw:.1f} kW", fill="black", font=font_sm)
+            draw.text((20, 145), f"{prod_kw:.1f} kW", fill="black", font=font_lg)
+            draw.text((20, 190), f"Using {cons_kw:.1f} kW", fill="black", font=font_sm)
             if net_w >= 0:
-                draw.text((20, 200), f"Exporting {net_w / 1000:.1f} kW", fill="black", font=font_sm)
+                draw.text((20, 215), f"Exporting {net_w / 1000:.1f} kW", fill="black", font=font_sm)
             else:
                 imp_kw = abs(net_w) / 1000
-                draw.text((20, 200), f"Importing {imp_kw:.1f} kW", fill="red", font=font_sm)
+                draw.text((20, 215), f"Importing {imp_kw:.1f} kW", fill="red", font=font_sm)
         else:
-            draw.text((20, 140), "-- kW", fill="black", font=font_lg)
-            draw.text((20, 180), "Waiting for Enphase...", fill="black", font=font_sm)
+            draw.text((20, 145), "-- kW", fill="black", font=font_lg)
+            draw.text((20, 190), "Waiting for Enphase...", fill="black", font=font_sm)
 
-    # Grocery list (right)
-    panel_x = width // 2 + 6
-    panel_inner_x = width // 2 + 14
-    draw.rectangle([(panel_x, 100), (width - 12, 260)], outline="red", width=2)
-    draw.text((panel_inner_x, 108), "Grocery List", fill="red", font=font_md)
+    # -- Grocery list (full width) --
+    draw.rectangle([(12, 380), (width - 12, 680)], outline="red", width=2)
+    draw.text((20, 388), "Grocery List", fill="red", font=font_md)
 
     grocery = ctx.grocery if ctx else None
     if grocery is None:
-        draw.text((panel_inner_x, 140), "Not configured", fill="black", font=font_sm)
+        draw.text((20, 420), "Not configured", fill="black", font=font_sm)
     else:
         items = grocery.get_items()
         if not items:
-            draw.text((panel_inner_x, 140), "No items", fill="black", font=font_sm)
+            draw.text((20, 420), "No items", fill="black", font=font_sm)
         else:
-            max_visible = 6
-            y = 136
+            max_visible = 12
+            y = 416
             for item in items[:max_visible]:
-                draw.text((panel_inner_x, y), f"- {item}", fill="black", font=font_sm)
-                y += 18
+                draw.text((20, y), f"- {item}", fill="black", font=font_sm)
+                y += 22
             overflow = len(items) - max_visible
             if overflow > 0:
-                draw.text((panel_inner_x, y), f"+{overflow} more", fill="black", font=font_sm)
+                draw.text((20, y), f"+{overflow} more", fill="black", font=font_sm)
 
     # -- Footer --
     draw.line([(12, height - 40), (width - 12, height - 40)], fill="black", width=1)

@@ -46,8 +46,11 @@ class EinkDisplay(BaseDisplay):
         if image.size != self.size:
             image = image.resize(self.size)
 
-        # Snapshot before 1-bit conversion so dashboard gets full-color image
+        # Snapshot before rotation so dashboard gets the readable portrait image
         self._save_snapshot(image)
+
+        # Rotate portrait canvas (480x800) -> hardware buffer (800x480)
+        image = image.transpose(Image.ROTATE_90)
 
         # Separate RGB image into black and red channels for tri-color display.
         import numpy as np

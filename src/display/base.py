@@ -11,9 +11,9 @@ from PIL import Image
 
 log = logging.getLogger(__name__)
 
-# Waveshare 7.5" v2 resolution
-DEFAULT_WIDTH = 800
-DEFAULT_HEIGHT = 480
+# Canvas dimensions (portrait orientation for wall mount)
+DEFAULT_WIDTH = 480
+DEFAULT_HEIGHT = 800
 
 
 class BaseDisplay(ABC):
