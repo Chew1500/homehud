@@ -87,6 +87,33 @@ class RadarrClient(BaseRadarrClient):
             log.exception("Failed to fetch Radarr movie list")
             return []
 
+    def get_movies_detailed(self) -> list[dict]:
+        try:
+            resp = self._client.get("/api/v3/movie")
+            resp.raise_for_status()
+            results = []
+            for m in resp.json():
+                ratings = m.get("ratings", {})
+                results.append({
+                    "tmdbId": m.get("tmdbId", 0),
+                    "title": m.get("title", ""),
+                    "year": m.get("year", 0),
+                    "genres": m.get("genres", []),
+                    "ratings": {
+                        "imdb": ratings.get("imdb", {}).get("value"),
+                        "tmdb": ratings.get("tmdb", {}).get("value"),
+                        "rottenTomatoes": ratings.get("rottenTomatoes", {}).get("value"),
+                    },
+                    "studio": m.get("studio", ""),
+                    "runtime": m.get("runtime", 0),
+                    "certification": m.get("certification", ""),
+                    "overview": m.get("overview", ""),
+                })
+            return results
+        except Exception:
+            log.exception("Failed to fetch detailed Radarr movie list")
+            return []
+
     def add_movie(self, tmdb_id: int, title: str) -> dict:
         self._ensure_defaults()
         payload = {

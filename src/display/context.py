@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from discovery.storage import DiscoveryStorage
     from enphase.storage import SolarStorage
     from features.grocery import GroceryFeature
     from features.reminder import ReminderFeature
@@ -20,3 +21,4 @@ class DisplayContext:
     grocery: GroceryFeature | None = None
     reminders: ReminderFeature | None = None
     system_monitor: BaseSystemMonitor | None = None
+    discovery_storage: DiscoveryStorage | None = None

@@ -140,6 +140,27 @@ def load_config() -> dict:
         "radarr_url": os.getenv("RADARR_URL", "http://localhost:7878"),
         "radarr_api_key": os.getenv("RADARR_API_KEY", ""),
 
+        # Jellyfin — opt-in: leave JELLYFIN_MODE empty to disable
+        "jellyfin_mode": os.getenv("JELLYFIN_MODE", ""),  # "" | "mock" | "live"
+        "jellyfin_url": os.getenv("JELLYFIN_URL", "http://localhost:8096"),
+        "jellyfin_api_key": os.getenv("JELLYFIN_API_KEY", ""),
+        "jellyfin_user_id": os.getenv("JELLYFIN_USER_ID", ""),
+
+        # Discovery (media recommendations)
+        "discovery_db_path": os.getenv(
+            "DISCOVERY_DB_PATH", str(PROJECT_ROOT / "data" / "discovery.db")
+        ),
+        "discovery_library_sync_interval": int(
+            os.getenv("DISCOVERY_LIBRARY_SYNC_INTERVAL", "21600")
+        ),  # 6 hours
+        "discovery_interval": int(os.getenv("DISCOVERY_INTERVAL", "86400")),  # 24 hours
+        "discovery_llm_model": os.getenv(
+            "DISCOVERY_LLM_MODEL", "claude-haiku-4-5-20251001"
+        ),
+        "discovery_max_recommendations": int(
+            os.getenv("DISCOVERY_MAX_RECOMMENDATIONS", "10")
+        ),
+
         # Media feature
         "media_disambiguation_ttl": int(os.getenv("HUD_MEDIA_DISAMBIGUATION_TTL", "60")),
 

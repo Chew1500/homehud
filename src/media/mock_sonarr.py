@@ -12,6 +12,35 @@ _CANNED_LIBRARY = [
     {"tvdbId": 356546, "title": "Fallout", "year": 2024},
 ]
 
+_CANNED_LIBRARY_DETAILED = [
+    {
+        "tvdbId": 81189, "title": "Breaking Bad", "year": 2008,
+        "genres": ["Drama", "Crime", "Thriller"],
+        "ratings": {"imdb": 9.5, "tmdb": 8.9, "rottenTomatoes": 96},
+        "network": "AMC",
+        "runtime": 47, "certification": "TV-MA",
+        "overview": "A high school chemistry teacher turned methamphetamine manufacturer.",
+    },
+    {
+        "tvdbId": 305288, "title": "Severance", "year": 2022,
+        "genres": ["Drama", "Mystery", "Science Fiction", "Thriller"],
+        "ratings": {"imdb": 8.7, "tmdb": 8.4, "rottenTomatoes": 97},
+        "network": "Apple TV+",
+        "runtime": 50, "certification": "TV-MA",
+        "overview": "Mark leads a team of office workers whose memories have been "
+        "surgically divided between their work and personal lives.",
+    },
+    {
+        "tvdbId": 356546, "title": "Fallout", "year": 2024,
+        "genres": ["Action", "Adventure", "Science Fiction"],
+        "ratings": {"imdb": 8.5, "tmdb": 8.3, "rottenTomatoes": 94},
+        "network": "Amazon",
+        "runtime": 55, "certification": "TV-MA",
+        "overview": "In a post-apocalyptic world, a shelter dweller ventures outside "
+        "to find her missing father.",
+    },
+]
+
 _CANNED_SEARCH = {
     "severance": [
         {
@@ -95,6 +124,10 @@ class MockSonarrClient(BaseSonarrClient):
         entry = {"tvdbId": tvdb_id, "title": title, "year": 2024}
         self._library.append(entry)
         return entry
+
+    def get_series_detailed(self) -> list[dict]:
+        log.info("Mock: returning %d detailed series", len(_CANNED_LIBRARY_DETAILED))
+        return list(_CANNED_LIBRARY_DETAILED)
 
     def is_series_tracked(self, tvdb_id: int) -> bool:
         return any(s["tvdbId"] == tvdb_id for s in self._library)

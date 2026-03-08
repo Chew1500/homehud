@@ -99,6 +99,41 @@ def test_mock_radarr_close():
     client.close()  # Should not raise
 
 
+# -- Detailed methods --
+
+
+def test_mock_sonarr_get_series_detailed():
+    client = MockSonarrClient({})
+    series = client.get_series_detailed()
+    assert len(series) >= 1
+    item = series[0]
+    assert "tvdbId" in item
+    assert "title" in item
+    assert "year" in item
+    assert "genres" in item and isinstance(item["genres"], list)
+    assert "ratings" in item and isinstance(item["ratings"], dict)
+    assert "network" in item
+    assert "runtime" in item
+    assert "certification" in item
+    assert "overview" in item
+
+
+def test_mock_radarr_get_movies_detailed():
+    client = MockRadarrClient({})
+    movies = client.get_movies_detailed()
+    assert len(movies) >= 1
+    item = movies[0]
+    assert "tmdbId" in item
+    assert "title" in item
+    assert "year" in item
+    assert "genres" in item and isinstance(item["genres"], list)
+    assert "ratings" in item and isinstance(item["ratings"], dict)
+    assert "studio" in item
+    assert "runtime" in item
+    assert "certification" in item
+    assert "overview" in item
+
+
 # -- Factory functions --
 
 

@@ -86,12 +86,24 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `__init__.py`: factory function `get_enphase_client(config) -> BaseEnphaseClient`
 
 **`src/media/`** — Sonarr/Radarr media library clients
-- `base.py`: `BaseSonarrClient` and `BaseRadarrClient` ABCs — search, list, add, is_tracked, close
+- `base.py`: `BaseSonarrClient` and `BaseRadarrClient` ABCs — search, list, list_detailed, add, is_tracked, close
 - `mock_sonarr.py`: `MockSonarrClient` — canned TV show data for local dev
 - `mock_radarr.py`: `MockRadarrClient` — canned movie data for local dev
 - `sonarr_client.py`: `SonarrClient` — real Sonarr v3 REST API client (httpx, X-Api-Key auth)
 - `radarr_client.py`: `RadarrClient` — real Radarr v3 REST API client (httpx, X-Api-Key auth)
 - `__init__.py`: factory functions `get_sonarr_client(config)`, `get_radarr_client(config)` — returns None when mode is empty (opt-in)
+
+**`src/jellyfin/`** — Jellyfin media server client (provides cast/crew + watch history)
+- `base.py`: `BaseJellyfinClient` ABC — `get_user_id()`, `get_library_items()`, `close()`
+- `mock_client.py`: `MockJellyfinClient` — canned library data with people arrays and watch history
+- `client.py`: `JellyfinClient` — real Jellyfin REST API client (httpx, X-Emby-Token auth)
+- `__init__.py`: factory function `get_jellyfin_client(config)` — returns None when mode is empty (opt-in)
+
+**`src/discovery/`** — Media discovery and recommendation engine
+- `storage.py`: `DiscoveryStorage` — thread-safe SQLite storage for library cache, people, taste profiles, and recommendations
+- `collector.py`: `LibraryCollector` — background daemon thread that syncs Radarr/Sonarr/Jellyfin libraries into SQLite, rebuilds taste profiles, and triggers discovery
+- `engine.py`: `DiscoveryEngine` — LLM-powered recommendation generation from taste profile; parses structured JSON from Claude Haiku
+- `__init__.py`: package marker
 
 **`src/telemetry/`** — Voice transaction telemetry
 - `models.py`: Dataclasses — `Session`, `Exchange`, `LLMCallInfo`; `Session` tracks 1+ exchanges per wake event; `Exchange` has `start_phase(name)` / `end_phase(name)` helpers for timing pipeline phases; `LLMCallInfo` holds per-API-call metadata

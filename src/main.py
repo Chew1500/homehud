@@ -108,8 +108,8 @@ def render_frame(display, ctx=None):
             draw.text((20, 145), "-- kW", fill="black", font=font_lg)
             draw.text((20, 190), "Waiting for Enphase...", fill="black", font=font_sm)
 
-    # -- Grocery list (full width) --
-    draw.rectangle([(12, 380), (width - 12, 680)], outline="red", width=2)
+    # -- Grocery list (full width, compact) --
+    draw.rectangle([(12, 380), (width - 12, 600)], outline="red", width=2)
     draw.text((20, 388), "Grocery List", fill="red", font=font_md)
 
     grocery = ctx.grocery if ctx else None
@@ -120,12 +120,42 @@ def render_frame(display, ctx=None):
         if not items:
             draw.text((20, 420), "No items", fill="black", font=font_sm)
         else:
-            max_visible = 12
+            max_visible = 8
             y = 416
             for item in items[:max_visible]:
                 draw.text((20, y), f"- {item}", fill="black", font=font_sm)
                 y += 22
             overflow = len(items) - max_visible
+            if overflow > 0:
+                draw.text((20, y), f"+{overflow} more", fill="black", font=font_sm)
+
+    # -- Recommendations panel (full width) --
+    draw.rectangle([(12, 620), (width - 12, 760)], outline="red", width=2)
+    draw.text((20, 628), "Recommendations", fill="red", font=font_md)
+
+    discovery_storage = ctx.discovery_storage if ctx else None
+    if discovery_storage is None:
+        draw.text((20, 656), "Not configured", fill="black", font=font_sm)
+    else:
+        try:
+            recs = discovery_storage.get_active_recommendations()
+        except Exception:
+            recs = []
+        if not recs:
+            draw.text((20, 656), "No recommendations yet", fill="black", font=font_sm)
+        else:
+            y = 656
+            for rec in recs[:3]:
+                type_icon = "F" if rec["media_type"] == "movie" else "T"
+                year_str = f" ({rec['year']})" if rec.get("year") else ""
+                draw.text(
+                    (20, y),
+                    f"[{type_icon}] {rec['title']}{year_str}",
+                    fill="black",
+                    font=font_sm,
+                )
+                y += 22
+            overflow = len(recs) - 3
             if overflow > 0:
                 draw.text((20, y), f"+{overflow} more", fill="black", font=font_sm)
 
@@ -173,6 +203,9 @@ def main():
     solar_collector = None
     sonarr_client = None
     radarr_client = None
+    jellyfin_client = None
+    discovery_storage = None
+    library_collector = None
     telemetry_store = None
     telemetry_web = None
     grocery_feature = None
@@ -181,16 +214,21 @@ def main():
     if config.get("voice_enabled", True):
         try:
             from audio import get_audio
+            from discovery.collector import LibraryCollector
+            from discovery.engine import DiscoveryEngine
+            from discovery.storage import DiscoveryStorage
             from enphase import get_enphase_client
             from enphase.collector import SolarCollector
             from enphase.storage import SolarStorage
             from features.capabilities import CapabilitiesFeature
+            from features.discovery import DiscoveryFeature
             from features.grocery import GroceryFeature
             from features.media import MediaFeature
             from features.reminder import ReminderFeature
             from features.repeat import RepeatFeature
             from features.solar import SolarFeature
             from intent import get_router
+            from jellyfin import get_jellyfin_client
             from llm import get_llm
             from media import get_radarr_client, get_sonarr_client
             from speech import get_stt, get_tts
@@ -227,14 +265,31 @@ def main():
             sonarr_client = get_sonarr_client(config)
             radarr_client = get_radarr_client(config)
 
+            # Jellyfin + Discovery (opt-in)
+            jellyfin_client = get_jellyfin_client(config)
+            if sonarr_client or radarr_client or jellyfin_client:
+                discovery_storage = DiscoveryStorage(config["discovery_db_path"])
+                discovery_engine = DiscoveryEngine(discovery_storage, llm, config)
+                library_collector = LibraryCollector(
+                    discovery_storage, config,
+                    radarr=radarr_client, sonarr=sonarr_client,
+                    jellyfin=jellyfin_client, engine=discovery_engine,
+                )
+                library_collector.start()
+
             grocery_feature = GroceryFeature(config)
             reminder_feature = ReminderFeature(config, on_due=on_reminder_due)
+            discovery_feature = DiscoveryFeature(
+                config, discovery_storage=discovery_storage,
+                sonarr=sonarr_client, radarr=radarr_client,
+            )
             features = [
                 repeat_feature,
                 grocery_feature,
                 reminder_feature,
                 SolarFeature(config, solar_storage, llm),
                 MediaFeature(config, sonarr=sonarr_client, radarr=radarr_client),
+                discovery_feature,
             ]
             capabilities_feature = CapabilitiesFeature(config, features)
             features.append(capabilities_feature)
@@ -286,6 +341,7 @@ def main():
         grocery=grocery_feature,
         reminders=reminder_feature,
         system_monitor=system_monitor,
+        discovery_storage=discovery_storage,
     )
 
     try:
@@ -307,6 +363,8 @@ def main():
         running.clear()
         if voice_thread:
             voice_thread.join(timeout=5)
+        if library_collector:
+            library_collector.close()
         if solar_collector:
             solar_collector.close()
         if router:
@@ -315,8 +373,12 @@ def main():
             telemetry_web.close()
         if telemetry_store:
             telemetry_store.close()
+        if discovery_storage:
+            discovery_storage.close()
         if solar_storage:
             solar_storage.close()
+        if jellyfin_client:
+            jellyfin_client.close()
         if enphase_client:
             enphase_client.close()
         if sonarr_client:

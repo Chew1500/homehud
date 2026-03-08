@@ -87,6 +87,33 @@ class SonarrClient(BaseSonarrClient):
             log.exception("Failed to fetch Sonarr series list")
             return []
 
+    def get_series_detailed(self) -> list[dict]:
+        try:
+            resp = self._client.get("/api/v3/series")
+            resp.raise_for_status()
+            results = []
+            for s in resp.json():
+                ratings = s.get("ratings", {})
+                results.append({
+                    "tvdbId": s.get("tvdbId", 0),
+                    "title": s.get("title", ""),
+                    "year": s.get("year", 0),
+                    "genres": s.get("genres", []),
+                    "ratings": {
+                        "imdb": ratings.get("imdb", {}).get("value"),
+                        "tmdb": ratings.get("tmdb", {}).get("value"),
+                        "rottenTomatoes": ratings.get("rottenTomatoes", {}).get("value"),
+                    },
+                    "network": s.get("network", ""),
+                    "runtime": s.get("runtime", 0),
+                    "certification": s.get("certification", ""),
+                    "overview": s.get("overview", ""),
+                })
+            return results
+        except Exception:
+            log.exception("Failed to fetch detailed Sonarr series list")
+            return []
+
     def add_series(self, tvdb_id: int, title: str) -> dict:
         self._ensure_defaults()
         payload = {

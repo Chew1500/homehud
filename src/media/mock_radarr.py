@@ -12,6 +12,36 @@ _CANNED_LIBRARY = [
     {"tmdbId": 872585, "title": "Oppenheimer", "year": 2023},
 ]
 
+_CANNED_LIBRARY_DETAILED = [
+    {
+        "tmdbId": 27205, "title": "Inception", "year": 2010,
+        "genres": ["Action", "Science Fiction", "Adventure"],
+        "ratings": {"imdb": 8.4, "tmdb": 8.4, "rottenTomatoes": 87},
+        "studio": "Warner Bros. Pictures",
+        "runtime": 148, "certification": "PG-13",
+        "overview": "A skilled thief who steals corporate secrets through dream "
+        "infiltration is given the inverse task of planting an idea.",
+    },
+    {
+        "tmdbId": 438631, "title": "Dune", "year": 2021,
+        "genres": ["Science Fiction", "Adventure"],
+        "ratings": {"imdb": 8.0, "tmdb": 7.8, "rottenTomatoes": 83},
+        "studio": "Legendary Pictures",
+        "runtime": 155, "certification": "PG-13",
+        "overview": "Paul Atreides unites with the Fremen to seek revenge against "
+        "those who destroyed his family.",
+    },
+    {
+        "tmdbId": 872585, "title": "Oppenheimer", "year": 2023,
+        "genres": ["Drama", "History"],
+        "ratings": {"imdb": 8.3, "tmdb": 8.1, "rottenTomatoes": 93},
+        "studio": "Universal Pictures",
+        "runtime": 180, "certification": "R",
+        "overview": "The story of American scientist J. Robert Oppenheimer "
+        "and his role in the development of the atomic bomb.",
+    },
+]
+
 _CANNED_SEARCH = {
     "inception": [
         {
@@ -126,6 +156,10 @@ class MockRadarrClient(BaseRadarrClient):
         entry = {"tmdbId": tmdb_id, "title": title, "year": 2024}
         self._library.append(entry)
         return entry
+
+    def get_movies_detailed(self) -> list[dict]:
+        log.info("Mock: returning %d detailed movies", len(_CANNED_LIBRARY_DETAILED))
+        return list(_CANNED_LIBRARY_DETAILED)
 
     def is_movie_tracked(self, tmdb_id: int) -> bool:
         return any(m["tmdbId"] == tmdb_id for m in self._library)

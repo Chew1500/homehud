@@ -64,6 +64,12 @@ _INTENT_SYSTEM_PROMPT = (
     "### repeat\n"
     "Actions: replay()\n"
     'Example triggers: "what did you say", "repeat that", "say that again"\n\n'
+    "### discovery\n"
+    "Actions: recommend(media_type), add_recommendation(), dismiss_recommendation(),\n"
+    "         next_recommendation(), taste_profile()\n"
+    'media_type: "movie", "series", or omit for any\n'
+    'Example triggers: "recommend a movie", "what should I watch", '
+    '"add that", "next", "not interested", "what\'s my taste profile"\n\n'
     "### capabilities\n"
     "Actions: list(), describe(feature)\n"
     'Example triggers: "what can you do", "tell me about reminders"\n\n'

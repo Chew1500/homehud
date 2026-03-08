@@ -25,6 +25,16 @@ class BaseSonarrClient(ABC):
         ...
 
     @abstractmethod
+    def get_series_detailed(self) -> list[dict]:
+        """Get all tracked series with full metadata.
+
+        Returns:
+            List of dicts with keys: tvdbId, title, year, genres, ratings,
+            network, runtime, certification, overview
+        """
+        ...
+
+    @abstractmethod
     def add_series(self, tvdb_id: int, title: str) -> dict:
         """Add a series to Sonarr for monitoring.
 
@@ -69,6 +79,16 @@ class BaseRadarrClient(ABC):
 
         Returns:
             List of dicts with keys: tmdbId, title, year
+        """
+        ...
+
+    @abstractmethod
+    def get_movies_detailed(self) -> list[dict]:
+        """Get all tracked movies with full metadata.
+
+        Returns:
+            List of dicts with keys: tmdbId, title, year, genres, ratings,
+            studio, runtime, certification, overview
         """
         ...
 
