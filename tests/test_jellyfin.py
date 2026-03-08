@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -82,3 +83,88 @@ def test_jellyfin_factory_empty_mode():
 def test_jellyfin_factory_mock():
     client = get_jellyfin_client({"jellyfin_mode": "mock"})
     assert isinstance(client, MockJellyfinClient)
+
+
+# -- User ID resolution --
+
+FAKE_USERS = [
+    {"Name": "admin", "Id": "c676f76af9944208a4c34a1cc788857f"},
+    {"Name": "guest", "Id": "aaaa1111bbbb2222cccc3333dddd4444"},
+]
+
+
+def _make_client_with_mock_httpx(user_id: str, users_response=None):
+    """Create a JellyfinClient with a mocked httpx.Client."""
+    from jellyfin.client import JellyfinClient
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = (
+        users_response if users_response is not None else FAKE_USERS
+    )
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_http = MagicMock()
+    mock_http.get.return_value = mock_resp
+
+    with patch("httpx.Client", return_value=mock_http):
+        client = JellyfinClient(
+            {
+                "jellyfin_url": "http://fake:8096",
+                "jellyfin_api_key": "fake-key",
+                "jellyfin_user_id": user_id,
+            }
+        )
+    return client, mock_http
+
+
+def test_resolve_username_to_uuid():
+    """Username 'admin' is resolved to the matching UUID."""
+    client, mock_http = _make_client_with_mock_httpx("admin")
+    assert client.get_user_id() == "c676f76af9944208a4c34a1cc788857f"
+    mock_http.get.assert_called_once_with("/Users")
+
+
+def test_resolve_username_case_insensitive():
+    """Username resolution is case-insensitive."""
+    client, _ = _make_client_with_mock_httpx("Admin")
+    assert client.get_user_id() == "c676f76af9944208a4c34a1cc788857f"
+
+
+def test_resolve_empty_picks_first_user():
+    """Empty user_id picks the first user from the list."""
+    client, mock_http = _make_client_with_mock_httpx("")
+    assert client.get_user_id() == "c676f76af9944208a4c34a1cc788857f"
+    mock_http.get.assert_called_once_with("/Users")
+
+
+def test_resolve_uuid_passthrough():
+    """A hex UUID skips the API call entirely."""
+    client, mock_http = _make_client_with_mock_httpx(
+        "c676f76af9944208a4c34a1cc788857f"
+    )
+    assert client.get_user_id() == "c676f76af9944208a4c34a1cc788857f"
+    mock_http.get.assert_not_called()
+
+
+def test_resolve_unknown_username_keeps_original():
+    """Unknown username is kept as-is with a warning."""
+    client, _ = _make_client_with_mock_httpx("nobody")
+    assert client.get_user_id() == "nobody"
+
+
+def test_resolve_network_error_keeps_original():
+    """Network error during resolution keeps the original value."""
+    from jellyfin.client import JellyfinClient
+
+    mock_http = MagicMock()
+    mock_http.get.side_effect = Exception("connection refused")
+
+    with patch("httpx.Client", return_value=mock_http):
+        client = JellyfinClient(
+            {
+                "jellyfin_url": "http://fake:8096",
+                "jellyfin_api_key": "fake-key",
+                "jellyfin_user_id": "admin",
+            }
+        )
+    assert client.get_user_id() == "admin"

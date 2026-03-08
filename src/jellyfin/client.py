@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from jellyfin.base import BaseJellyfinClient
 
@@ -28,6 +29,49 @@ class JellyfinClient(BaseJellyfinClient):
             timeout=30.0,
             headers={"X-Emby-Token": api_key},
         )
+        self._resolve_user_id()
+
+    def _resolve_user_id(self) -> None:
+        """Translate a username (or empty string) into the Jellyfin internal UUID."""
+        # Already a hex UUID (32+ hex chars) — no resolution needed.
+        if re.fullmatch(r"[0-9a-fA-F]{32,}", self._user_id):
+            return
+
+        try:
+            resp = self._client.get("/Users")
+            resp.raise_for_status()
+            users = resp.json()
+        except Exception:
+            log.warning(
+                "Failed to resolve Jellyfin user ID — keeping '%s'",
+                self._user_id,
+            )
+            return
+
+        if not users:
+            log.warning("Jellyfin returned no users — keeping '%s'", self._user_id)
+            return
+
+        if not self._user_id:
+            # No user configured — pick the first one.
+            resolved = users[0]
+        else:
+            # Match by username (case-insensitive).
+            needle = self._user_id.lower()
+            resolved = next(
+                (u for u in users if u.get("Name", "").lower() == needle), None
+            )
+
+        if resolved:
+            old = self._user_id or "(empty)"
+            self._user_id = resolved["Id"]
+            log.info(
+                "Resolved Jellyfin user '%s' → %s", old, self._user_id[:8] + "..."
+            )
+        else:
+            log.warning(
+                "Jellyfin user '%s' not found — keeping as-is", self._user_id
+            )
 
     def get_user_id(self) -> str:
         return self._user_id
