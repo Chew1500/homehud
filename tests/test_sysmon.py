@@ -66,21 +66,26 @@ def test_temp_file_not_found():
 
 
 SAME_LINE_OUTPUT = """\
-VDD_CORE  0.8800V  1.2300A
-VDD_SDRAM_P  1.1000V  0.3000A
+VDD_CORE  0.8819V  0.8126A
+1V8_SYS  1.8100V  0.1200A
+3V3_SYS  3.3100V  0.1415A
 """
 
+# Real Pi 5 format: rail names end in _A (current) or _V (voltage)
 SEPARATE_LINE_OUTPUT = """\
-VDD_CORE curr(A)=1.2300A
-VDD_CORE volt(V)=0.8800V
-VDD_SDRAM_P volt(V)=1.1000V
-VDD_SDRAM_P curr(A)=0.3000A
+3V3_SYS_A current(1)=0.14150990A
+VDD_CORE_A current(7)=0.81262990A
+1V8_SYS_A current(3)=0.12000000A
+3V3_SYS_V volt(9)=3.31003300V
+VDD_CORE_V volt(15)=0.88187950V
+1V8_SYS_V volt(11)=1.81000000V
+EXT5V_V volt(24)=5.15766000V
 """
 
 
 def _expected_power():
     """Expected total watts for both formats above."""
-    return round(0.88 * 1.23 + 1.10 * 0.30, 1)
+    return round(0.8819 * 0.8126 + 1.81 * 0.12 + 3.31 * 0.1415, 1)
 
 
 def test_power_same_line_format():
@@ -91,10 +96,17 @@ def test_power_same_line_format():
 
 
 def test_power_separate_line_format():
-    """Parses RPi5 separate-line V and A format."""
+    """Parses RPi5 separate-line _V/_A suffix format."""
     mon = PiSystemMonitor()
     with patch("sysmon.pi_sysmon.subprocess.run", return_value=_make_result(SEPARATE_LINE_OUTPUT)):
-        assert mon._read_power() == _expected_power()
+        result = mon._read_power()
+        expected = round(
+            3.31003300 * 0.14150990
+            + 0.88187950 * 0.81262990
+            + 1.81000000 * 0.12000000,
+            1,
+        )
+        assert result == expected
 
 
 def test_power_nonzero_returncode(caplog):
@@ -121,3 +133,26 @@ def test_power_exception():
     mon = PiSystemMonitor()
     with patch("sysmon.pi_sysmon.subprocess.run", side_effect=OSError("blocked")):
         assert mon._read_power() is None
+
+
+def test_power_digit_in_rail_name():
+    """Rails with digits in name (3V3_SYS, 1V8_SYS) don't false-match voltage from the name."""
+    output = "3V3_SYS_A current(1)=0.14150990A\n3V3_SYS_V volt(9)=3.31003300V\n"
+    mon = PiSystemMonitor()
+    with patch("sysmon.pi_sysmon.subprocess.run", return_value=_make_result(output)):
+        result = mon._read_power()
+        expected = round(3.31003300 * 0.14150990, 1)
+        assert result == expected
+
+
+def test_power_v_a_suffix_pairing():
+    """_V and _A suffixed lines for the same rail are correctly paired."""
+    output = (
+        "VDD_CORE_A current(7)=0.81262990A\n"
+        "VDD_CORE_V volt(15)=0.88187950V\n"
+    )
+    mon = PiSystemMonitor()
+    with patch("sysmon.pi_sysmon.subprocess.run", return_value=_make_result(output)):
+        result = mon._read_power()
+        expected = round(0.88187950 * 0.81262990, 1)
+        assert result == expected

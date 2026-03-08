@@ -73,6 +73,8 @@ class PiSystemMonitor(BaseSystemMonitor):
                 )
                 return None
 
+            log.debug("vcgencmd pmic_read_adc raw output:\n%s", result.stdout.rstrip())
+
             # Collect voltage and current per rail name, supporting both
             # same-line and separate-line formats.
             rails: dict[str, dict[str, float]] = defaultdict(dict)
@@ -82,9 +84,12 @@ class PiSystemMonitor(BaseSystemMonitor):
                 if not parts:
                     continue
                 rail = parts[0]
+                # Strip _V/_A suffix so voltage and current lines share a key
+                if rail.endswith(("_V", "_A")):
+                    rail = rail[:-2]
 
-                v_match = re.search(r"([\d.]+)V", line)
-                a_match = re.search(r"([\d.]+)A", line)
+                v_match = re.search(r"(?<![A-Za-z_])(\d+\.\d+)V\b", line)
+                a_match = re.search(r"(?<![A-Za-z_])(\d+\.\d+)A\b", line)
 
                 if v_match:
                     rails[rail]["v"] = float(v_match.group(1))
