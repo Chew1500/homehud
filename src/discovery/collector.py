@@ -60,6 +60,8 @@ class LibraryCollector:
         discovery_every_n = max(
             1, self._discovery_interval // self._library_sync_interval
         )
+        # Start high so the first sync triggers discovery immediately
+        self._cycles_since_discovery = discovery_every_n - 1
 
         while not self._stop_event.is_set():
             try:
