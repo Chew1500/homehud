@@ -95,6 +95,8 @@ class _Handler(BaseHTTPRequestHandler):
                 "  (SELECT COALESCE(SUM(input_tokens), 0) FROM llm_calls) AS total_input_tokens,"
                 "  (SELECT COALESCE(SUM(output_tokens), 0) FROM llm_calls) AS total_output_tokens,"
                 "  (SELECT COUNT(*) FROM exchanges WHERE error IS NOT NULL) AS error_count,"
+                "  (SELECT COUNT(*) FROM exchanges"
+                "    WHERE routing_path LIKE 'rejected_%') AS rejected_count,"
                 "  (SELECT AVG(recording_duration_ms) FROM exchanges"
                 "    WHERE recording_duration_ms IS NOT NULL) AS avg_recording_ms,"
                 "  (SELECT AVG(stt_duration_ms) FROM exchanges"

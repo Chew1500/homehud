@@ -100,6 +100,7 @@ tr:hover td { background: #fafbfc; }
 .flag-bargein { background: #fef3c7; color: #d97706; }
 .flag-followup { background: #e0e7ff; color: #4f46e5; }
 .flag-error { background: #fee2e2; color: #dc2626; }
+.flag-rejected { background: #fde8e8; color: #9b1c1c; }
 
 /* Pagination */
 .pagination { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
@@ -272,6 +273,7 @@ async function loadStats() {
       makeCard('LLM Calls', fmt(data.total_llm_calls)),
       makeCard('Tokens Used', fmt(totalTokens)),
       makeCard('Errors', fmt(data.error_count), data.error_count > 0 ? 'error' : ''),
+      makeCard('Rejected', fmt(data.rejected_count), data.rejected_count > 0 ? 'error' : ''),
       makeCard('Today', `${fmt(data.sessions_today)}s / ${fmt(data.exchanges_today)}e`),
     ].join('');
 
@@ -418,6 +420,8 @@ async function toggleSession(id) {
         if (ex.had_bargein) flags += '<span class="flag flag-bargein">BARGE</span>';
         if (ex.is_follow_up) flags += '<span class="flag flag-followup">FOLLOW</span>';
         if (ex.error) flags += '<span class="flag flag-error">ERR</span>';
+        if (ex.routing_path && ex.routing_path.startsWith('rejected_'))
+          flags += '<span class="flag flag-rejected">REJ</span>';
 
         html += `<tr class="exchange-row" data-exid="${ex.id}">`
           + `<td>${ex.sequence}</td>`
@@ -438,6 +442,32 @@ async function toggleSession(id) {
 
         if (ex.error) {
           html += `<p style="color:#dc2626;margin-bottom:0.5rem">Error: ${ex.error}</p>`;
+        }
+
+        if (ex.stt_no_speech_prob != null || ex.stt_avg_logprob != null) {
+          html += '<h4>STT Confidence</h4>';
+          html += '<div style="font-size:0.8rem;'
+            + 'font-family:SF Mono,Monaco,monospace;'
+            + 'margin-bottom:0.5rem">';
+          const nsp = ex.stt_no_speech_prob;
+          const alp = ex.stt_avg_logprob;
+          html += '<span style="margin-right:1.5rem">'
+            + 'no_speech_prob: <strong>'
+            + (nsp != null ? nsp.toFixed(4) : '-')
+            + '</strong></span>';
+          html += '<span>avg_logprob: <strong>'
+            + (alp != null ? alp.toFixed(4) : '-')
+            + '</strong></span>';
+          if (ex.routing_path
+              && ex.routing_path.startsWith('rejected_')) {
+            const reason = ex.routing_path
+              .replace('rejected_', '')
+              .replace(/_/g, ' ');
+            html += '<span style="margin-left:1.5rem;'
+              + 'color:#9b1c1c;font-weight:600">'
+              + ` (${reason})</span>`;
+          }
+          html += '</div>';
         }
 
         if (ex.llm_calls && ex.llm_calls.length > 0) {
