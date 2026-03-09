@@ -141,12 +141,12 @@ def test_classify_intent_does_not_affect_history():
     assert len(llm._history) == 1  # unchanged
 
 
-def test_claude_personality_prepended(monkeypatch):
-    """When llm_personality is set, it should be prepended to the system prompt."""
+def test_claude_personality_replaces_identity(monkeypatch):
+    """When llm_personality is set, it replaces default identity but keeps constraints."""
     mock_anthropic = MagicMock()
     monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic)
 
-    from llm.claude_llm import DEFAULT_SYSTEM_PROMPT, ClaudeLLM
+    from llm.claude_llm import _DEFAULT_IDENTITY, _SYSTEM_CONSTRAINTS, ClaudeLLM
 
     personality = "You are Geralt of Rivia. Speak in a sardonic tone."
     llm = ClaudeLLM({
@@ -154,8 +154,9 @@ def test_claude_personality_prepended(monkeypatch):
         "llm_personality": personality,
     })
     assert llm._system_prompt.startswith(personality)
-    assert DEFAULT_SYSTEM_PROMPT in llm._system_prompt
-    assert llm._system_prompt == personality + "\n\n" + DEFAULT_SYSTEM_PROMPT
+    assert _DEFAULT_IDENTITY not in llm._system_prompt
+    assert _SYSTEM_CONSTRAINTS in llm._system_prompt
+    assert llm._system_prompt == personality + "\n\n" + _SYSTEM_CONSTRAINTS
 
 
 def test_claude_no_personality_uses_default(monkeypatch):

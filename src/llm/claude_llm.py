@@ -12,13 +12,19 @@ from llm.base import BaseLLM
 
 log = logging.getLogger(__name__)
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful voice assistant on a Raspberry Pi smart display. "
+_DEFAULT_IDENTITY = (
+    "You are a helpful voice assistant on a Raspberry Pi smart display."
+)
+
+_SYSTEM_CONSTRAINTS = (
     "Keep responses concise — 2 to 3 sentences max. "
     "Be conversational and direct. "
     "If the user corrects a previous statement (e.g. 'no, I meant...'), "
     "use the conversation history to understand what they're correcting."
 )
+
+# Backwards compat for tests that import this
+DEFAULT_SYSTEM_PROMPT = _DEFAULT_IDENTITY + " " + _SYSTEM_CONSTRAINTS
 
 _CLASSIFY_SYSTEM_PROMPT = (
     "You are a speech-recognition error detector for a voice assistant. "
@@ -148,10 +154,14 @@ class ClaudeLLM(BaseLLM):
         self._intent_model = config.get("llm_intent_model", "claude-haiku-4-5-20251001")
         self._max_tokens = config.get("llm_max_tokens", 1024)
         self._intent_max_tokens = config.get("llm_intent_max_tokens", 300)
-        self._system_prompt = config.get("llm_system_prompt") or DEFAULT_SYSTEM_PROMPT
         personality = config.get("llm_personality", "")
-        if personality:
-            self._system_prompt = personality + "\n\n" + self._system_prompt
+        custom_prompt = config.get("llm_system_prompt")
+        if custom_prompt:
+            self._system_prompt = custom_prompt
+        elif personality:
+            self._system_prompt = personality + "\n\n" + _SYSTEM_CONSTRAINTS
+        else:
+            self._system_prompt = DEFAULT_SYSTEM_PROMPT
 
     def parse_intent(
         self, text: str, feature_schemas: list[dict], context: str | None = None
