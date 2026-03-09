@@ -73,6 +73,10 @@ def load_config() -> dict:
         "llm_history_ttl": int(os.getenv("HUD_LLM_HISTORY_TTL", "300")),
         "llm_personality": os.getenv("HUD_LLM_PERSONALITY", ""),
 
+        # STT confidence filtering
+        "stt_no_speech_threshold": float(os.getenv("HUD_STT_NO_SPEECH_THRESHOLD", "0.6")),
+        "stt_confidence_threshold": float(os.getenv("HUD_STT_CONFIDENCE_THRESHOLD", "-1.0")),
+
         # Voice pipeline settings
         "voice_enabled": os.getenv("HUD_VOICE_ENABLED", "true").lower() == "true",
         "voice_record_duration": int(os.getenv("HUD_VOICE_RECORD_DURATION", "5")),
@@ -92,6 +96,10 @@ def load_config() -> dict:
         "vad_min_duration": float(os.getenv("HUD_VAD_MIN_DURATION", "0.5")),
         "vad_max_duration": float(os.getenv("HUD_VAD_MAX_DURATION", "15.0")),
         "voice_bargein_enabled": os.getenv("HUD_VOICE_BARGEIN_ENABLED", "true").lower() == "true",
+        "voice_max_follow_ups": int(os.getenv("HUD_VOICE_MAX_FOLLOW_UPS", "5")),
+        "voice_max_consecutive_low_confidence": int(
+            os.getenv("HUD_VOICE_MAX_CONSECUTIVE_LOW_CONFIDENCE", "2")
+        ),
 
         # Wake word detection
         "wake_mode": os.getenv("HUD_WAKE_MODE", "mock"),

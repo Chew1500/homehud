@@ -72,6 +72,8 @@ class Exchange:
 
     # STT output
     transcription: str | None = None
+    stt_no_speech_prob: float | None = None
+    stt_avg_logprob: float | None = None
 
     # Routing decision
     routing_path: str | None = None

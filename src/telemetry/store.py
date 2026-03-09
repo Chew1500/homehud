@@ -84,6 +84,20 @@ class TelemetryStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns that may not exist in older databases."""
+        migrations = [
+            "ALTER TABLE exchanges ADD COLUMN stt_no_speech_prob REAL",
+            "ALTER TABLE exchanges ADD COLUMN stt_avg_logprob REAL",
+        ]
+        for sql in migrations:
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+        self._conn.commit()
 
     def save_session(self, session: Session) -> None:
         """Persist a complete session with all exchanges and LLM calls."""
@@ -117,7 +131,8 @@ class TelemetryStore:
             "  routing_started_at, routing_ended_at, routing_duration_ms,"
             "  tts_started_at, tts_ended_at, tts_duration_ms,"
             "  playback_started_at, playback_ended_at, playback_duration_ms,"
-            "  transcription, routing_path, matched_feature, feature_action,"
+            "  transcription, stt_no_speech_prob, stt_avg_logprob,"
+            "  routing_path, matched_feature, feature_action,"
             "  response_text, used_vad, had_bargein, is_follow_up, error"
             ") VALUES ("
             "  ?, ?, ?,"
@@ -126,7 +141,8 @@ class TelemetryStore:
             "  ?, ?, ?,"
             "  ?, ?, ?,"
             "  ?, ?, ?,"
-            "  ?, ?, ?, ?,"
+            "  ?, ?, ?,"
+            "  ?, ?, ?,"
             "  ?, ?, ?, ?, ?"
             ")",
             (
@@ -149,6 +165,8 @@ class TelemetryStore:
                 exchange.playback_ended_at,
                 exchange.playback_duration_ms,
                 exchange.transcription,
+                exchange.stt_no_speech_prob,
+                exchange.stt_avg_logprob,
                 exchange.routing_path,
                 exchange.matched_feature,
                 exchange.feature_action,

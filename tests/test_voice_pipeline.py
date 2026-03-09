@@ -11,9 +11,26 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from features.repeat import RepeatFeature
+from speech.base import TranscriptionResult
 from voice_pipeline import start_voice_pipeline
 
 CHUNK = b"\x00\x00" * 1280
+
+
+def _patch_stt(stt, text="hello", no_speech_prob=0.0, avg_logprob=0.0):
+    """Configure a mock STT to return a TranscriptionResult from transcribe_with_confidence."""
+    if isinstance(text, list):
+        results = [
+            TranscriptionResult(t, no_speech_prob, avg_logprob) if t else TranscriptionResult("")
+            for t in text
+        ]
+        stt.transcribe_with_confidence.side_effect = results
+        stt.transcribe.side_effect = text
+    else:
+        result = TranscriptionResult(text, no_speech_prob, avg_logprob)
+        stt.transcribe_with_confidence.return_value = result
+        stt.transcribe.return_value = text
+    return stt
 
 
 def _make_audio(trigger_on_chunk=3):
@@ -78,8 +95,7 @@ def _make_tts(speech=b"\x00\x00" * 16000):
 def test_pipeline_streams_chunks_to_wake_detector():
     """Pipeline should pass audio chunks to wake.detect()."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=3)
     router = _make_router()
     tts = _make_tts()
@@ -99,8 +115,7 @@ def test_pipeline_streams_chunks_to_wake_detector():
 def test_pipeline_records_and_transcribes_after_wake():
     """Pipeline should record + transcribe when wake word is detected."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "add milk"
+    stt = _patch_stt(MagicMock(), "add milk")
     wake = _make_wake(trigger_on_chunk=2)
     router = _make_router()
     tts = _make_tts()
@@ -116,14 +131,13 @@ def test_pipeline_records_and_transcribes_after_wake():
     thread.join(timeout=3)
 
     audio.record.assert_called_with(1)
-    stt.transcribe.assert_called_with(b"\x00\x00" * 16000)
+    stt.transcribe_with_confidence.assert_called_with(b"\x00\x00" * 16000)
 
 
 def test_pipeline_calls_wake_reset_after_detection():
     """Pipeline should call wake.reset() after successful detection."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "test"
+    stt = _patch_stt(MagicMock(), "test")
     wake = _make_wake(trigger_on_chunk=2)
     router = _make_router()
     tts = _make_tts()
@@ -142,8 +156,7 @@ def test_pipeline_calls_wake_reset_after_detection():
 def test_pipeline_exits_when_running_cleared():
     """Pipeline should exit promptly when running is cleared during streaming."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = ""
+    stt = _patch_stt(MagicMock(), "")
     # Wake never triggers — pipeline should still exit via running check
     wake = MagicMock()
     wake.detect.return_value = False
@@ -165,7 +178,10 @@ def test_pipeline_survives_exceptions():
     """Pipeline should retry with backoff after an exception and recover."""
     audio = _make_audio()
     stt = MagicMock()
-    stt.transcribe.side_effect = [RuntimeError("model error"), "recovered"]
+    stt.transcribe_with_confidence.side_effect = [
+        RuntimeError("model error"),
+        TranscriptionResult("recovered"),
+    ]
     # Trigger on first chunk each cycle
     wake = MagicMock()
     wake.detect.return_value = True
@@ -181,14 +197,13 @@ def test_pipeline_survives_exceptions():
     running.clear()
     thread.join(timeout=3)
 
-    assert stt.transcribe.call_count >= 2
+    assert stt.transcribe_with_confidence.call_count >= 2
 
 
 def test_pipeline_logs_transcribed_text(caplog):
     """Pipeline should log the transcribed text."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "add milk to groceries"
+    stt = _patch_stt(MagicMock(), "add milk to groceries")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router()
     tts = _make_tts()
@@ -208,8 +223,7 @@ def test_pipeline_logs_transcribed_text(caplog):
 def test_pipeline_sends_transcription_to_router():
     """Pipeline should pass transcribed text to router.route()."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "what time is it"
+    stt = _patch_stt(MagicMock(), "what time is it")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router("It is 3pm.")
     tts = _make_tts()
@@ -228,8 +242,7 @@ def test_pipeline_sends_transcription_to_router():
 def test_pipeline_survives_routing_errors(caplog):
     """Pipeline should continue running even if routing raises an exception."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = MagicMock()
     router.route.side_effect = RuntimeError("API down")
@@ -252,8 +265,7 @@ def test_pipeline_survives_routing_errors(caplog):
 def test_pipeline_synthesizes_and_plays_response():
     """Pipeline should synthesize response via TTS and play it."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router("Hi there!")
     speech_bytes = b"\x01\x00" * 16000
@@ -274,8 +286,7 @@ def test_pipeline_synthesizes_and_plays_response():
 def test_pipeline_survives_tts_errors(caplog):
     """Pipeline should continue running even if TTS raises an exception."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router("response text")
     tts = MagicMock()
@@ -299,8 +310,7 @@ def test_pipeline_survives_tts_errors(caplog):
 def test_pipeline_calls_repeat_feature_record():
     """Pipeline should call repeat_feature.record() after routing."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "what time is it"
+    stt = _patch_stt(MagicMock(), "what time is it")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router("It is 3pm.")
     tts = _make_tts()
@@ -325,8 +335,7 @@ def test_pipeline_calls_repeat_feature_record():
 def test_pipeline_works_without_repeat_feature():
     """Pipeline should work fine when repeat_feature is not provided."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router("Hi there!")
     tts = _make_tts()
@@ -350,8 +359,7 @@ def test_pipeline_works_without_repeat_feature():
 def test_pipeline_plays_prompt_on_wake():
     """Pipeline should play a TTS prompt after wake word detection when feedback is enabled."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router()
     tts = _make_tts()
@@ -381,8 +389,7 @@ def test_pipeline_plays_prompt_on_wake():
 def test_pipeline_skips_prompt_when_feedback_disabled():
     """Pipeline should NOT play a prompt when wake feedback is disabled."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     # Use a wake that triggers exactly once then never again
     wake = MagicMock()
     wake_calls = {"n": 0}
@@ -415,8 +422,7 @@ def test_pipeline_skips_prompt_when_feedback_disabled():
 def test_pipeline_skips_prompt_when_no_wake_prompts():
     """Pipeline should NOT play a prompt when wake_prompts is None even if feedback enabled."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = MagicMock()
     wake_calls = {"n": 0}
 
@@ -451,8 +457,7 @@ def test_pipeline_skips_prompt_when_no_wake_prompts():
 def test_pipeline_uses_vad_when_enabled():
     """Pipeline should use VAD streaming instead of audio.record() when VAD is enabled."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router()
     tts = _make_tts()
@@ -475,15 +480,14 @@ def test_pipeline_uses_vad_when_enabled():
 
     # audio.record() should NOT be called when VAD is enabled
     audio.record.assert_not_called()
-    # stt.transcribe should still be called
-    stt.transcribe.assert_called()
+    # stt.transcribe_with_confidence should still be called
+    stt.transcribe_with_confidence.assert_called()
 
 
 def test_pipeline_uses_record_when_vad_disabled():
     """Pipeline should use audio.record() when VAD is disabled."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router()
     tts = _make_tts()
@@ -507,8 +511,7 @@ def test_pipeline_uses_streamed_playback_with_bargein():
     """Pipeline should use play_streamed + synthesize_stream when barge-in is enabled."""
     audio = _make_audio()
     audio.is_playing.return_value = False
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
     wake = _make_wake(trigger_on_chunk=1)
     router = _make_router("response")
     speech_bytes = b"\x01\x00" * 16000
@@ -539,8 +542,7 @@ def test_pipeline_stops_playback_on_bargein():
 
     audio.is_playing.side_effect = is_playing
 
-    stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt = _patch_stt(MagicMock(), "hello")
 
     # Wake detector: triggers on 1st call (initial wake), then on the
     # first call after debounce during barge-in monitoring
@@ -576,10 +578,7 @@ def test_pipeline_follow_up_loops_without_wake_word():
     """When router.expects_follow_up is True, pipeline should loop
     back to record another command without waiting for wake word."""
     audio = _make_audio()
-    stt = MagicMock()
-    # First transcription triggers a feature that wants follow-up,
-    # second transcription confirms, third is empty (exits loop)
-    stt.transcribe.side_effect = ["track batman", "yes", ""]
+    stt = _patch_stt(MagicMock(), ["track batman", "yes", ""])
     wake = _make_wake(trigger_on_chunk=1)
     router = MagicMock()
     # First call: router.expects_follow_up True, second: False
@@ -612,8 +611,7 @@ def test_pipeline_follow_up_suppresses_wake_prompt():
     """When follow-up is active with wake feedback, the wake prompt should
     NOT play between follow-up turns (the bot's question is the indicator)."""
     audio = _make_audio()
-    stt = MagicMock()
-    stt.transcribe.side_effect = ["track batman", "2022", ""]
+    stt = _patch_stt(MagicMock(), ["track batman", "2022", ""])
 
     # Wake triggers exactly once
     wake = MagicMock()
@@ -663,11 +661,9 @@ def test_pipeline_follow_up_suppresses_wake_prompt():
 
 def test_pipeline_follow_up_empty_transcription_exits():
     """If user stays silent during follow-up, empty transcription should
-    exit the command loop (no infinite loop)."""
+    exit the command loop after max consecutive low-confidence attempts."""
     audio = _make_audio()
-    stt = MagicMock()
-    # First transcription triggers follow-up, second is empty
-    stt.transcribe.side_effect = ["track batman", ""]
+    stt = _patch_stt(MagicMock(), ["track batman", "", ""])
     wake = _make_wake(trigger_on_chunk=1)
     router = MagicMock()
     type(router).expects_follow_up = property(lambda self: True)
@@ -691,8 +687,7 @@ def test_pipeline_follow_up_with_bargein():
     """Follow-up should also work when barge-in is enabled but no barge-in occurs."""
     audio = _make_audio()
     audio.is_playing.return_value = False  # Playback ends immediately
-    stt = MagicMock()
-    stt.transcribe.side_effect = ["track batman", "yes", ""]
+    stt = _patch_stt(MagicMock(), ["track batman", "yes", ""])
     wake = _make_wake(trigger_on_chunk=1)
     router = MagicMock()
     follow_up_values = [True, False, False]
@@ -720,11 +715,9 @@ def test_pipeline_follow_up_with_bargein():
 
 
 def test_pipeline_follow_up_max_iterations(caplog):
-    """Pipeline should break out of follow-up loop after MAX_FOLLOW_UPS iterations."""
+    """Pipeline should break out of follow-up loop after max_follow_ups iterations."""
     audio = _make_audio()
-    stt = MagicMock()
-    # Always return valid text so _handle_command never exits via empty transcription
-    stt.transcribe.return_value = "yes"
+    stt = _patch_stt(MagicMock(), "yes")
 
     # Wake triggers exactly once so the outer loop doesn't restart
     wake = MagicMock()
@@ -752,7 +745,151 @@ def test_pipeline_follow_up_max_iterations(caplog):
         running.clear()
         thread.join(timeout=3)
 
-    # Should have hit the max iterations cap:
-    # 1 initial _handle_command + 9 more before follow_ups reaches 10 = 10 total
-    assert router.route.call_count == 10
+    # Default max_follow_ups=5: 1 initial + 4 more before follow_ups reaches 5 = 5 total
+    assert router.route.call_count == 5
     assert any("Max follow-up iterations" in record.message for record in caplog.records)
+
+
+# --- STT confidence filtering tests ---
+
+
+def test_pipeline_rejects_high_no_speech_prob(caplog):
+    """Pipeline should reject transcriptions with high no_speech_prob."""
+    audio = _make_audio()
+    stt = _patch_stt(MagicMock(), "some noise", no_speech_prob=0.8)
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router()
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False)
+    with caplog.at_level(logging.INFO, logger="home-hud.voice"):
+        thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+        time.sleep(0.3)
+        running.clear()
+        thread.join(timeout=3)
+
+    # Router should NOT be called — transcription was rejected
+    router.route.assert_not_called()
+    assert any("high no_speech_prob" in record.message for record in caplog.records)
+
+
+def test_pipeline_rejects_low_avg_logprob(caplog):
+    """Pipeline should reject transcriptions with very low avg_logprob."""
+    audio = _make_audio()
+    stt = _patch_stt(MagicMock(), "garbled text", avg_logprob=-1.5)
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router()
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False)
+    with caplog.at_level(logging.INFO, logger="home-hud.voice"):
+        thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+        time.sleep(0.3)
+        running.clear()
+        thread.join(timeout=3)
+
+    # Router should NOT be called — transcription was rejected
+    router.route.assert_not_called()
+    assert any("low avg_logprob" in record.message for record in caplog.records)
+
+
+def test_pipeline_accepts_confident_transcription():
+    """Pipeline should accept transcriptions with good confidence metrics."""
+    audio = _make_audio()
+    stt = _patch_stt(MagicMock(), "add milk", no_speech_prob=0.1, avg_logprob=-0.3)
+    wake = _make_wake(trigger_on_chunk=1)
+    router = _make_router()
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False)
+    thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+    time.sleep(0.3)
+    running.clear()
+    thread.join(timeout=3)
+
+    router.route.assert_called_with("add milk")
+
+
+# --- Consecutive low-confidence follow-up tests ---
+
+
+def test_pipeline_follow_up_aborts_on_consecutive_low_confidence(caplog):
+    """Follow-up loop should abort after max_consecutive_low_confidence empty results."""
+    audio = _make_audio()
+    # First call succeeds, then 2 consecutive empties (default threshold=2)
+    stt = _patch_stt(MagicMock(), ["track batman", "", ""])
+    wake = _make_wake(trigger_on_chunk=1)
+    router = MagicMock()
+    type(router).expects_follow_up = property(lambda self: True)
+    router.route.return_value = "Which year?"
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False)
+    with caplog.at_level(logging.INFO, logger="home-hud.voice"):
+        thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+        time.sleep(0.5)
+        running.clear()
+        thread.join(timeout=3)
+
+    # Router called once for initial command, then 2 empty follow-ups hit the cap
+    assert router.route.call_count == 1
+    assert any("consecutive" in record.message.lower() for record in caplog.records)
+
+
+# --- Follow-up VAD gate tests ---
+
+
+def test_pipeline_follow_up_skips_when_vad_no_speech(caplog):
+    """During follow-up, if VAD detects no speech, STT should be skipped."""
+    audio = _make_audio()
+    # First call succeeds, subsequent calls get skipped by VAD gate
+    stt = _patch_stt(MagicMock(), ["track batman", "should not reach", "should not reach"])
+
+    # Wake triggers exactly once so the outer loop doesn't restart
+    wake = MagicMock()
+    wake_calls = {"n": 0}
+
+    def detect_once(chunk):
+        wake_calls["n"] += 1
+        return wake_calls["n"] == 1
+
+    wake.detect.side_effect = detect_once
+
+    router = MagicMock()
+    type(router).expects_follow_up = property(lambda self: True)
+    router.route.return_value = "Which year?"
+    tts = _make_tts()
+
+    running = threading.Event()
+    running.set()
+
+    config = _make_config(bargein_enabled=False, vad_enabled=True)
+    config["vad_silence_threshold"] = 500
+    config["vad_silence_duration"] = 0.01
+    config["vad_min_duration"] = 0.0
+    config["vad_max_duration"] = 0.1
+    # With speech_chunks_required=3 and all-silence stream, VAD will set
+    # last_speech_detected=False, triggering the follow-up VAD gate
+    config["vad_speech_chunks_required"] = 3
+
+    with caplog.at_level(logging.INFO, logger="home-hud.voice"):
+        thread = start_voice_pipeline(audio, stt, wake, router, tts, config, running)
+        time.sleep(0.5)
+        running.clear()
+        thread.join(timeout=3)
+
+    # Router called once for initial command; follow-ups skipped by VAD gate
+    assert router.route.call_count == 1
+    assert any("VAD gate" in record.message for record in caplog.records)

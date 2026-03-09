@@ -6,7 +6,7 @@ Optimized for Raspberry Pi 5 with int8 quantization.
 
 import logging
 
-from speech.base import BaseSTT
+from speech.base import BaseSTT, TranscriptionResult
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +36,10 @@ class WhisperSTT(BaseSTT):
 
         Converts int16 PCM bytes to float32 numpy array, then runs Whisper.
         """
+        return self.transcribe_with_confidence(audio).text
+
+    def transcribe_with_confidence(self, audio: bytes) -> TranscriptionResult:
+        """Transcribe with per-segment confidence metrics from Whisper."""
         import numpy as np
 
         # Convert PCM int16 bytes to float32 array normalized to [-1.0, 1.0]
@@ -49,6 +53,34 @@ class WhisperSTT(BaseSTT):
             initial_prompt=self._prompt or None,
             hotwords=self._hotwords or None,
         )
-        text = " ".join(seg.text.strip() for seg in segments).strip()
-        log.info(f"Whisper transcription: {text!r}")
-        return text
+
+        texts = []
+        total_duration = 0.0
+        weighted_no_speech = 0.0
+        weighted_logprob = 0.0
+
+        for seg in segments:
+            texts.append(seg.text.strip())
+            dur = seg.end - seg.start
+            total_duration += dur
+            weighted_no_speech += seg.no_speech_prob * dur
+            weighted_logprob += seg.avg_logprob * dur
+
+        text = " ".join(texts).strip()
+
+        if total_duration > 0:
+            no_speech_prob = weighted_no_speech / total_duration
+            avg_logprob = weighted_logprob / total_duration
+        else:
+            no_speech_prob = 0.0
+            avg_logprob = 0.0
+
+        log.info(
+            "Whisper transcription: %r (no_speech=%.3f, avg_logprob=%.3f)",
+            text, no_speech_prob, avg_logprob,
+        )
+        return TranscriptionResult(
+            text=text,
+            no_speech_prob=no_speech_prob,
+            avg_logprob=avg_logprob,
+        )

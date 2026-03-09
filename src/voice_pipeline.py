@@ -9,7 +9,7 @@ import types
 
 from audio.base import AudioStreamStaleError, BaseAudio
 from intent.router import IntentRouter
-from speech.base import BaseSTT
+from speech.base import BaseSTT, TranscriptionResult
 from speech.base_tts import BaseTTS
 from telemetry.models import LLMCallInfo, Session
 from utils.vad import VoiceActivityDetector
@@ -50,6 +50,14 @@ def start_voice_pipeline(
 
     wake_model = config.get("wake_model")
 
+    # STT confidence thresholds
+    no_speech_threshold = config.get("stt_no_speech_threshold", 0.6)
+    confidence_threshold = config.get("stt_confidence_threshold", -1.0)
+
+    # Follow-up limits
+    max_follow_ups = config.get("voice_max_follow_ups", 5)
+    max_consecutive_low = config.get("voice_max_consecutive_low_confidence", 2)
+
     # Number of audio chunks to skip before monitoring for barge-in.
     # Prevents speaker-to-mic feedback from triggering a false wake word
     # immediately after playback starts. At 80ms/chunk, 15 chunks = 1.2s.
@@ -84,23 +92,64 @@ def start_voice_pipeline(
             except Exception:
                 pass
 
+        # Layer 4: VAD gate — skip STT if no speech detected during follow-up
+        if is_follow_up and vad is not None and not vad.last_speech_detected:
+            log.info("Follow-up VAD gate: no speech detected, skipping STT")
+            if exchange is not None:
+                try:
+                    exchange.routing_path = "rejected_vad_no_speech"
+                except Exception:
+                    pass
+            return False
+
         # --- STT phase ---
         if exchange is not None:
             try:
                 exchange.start_phase("stt")
             except Exception:
                 pass
-        text = stt.transcribe(pcm)
+        result = stt.transcribe_with_confidence(pcm)
+        if not isinstance(result, TranscriptionResult):
+            # Fallback for mocks that don't return TranscriptionResult
+            result = TranscriptionResult(text=str(result) if result else "")
+        text = result.text
         if exchange is not None:
             try:
                 exchange.end_phase("stt")
                 exchange.transcription = text
+                exchange.stt_no_speech_prob = result.no_speech_prob
+                exchange.stt_avg_logprob = result.avg_logprob
             except Exception:
                 pass
 
         log.info("Transcribed: %r", text)
         if not text or not text.strip():
             log.info("Empty transcription, skipping")
+            return False
+
+        # Layer 1: STT confidence gate
+        if result.no_speech_prob > no_speech_threshold:
+            log.info(
+                "Rejected: high no_speech_prob=%.3f (threshold=%.3f)",
+                result.no_speech_prob, no_speech_threshold,
+            )
+            if exchange is not None:
+                try:
+                    exchange.routing_path = "rejected_no_speech"
+                except Exception:
+                    pass
+            return False
+
+        if result.avg_logprob < confidence_threshold:
+            log.info(
+                "Rejected: low avg_logprob=%.3f (threshold=%.3f)",
+                result.avg_logprob, confidence_threshold,
+            )
+            if exchange is not None:
+                try:
+                    exchange.routing_path = "rejected_low_confidence"
+                except Exception:
+                    pass
             return False
         try:
             # --- Routing phase ---
@@ -383,15 +432,36 @@ def start_voice_pipeline(
                     # Loop handles barge-in and follow-up: _handle_command
                     # returns True when wake word interrupts playback or
                     # when the router expects a follow-up response.
-                    MAX_FOLLOW_UPS = 10
                     follow_ups = 0
-                    while _handle_command(session=session, is_follow_up=follow_ups > 0):
-                        follow_ups += 1
-                        if follow_ups >= MAX_FOLLOW_UPS:
-                            log.warning("Max follow-up iterations reached, exiting command loop")
-                            break
-                        if wake_feedback and not router.expects_follow_up:
-                            audio.play(wake_prompts.pick())
+                    consecutive_low = 0
+                    should_continue = True
+                    while should_continue:
+                        result = _handle_command(
+                            session=session, is_follow_up=follow_ups > 0,
+                        )
+                        if result:
+                            consecutive_low = 0
+                            follow_ups += 1
+                            if follow_ups >= max_follow_ups:
+                                log.warning(
+                                    "Max follow-up iterations reached, exiting command loop",
+                                )
+                                break
+                            if wake_feedback and not router.expects_follow_up:
+                                audio.play(wake_prompts.pick())
+                        else:
+                            if follow_ups > 0:
+                                consecutive_low += 1
+                                if consecutive_low >= max_consecutive_low:
+                                    log.info(
+                                        "Follow-up aborted: %d consecutive "
+                                        "low-confidence results",
+                                        consecutive_low,
+                                    )
+                                    break
+                                # Still in follow-up, try again
+                            else:
+                                break
                     wake.reset()
 
                     # Persist telemetry

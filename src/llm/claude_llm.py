@@ -89,6 +89,14 @@ _INTENT_SYSTEM_PROMPT = (
     '- Set "expects_follow_up": true when asking a question, presenting options, '
     "in a multi-turn flow, or when the input appears cut off\n"
     '- Set "expects_follow_up": false for complete answers and terminal actions\n\n'
+    "## Background Noise Detection\n"
+    "- If the transcription appears to be background noise, TV/movie dialogue, "
+    "song lyrics, news broadcast, or nonsensical fragments not directed at "
+    "a voice assistant:\n"
+    '  - Set type to "conversation", expects_follow_up to false\n'
+    '  - Set speech to a brief dismissal like "I didn\'t catch a clear command."\n'
+    "- Indicators: incomplete sentences, dialogue between characters, commercial "
+    "jargon, sudden topic changes, text unrelated to any feature or reasonable query\n\n"
     "## Context Priority\n"
     "- When [CONTEXT: ...] is present, ALWAYS prioritize routing to the relevant feature\n"
     "- Partial transcriptions in follow-up should be interpreted in the active context, "

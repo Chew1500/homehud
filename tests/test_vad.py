@@ -189,3 +189,31 @@ def test_gate_zero_disables():
     result = vad.record_until_silence(_make_stream(chunks))
     # Should stop early — first chunk triggers silence detection (gate disabled)
     assert len(result) < len(b"".join(chunks))
+
+
+# --- last_speech_detected tests ---
+
+
+def test_vad_tracks_speech_detected_true():
+    """last_speech_detected should be True when speech was found."""
+    chunks = [_loud_chunk()] * 5 + [_silence_chunk()] * 5
+    vad = _make_vad(vad_speech_chunks_required=3)
+    vad.record_until_silence(_make_stream(chunks))
+    assert vad.last_speech_detected is True
+
+
+def test_vad_tracks_speech_detected_false():
+    """last_speech_detected should be False when no speech was found."""
+    chunks = [_silence_chunk()] * 200
+    vad = _make_vad(
+        vad_speech_chunks_required=3,
+        vad_max_duration=0.2,
+    )
+    vad.record_until_silence(_make_stream(chunks))
+    assert vad.last_speech_detected is False
+
+
+def test_vad_last_speech_detected_initial():
+    """last_speech_detected should be False before any recording."""
+    vad = _make_vad()
+    assert vad.last_speech_detected is False

@@ -23,6 +23,7 @@ class VoiceActivityDetector:
         self._max_duration = config.get("vad_max_duration", 15.0)
         self._sample_rate = config.get("audio_sample_rate", 16000)
         self._speech_chunks_required = config.get("vad_speech_chunks_required", 3)
+        self.last_speech_detected = False
 
     @staticmethod
     def rms(chunk: bytes) -> float:
@@ -84,6 +85,7 @@ class VoiceActivityDetector:
         finally:
             stream.close()
 
+        self.last_speech_detected = speech_started
         total = time.monotonic() - start
-        log.info("VAD: recorded %.1fs (%d chunks)", total, len(chunks))
+        log.info("VAD: recorded %.1fs (%d chunks, speech=%s)", total, len(chunks), speech_started)
         return b"".join(chunks)

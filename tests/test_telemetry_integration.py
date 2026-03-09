@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from intent.router import IntentRouter
+from speech.base import TranscriptionResult
 from telemetry.store import TelemetryStore
 from voice_pipeline import start_voice_pipeline
 
@@ -84,7 +85,7 @@ def test_pipeline_with_no_telemetry_store():
     """Pipeline should work unchanged when telemetry_store is None."""
     audio = _make_audio()
     stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt.transcribe_with_confidence.return_value = TranscriptionResult("hello")
     wake = _make_wake()
     router = _make_router()
     tts = _make_tts()
@@ -109,7 +110,7 @@ def test_pipeline_with_real_store_saves_session(tmp_path):
 
     audio = _make_audio()
     stt = MagicMock()
-    stt.transcribe.return_value = "add milk"
+    stt.transcribe_with_confidence.return_value = TranscriptionResult("add milk")
     wake = _make_wake()
     router = _make_router("Added milk.")
     tts = _make_tts()
@@ -298,7 +299,7 @@ def test_telemetry_save_failure_is_nonfatal(tmp_path):
 
     audio = _make_audio()
     stt = MagicMock()
-    stt.transcribe.return_value = "hello"
+    stt.transcribe_with_confidence.return_value = TranscriptionResult("hello")
     wake = _make_wake()
     router = _make_router()
     tts = _make_tts()
