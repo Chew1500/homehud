@@ -146,3 +146,8 @@ jobs:
             exit 1
           fi
           sudo systemctl status home-hud --no-pager -l
+
+      - name: Refresh mDNS
+        run: |
+          sudo systemctl restart avahi-daemon
+          echo "mDNS refreshed"

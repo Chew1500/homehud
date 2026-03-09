@@ -224,6 +224,7 @@ def main():
             from features.discovery import DiscoveryFeature
             from features.grocery import GroceryFeature
             from features.media import MediaFeature
+            from features.network import NetworkFeature
             from features.reminder import ReminderFeature
             from features.repeat import RepeatFeature
             from features.solar import SolarFeature
@@ -290,6 +291,7 @@ def main():
                 SolarFeature(config, solar_storage, llm),
                 MediaFeature(config, sonarr=sonarr_client, radarr=radarr_client),
                 discovery_feature,
+                NetworkFeature(config),
             ]
             capabilities_feature = CapabilitiesFeature(config, features)
             features.append(capabilities_feature)

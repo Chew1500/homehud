@@ -24,8 +24,11 @@ ssh -o StrictHostKeyChecking=no "$PI_USER@$PI_HOST" << REMOTE
     echo "[3/4] Running quick smoke test..."
     HUD_DISPLAY_MODE=mock $APP_DIR/venv/bin/python -c "from src.config import load_config; print('Config OK')"
 
-    echo "[4/4] Restarting service..."
+    echo "[4/5] Restarting service..."
     sudo systemctl restart home-hud
+
+    echo "[5/5] Refreshing mDNS..."
+    sudo systemctl restart avahi-daemon
 
     echo "==> Deploy complete!"
     systemctl status home-hud --no-pager -l
