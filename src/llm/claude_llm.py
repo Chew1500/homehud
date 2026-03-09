@@ -154,12 +154,12 @@ class ClaudeLLM(BaseLLM):
         self._intent_model = config.get("llm_intent_model", "claude-haiku-4-5-20251001")
         self._max_tokens = config.get("llm_max_tokens", 1024)
         self._intent_max_tokens = config.get("llm_intent_max_tokens", 300)
-        personality = config.get("llm_personality", "")
+        self._personality = config.get("llm_personality", "")
         custom_prompt = config.get("llm_system_prompt")
         if custom_prompt:
             self._system_prompt = custom_prompt
-        elif personality:
-            self._system_prompt = personality + "\n\n" + _SYSTEM_CONSTRAINTS
+        elif self._personality:
+            self._system_prompt = self._personality + "\n\n" + _SYSTEM_CONSTRAINTS
         else:
             self._system_prompt = DEFAULT_SYSTEM_PROMPT
 
@@ -176,14 +176,25 @@ class ClaudeLLM(BaseLLM):
 
             messages = self._get_messages(user_content)
 
+            system_blocks = [{
+                "type": "text",
+                "text": _INTENT_SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }]
+            if self._personality:
+                system_blocks.append({
+                    "type": "text",
+                    "text": (
+                        "## Personality\n"
+                        "When writing the \"speech\" field, use this voice:\n"
+                        + self._personality
+                    ),
+                })
+
             message = self._client.messages.create(
                 model=self._intent_model,
                 max_tokens=self._intent_max_tokens,
-                system=[{
-                    "type": "text",
-                    "text": _INTENT_SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }],
+                system=system_blocks,
                 messages=messages,
                 tools=[_ROUTE_INTENT_TOOL],
                 tool_choice={"type": "tool", "name": "route_intent"},
@@ -197,10 +208,11 @@ class ClaudeLLM(BaseLLM):
                     result = block.input
                     response_text = json.dumps(result)
 
+            full_system = "\n\n".join(b["text"] for b in system_blocks)
             self._last_call_info = {
                 "call_type": "parse_intent",
                 "model": self._intent_model,
-                "system_prompt": _INTENT_SYSTEM_PROMPT,
+                "system_prompt": full_system,
                 "user_message": user_content,
                 "response_text": response_text,
                 "input_tokens": message.usage.input_tokens,
@@ -233,7 +245,11 @@ class ClaudeLLM(BaseLLM):
             self._last_call_info = {
                 "call_type": "parse_intent",
                 "model": self._intent_model,
-                "system_prompt": _INTENT_SYSTEM_PROMPT,
+                "system_prompt": _INTENT_SYSTEM_PROMPT + (
+                    "\n\n## Personality\n"
+                    "When writing the \"speech\" field, use this voice:\n"
+                    + self._personality if self._personality else ""
+                ),
                 "user_message": text,
                 "response_text": None,
                 "input_tokens": None,

@@ -274,8 +274,8 @@ def test_llm_first_conversation_falls_through_to_llm():
     feat.execute.assert_not_called()
 
 
-def test_llm_first_clarification_sets_follow_up():
-    """parse_intent returning clarification should set expects_follow_up."""
+def test_llm_first_clarification_falls_through_to_llm():
+    """parse_intent returning clarification should fall through to respond_stream."""
     feat = _make_feature(name="Grocery List")
     llm = _make_llm(parse_result={
         "type": "clarification",
@@ -284,14 +284,15 @@ def test_llm_first_clarification_sets_follow_up():
     })
     router = IntentRouter({}, [feat], llm)
 
-    result = router.route("the list")
+    _consume(router.route("the list"))
 
-    assert result == "Did you mean the grocery list?"
-    assert router.expects_follow_up is True
+    llm.respond_stream.assert_called_once_with("the list")
+    # follow_up is reset by respond_stream fallback path
+    assert router.expects_follow_up is False
 
 
 def test_llm_first_clarification_cleared_on_next_action():
-    """Clarification follow-up should clear on next non-clarification response."""
+    """Clarification falls through to respond_stream; next action clears follow-up."""
     feat = _make_feature(
         name="Grocery List",
         action_schema={"list": {}},
@@ -299,15 +300,16 @@ def test_llm_first_clarification_cleared_on_next_action():
     )
     llm = _make_llm()
 
-    # First call: clarification
+    # First call: clarification → falls through to respond_stream
     llm.parse_intent.return_value = {
         "type": "clarification",
         "speech": "Did you mean the grocery list?",
         "expects_follow_up": True,
     }
     router = IntentRouter({}, [feat], llm)
-    router.route("the list")
-    assert router.expects_follow_up is True
+    _consume(router.route("the list"))
+    # respond_stream fallback resets follow-up
+    assert router.expects_follow_up is False
 
     # Second call: action
     llm.parse_intent.return_value = {
@@ -516,18 +518,25 @@ def test_conversation_follow_up_resets_on_fallthrough():
 
 
 def test_llm_expects_follow_up_false_clears():
-    """Conversation with expects_follow_up: false should not keep listening."""
-    feat = _make_feature(name="Grocery List")
+    """Action with expects_follow_up: true then conversation should clear it."""
+    feat = _make_feature(
+        name="Grocery List",
+        action_schema={"list": {}},
+        execute_response="Here's your list.",
+    )
     llm = _make_llm()
 
-    # First: set follow-up via clarification
+    # First: set follow-up via action
     llm.parse_intent.return_value = {
-        "type": "clarification",
-        "speech": "Did you mean the grocery list?",
+        "type": "action",
+        "feature": "grocery_list",
+        "action": "list",
+        "parameters": {},
+        "speech": "Listing groceries.",
         "expects_follow_up": True,
     }
     router = IntentRouter({}, [feat], llm)
-    router.route("the list")
+    router.route("show grocery list")
     assert router.expects_follow_up is True
 
     # Second: conversation falls through to respond_stream, clearing follow-up

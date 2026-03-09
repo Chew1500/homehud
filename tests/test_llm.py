@@ -159,6 +159,79 @@ def test_claude_personality_replaces_identity(monkeypatch):
     assert llm._system_prompt == personality + "\n\n" + _SYSTEM_CONSTRAINTS
 
 
+def test_claude_personality_injected_into_parse_intent(monkeypatch):
+    """When llm_personality is set, parse_intent includes it in system blocks."""
+    mock_anthropic = MagicMock()
+    monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic)
+
+    from llm.claude_llm import ClaudeLLM
+
+    personality = "You are Geralt of Rivia. Speak in a sardonic tone."
+    llm = ClaudeLLM({
+        "anthropic_api_key": "test-key",
+        "llm_personality": personality,
+    })
+
+    # Set up mock response with a tool_use block
+    mock_block = MagicMock()
+    mock_block.type = "tool_use"
+    mock_block.name = "route_intent"
+    mock_block.input = {
+        "type": "conversation",
+        "speech": "Hmm.",
+        "expects_follow_up": False,
+    }
+    mock_message = MagicMock()
+    mock_message.content = [mock_block]
+    mock_message.usage.input_tokens = 10
+    mock_message.usage.output_tokens = 5
+    mock_message.stop_reason = "end_turn"
+    llm._client.messages.create.return_value = mock_message
+
+    llm.parse_intent("hello", [])
+
+    # Verify system blocks passed to the API
+    call_kwargs = llm._client.messages.create.call_args
+    system_blocks = call_kwargs.kwargs["system"]
+    assert len(system_blocks) == 2
+    assert system_blocks[1]["text"].startswith("## Personality")
+    assert personality in system_blocks[1]["text"]
+
+    # Verify telemetry records the full prompt
+    assert personality in llm._last_call_info["system_prompt"]
+
+
+def test_claude_no_personality_omits_intent_block(monkeypatch):
+    """When llm_personality is empty, parse_intent has only one system block."""
+    mock_anthropic = MagicMock()
+    monkeypatch.setitem(sys.modules, "anthropic", mock_anthropic)
+
+    from llm.claude_llm import ClaudeLLM
+
+    llm = ClaudeLLM({"anthropic_api_key": "test-key", "llm_personality": ""})
+
+    mock_block = MagicMock()
+    mock_block.type = "tool_use"
+    mock_block.name = "route_intent"
+    mock_block.input = {
+        "type": "conversation",
+        "speech": "Hello.",
+        "expects_follow_up": False,
+    }
+    mock_message = MagicMock()
+    mock_message.content = [mock_block]
+    mock_message.usage.input_tokens = 10
+    mock_message.usage.output_tokens = 5
+    mock_message.stop_reason = "end_turn"
+    llm._client.messages.create.return_value = mock_message
+
+    llm.parse_intent("hello", [])
+
+    call_kwargs = llm._client.messages.create.call_args
+    system_blocks = call_kwargs.kwargs["system"]
+    assert len(system_blocks) == 1
+
+
 def test_claude_no_personality_uses_default(monkeypatch):
     """When llm_personality is empty, the default system prompt is used unmodified."""
     mock_anthropic = MagicMock()
