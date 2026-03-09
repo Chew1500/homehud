@@ -257,8 +257,8 @@ def test_llm_first_action_routes_to_feature():
     llm.respond.assert_not_called()
 
 
-def test_llm_first_conversation_returns_speech():
-    """parse_intent returning conversation should return speech directly."""
+def test_llm_first_conversation_falls_through_to_llm():
+    """parse_intent returning conversation should fall through to respond_stream."""
     feat = _make_feature(name="Grocery List")
     llm = _make_llm(parse_result={
         "type": "conversation",
@@ -267,12 +267,11 @@ def test_llm_first_conversation_returns_speech():
     })
     router = IntentRouter({}, [feat], llm)
 
-    result = router.route("what time is it")
+    _consume(router.route("what time is it"))
 
-    assert result == "The time is 3pm."
-    llm.record_exchange.assert_called_once_with("what time is it", "The time is 3pm.")
+    # Should have fallen through to respond_stream, not used parse_intent speech
+    llm.respond_stream.assert_called_once_with("what time is it")
     feat.execute.assert_not_called()
-    llm.respond.assert_not_called()
 
 
 def test_llm_first_clarification_sets_follow_up():
@@ -442,9 +441,11 @@ def test_llm_first_action_sets_last_feature():
 
 
 def test_llm_first_conversation_clears_last_feature():
-    """Conversation response should clear _last_feature."""
-    feat = _make_feature(name="Grocery List", matches=True)
+    """Conversation response should clear _last_feature (falls through to respond_stream)."""
+    feat = _make_feature(name="Grocery List")
     feat.expects_follow_up = True
+    # First call matches (regex path), second call doesn't (conversation falls through)
+    feat.matches.side_effect = [True, False]
     llm = _make_llm()
     router = IntentRouter({}, [feat], llm)
 
@@ -452,13 +453,13 @@ def test_llm_first_conversation_clears_last_feature():
     router.route("test")
     assert router._last_feature is feat
 
-    # Second: conversation
+    # Second: conversation — falls through to respond_stream, clearing _last_feature
     llm.parse_intent.return_value = {
         "type": "conversation",
         "speech": "It's 3pm.",
         "expects_follow_up": False,
     }
-    router.route("what time is it")
+    _consume(router.route("what time is it"))
     assert router._last_feature is None
     assert router.expects_follow_up is False
 
@@ -497,8 +498,8 @@ def test_intent_recovery_records_exchange():
     )
 
 
-def test_llm_expects_follow_up_from_parse_result():
-    """Conversation with expects_follow_up: true should keep listening."""
+def test_conversation_follow_up_resets_on_fallthrough():
+    """Conversation falls through to respond_stream which resets expects_follow_up."""
     feat = _make_feature(name="Grocery List")
     llm = _make_llm(parse_result={
         "type": "conversation",
@@ -507,9 +508,11 @@ def test_llm_expects_follow_up_from_parse_result():
     })
     router = IntentRouter({}, [feat], llm)
 
-    router.route("tell me a joke")
+    _consume(router.route("tell me a joke"))
 
-    assert router.expects_follow_up is True
+    # Conversation falls through to respond_stream (step 4), which resets follow-up
+    assert router.expects_follow_up is False
+    llm.respond_stream.assert_called_once_with("tell me a joke")
 
 
 def test_llm_expects_follow_up_false_clears():
@@ -527,13 +530,13 @@ def test_llm_expects_follow_up_false_clears():
     router.route("the list")
     assert router.expects_follow_up is True
 
-    # Second: conversation clears it
+    # Second: conversation falls through to respond_stream, clearing follow-up
     llm.parse_intent.return_value = {
         "type": "conversation",
         "speech": "Here's a joke.",
         "expects_follow_up": False,
     }
-    router.route("tell me a joke")
+    _consume(router.route("tell me a joke"))
     assert router.expects_follow_up is False
 
 
