@@ -104,7 +104,9 @@ def load_config() -> dict:
         # Wake word detection
         "wake_mode": os.getenv("HUD_WAKE_MODE", "mock"),
         "wake_model": os.getenv("HUD_WAKE_MODEL", "hey_jarvis"),
-        "wake_threshold": float(os.getenv("HUD_WAKE_THRESHOLD", "0.5")),
+        "wake_threshold": float(os.getenv("HUD_WAKE_THRESHOLD", "0.6")),
+        "wake_confirm_frames": int(os.getenv("HUD_WAKE_CONFIRM_FRAMES", "3")),
+        "wake_cooldown": float(os.getenv("HUD_WAKE_COOLDOWN", "2.0")),
         "wake_mock_trigger_after": int(os.getenv("HUD_WAKE_MOCK_TRIGGER_AFTER", "62")),
 
         # Intent recovery (LLM-powered misheard command correction)
