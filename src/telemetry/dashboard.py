@@ -152,6 +152,24 @@ tr:hover td { background: #fafbfc; }
 .log-level { font-weight: 600; min-width: 5ch; display: inline-block; }
 .log-logger { color: #999; }
 
+/* Config section */
+.config-section { background: #fff; border-radius: 8px; padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+.config-group { margin-bottom: 0.75rem; }
+.config-group-header {
+  display: flex; align-items: center; cursor: pointer; padding: 0.4rem 0;
+  border-bottom: 1px solid #eee; user-select: none;
+}
+.config-group-header h3 { font-size: 0.85rem; color: #555; margin: 0; flex: 1; }
+.config-group-header .toggle { font-size: 0.75rem; color: #888; }
+.config-group-body { margin-top: 0.25rem; }
+.config-row { display: flex; justify-content: space-between; padding: 0.25rem 0;
+  font-size: 0.85rem; border-bottom: 1px solid #f0f2f5; }
+.config-row:last-child { border-bottom: none; }
+.config-row .key { color: #555; }
+.config-row .val { font-family: 'SF Mono', Monaco, monospace; font-weight: 500;
+  color: #333; max-width: 60%; text-align: right; word-break: break-all; }
+
 /* Loading / error */
 .loading { text-align: center; padding: 2rem; color: #888; }
 .error-msg { text-align: center; padding: 1rem; color: #e74c3c; background: #fee2e2;
@@ -188,6 +206,12 @@ tr:hover td { background: #fafbfc; }
 <div class="display-preview" id="display-preview">
   <div id="display-img-container" class="loading">Loading display...</div>
   <div class="meta" id="display-meta"></div>
+</div>
+
+<h2>Configuration</h2>
+<div class="config-section" id="config-section">
+  <div class="loading" id="config-loading">Loading config...</div>
+  <div id="config-content"></div>
 </div>
 
 <h2>Application Logs</h2>
@@ -615,10 +639,114 @@ function setupLogAutoRefresh() {
 
 document.getElementById('log-level-filter').addEventListener('change', loadLogs);
 
+// --- Config viewer ---
+const CONFIG_GROUPS = {
+  'Display': ['display_mode', 'mock_output_dir', 'mock_show_window', 'display_snapshot_path'],
+  'Audio': ['audio_mode', 'audio_sample_rate', 'audio_channels', 'audio_device',
+    'audio_mock_dir', 'audio_stale_timeout'],
+  'STT': ['stt_mode', 'stt_whisper_model', 'stt_whisper_prompt', 'stt_whisper_hotwords',
+    'stt_mock_response', 'stt_no_speech_threshold', 'stt_confidence_threshold'],
+  'TTS': ['tts_mode', 'tts_kokoro_voice', 'tts_kokoro_speed', 'tts_kokoro_lang',
+    'tts_kokoro_model', 'tts_kokoro_voices', 'tts_elevenlabs_voice', 'tts_elevenlabs_model',
+    'tts_elevenlabs_speed', 'tts_cache_enabled', 'tts_cache_dir', 'tts_mock_duration'],
+  'Wake': ['wake_mode', 'wake_model', 'wake_threshold', 'wake_confirm_frames',
+    'wake_cooldown', 'wake_mock_trigger_after'],
+  'Voice Pipeline': ['voice_enabled', 'voice_record_duration', 'voice_wake_feedback',
+    'voice_startup_announcement', 'voice_deploy_announcement', 'voice_vad_enabled',
+    'vad_silence_threshold', 'vad_silence_duration', 'vad_speech_chunks_required',
+    'vad_min_duration', 'vad_max_duration', 'voice_bargein_enabled',
+    'voice_max_follow_ups', 'voice_max_consecutive_low_confidence'],
+  'LLM': ['llm_mode', 'llm_model', 'llm_max_tokens', 'llm_system_prompt',
+    'llm_intent_model', 'llm_mock_response', 'llm_intent_max_tokens',
+    'llm_max_history', 'llm_history_ttl', 'llm_personality', 'intent_recovery_enabled'],
+  'Features': ['grocery_file', 'reminder_file', 'reminder_check_interval',
+    'media_disambiguation_ttl'],
+  'Solar': ['enphase_mode', 'enphase_host', 'enphase_serial', 'enphase_poll_interval',
+    'solar_db_path', 'solar_latitude', 'solar_longitude'],
+  'Media': ['sonarr_mode', 'sonarr_url', 'radarr_mode', 'radarr_url',
+    'jellyfin_mode', 'jellyfin_url', 'jellyfin_user_id', 'discovery_db_path',
+    'discovery_library_sync_interval', 'discovery_interval', 'discovery_llm_model',
+    'discovery_max_recommendations'],
+  'Telemetry': ['telemetry_enabled', 'telemetry_db_path', 'telemetry_max_size_mb',
+    'telemetry_web_enabled', 'telemetry_web_host', 'telemetry_web_port'],
+  'System': ['refresh_interval', 'log_dir', 'log_level', 'sysmon_mode'],
+};
+
+async function loadConfig() {
+  const loading = document.getElementById('config-loading');
+  const content = document.getElementById('config-content');
+  try {
+    const data = await fetchJSON('/api/config');
+    if (data.error) {
+      loading.textContent = data.error;
+      return;
+    }
+    loading.style.display = 'none';
+    const assigned = new Set();
+    let html = '';
+    for (const [group, keys] of Object.entries(CONFIG_GROUPS)) {
+      const rows = keys.filter(k => k in data);
+      rows.forEach(k => assigned.add(k));
+      if (rows.length === 0) continue;
+      const gid = 'cfg-' + group.toLowerCase().replace(/\\s+/g, '-');
+      html += '<div class="config-group" id="' + gid + '">';
+      html += '<div class="config-group-header" onclick="toggleConfigGroup(\\'' + gid + '\\')">';
+      html += '<h3>' + escapeHtml(group) + '</h3>';
+      html += '<span class="toggle">&#9660;</span></div>';
+      html += '<div class="config-group-body">';
+      rows.forEach(k => {
+        const v = data[k];
+        const display = v === '' ? '<em style="color:#aaa">empty</em>'
+          : typeof v === 'boolean' ? (v ? 'true' : 'false')
+          : String(v);
+        html += '<div class="config-row"><span class="key">' + escapeHtml(k)
+          + '</span><span class="val">' + (v === '' ? display : escapeHtml(display))
+          + '</span></div>';
+      });
+      html += '</div></div>';
+    }
+    // Any remaining keys not in a group
+    const remaining = Object.keys(data).filter(k => !assigned.has(k));
+    if (remaining.length > 0) {
+      const gid = 'cfg-other';
+      html += '<div class="config-group" id="' + gid + '">';
+      html += '<div class="config-group-header" onclick="toggleConfigGroup(\\'' + gid + '\\')">';
+      html += '<h3>Other</h3><span class="toggle">&#9660;</span></div>';
+      html += '<div class="config-group-body">';
+      remaining.forEach(k => {
+        const v = data[k];
+        const display = v === '' ? '<em style="color:#aaa">empty</em>' : String(v);
+        html += '<div class="config-row"><span class="key">' + escapeHtml(k)
+          + '</span><span class="val">' + (v === '' ? display : escapeHtml(display))
+          + '</span></div>';
+      });
+      html += '</div></div>';
+    }
+    content.innerHTML = html;
+  } catch (e) {
+    loading.textContent = 'Failed to load config: ' + e.message;
+    loading.style.color = '#e74c3c';
+  }
+}
+
+function toggleConfigGroup(id) {
+  const group = document.getElementById(id);
+  const body = group.querySelector('.config-group-body');
+  const toggle = group.querySelector('.toggle');
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    toggle.innerHTML = '&#9660;';
+  } else {
+    body.style.display = 'none';
+    toggle.innerHTML = '&#9654;';
+  }
+}
+
 // Initial load
 loadStats();
 loadSessions(0);
 loadDisplay();
+loadConfig();
 loadLogs();
 setupLogAutoRefresh();
 setInterval(loadDisplay, 30000);

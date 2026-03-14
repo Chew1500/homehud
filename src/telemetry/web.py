@@ -29,6 +29,18 @@ _LOG_LINE_RE = re.compile(
 _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
 
+_SENSITIVE_KEYS = frozenset({
+    "anthropic_api_key",
+    "elevenlabs_api_key",
+    "enphase_token",
+    "enphase_password",
+    "enphase_email",
+    "sonarr_api_key",
+    "radarr_api_key",
+    "jellyfin_api_key",
+})
+
+
 class _Handler(BaseHTTPRequestHandler):
     """Request handler — routes to dashboard or JSON API endpoints."""
 
@@ -44,6 +56,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_html(DASHBOARD_HTML)
         elif path == "/api/stats":
             self._handle_stats()
+        elif path == "/api/config":
+            self._handle_config()
         elif path == "/api/display":
             self._handle_display()
         elif path == "/api/logs":
@@ -56,6 +70,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     # --- API handlers ---
+
+    def _handle_config(self):
+        config = getattr(self.server, "config", None)
+        if config is None:
+            self._send_json({"error": "Config not available"})
+            return
+        filtered = {k: v for k, v in config.items() if k not in _SENSITIVE_KEYS}
+        self._send_json(filtered)
 
     def _handle_display(self):
         snapshot_path = getattr(self.server, "display_snapshot_path", None)
@@ -372,12 +394,14 @@ class TelemetryWeb:
         port: int = 8080,
         display_snapshot_path: str | None = None,
         log_dir: str | None = None,
+        config: dict | None = None,
     ):
         self._db_path = db_path
         self._host = host
         self._port = port
         self._display_snapshot_path = display_snapshot_path
         self._log_dir = log_dir
+        self._config = config
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -387,6 +411,7 @@ class TelemetryWeb:
         self._server.db_path = self._db_path  # attach for handler access
         self._server.display_snapshot_path = self._display_snapshot_path
         self._server.log_dir = self._log_dir
+        self._server.config = self._config
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         log.info("Telemetry dashboard at http://%s:%d", self._host, self._port)

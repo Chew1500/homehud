@@ -312,6 +312,7 @@ def main():
                         port=config.get("telemetry_web_port", 8080),
                         display_snapshot_path=config.get("display_snapshot_path"),
                         log_dir=config.get("log_dir"),
+                        config=config,
                     )
                     telemetry_web.start()
 

@@ -271,6 +271,44 @@ def test_display_serves_png(store, tmp_path):
         web.close()
 
 
+def test_config_returns_filtered_settings(store):
+    """GET /api/config should return config with sensitive keys excluded."""
+    sample_config = {
+        "display_mode": "mock",
+        "audio_mode": "hardware",
+        "anthropic_api_key": "sk-secret-123",
+        "elevenlabs_api_key": "el-secret-456",
+        "enphase_token": "token-secret",
+        "sonarr_api_key": "sonarr-secret",
+        "radarr_api_key": "radarr-secret",
+        "jellyfin_api_key": "jellyfin-secret",
+        "enphase_password": "pw-secret",
+        "enphase_email": "email@secret.com",
+    }
+    web = TelemetryWeb(
+        store._db_path, host="127.0.0.1", port=0, config=sample_config,
+    )
+    web.start()
+    try:
+        data = _get_json(web, "/api/config")
+        assert data["display_mode"] == "mock"
+        assert data["audio_mode"] == "hardware"
+        for key in (
+            "anthropic_api_key", "elevenlabs_api_key", "enphase_token",
+            "sonarr_api_key", "radarr_api_key", "jellyfin_api_key",
+            "enphase_password", "enphase_email",
+        ):
+            assert key not in data
+    finally:
+        web.close()
+
+
+def test_config_returns_error_when_not_configured(server):
+    """GET /api/config without config should return error message."""
+    data = _get_json(server, "/api/config")
+    assert data["error"] == "Config not available"
+
+
 def test_stats_avg_durations(store, server):
     """Stats should include average phase durations."""
     store.save_session(_make_session())
