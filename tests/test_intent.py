@@ -548,7 +548,9 @@ def test_conversation_follow_up_preserved_with_speech():
     assert result == "What kind of joke would you like?"
     assert router.expects_follow_up is True
     llm.respond_stream.assert_not_called()
-    llm.record_exchange.assert_called_once_with("tell me a joke", "What kind of joke would you like?")
+    llm.record_exchange.assert_called_once_with(
+        "tell me a joke", "What kind of joke would you like?"
+    )
 
 
 def test_llm_expects_follow_up_false_clears():
