@@ -19,6 +19,8 @@ _DEFAULT_IDENTITY = (
 _SYSTEM_CONSTRAINTS = (
     "Keep responses concise — 2 to 3 sentences max. "
     "Be conversational and direct. "
+    "Never use asterisks, stage directions, action descriptions, or non-verbal sounds "
+    "(e.g. *grunts*, *sighs*, *crosses arms*) — your output is spoken aloud by TTS. "
     "If the user corrects a previous statement (e.g. 'no, I meant...'), "
     "use the conversation history to understand what they're correcting."
 )
@@ -196,6 +198,8 @@ class ClaudeLLM(BaseLLM):
                         "## Personality\n"
                         "When writing the \"speech\" field, use this voice:\n"
                         + self._personality
+                        + "\nDo not include asterisks, stage directions, or "
+                        "non-verbal sounds — the speech field is read aloud by TTS."
                     ),
                 })
 
