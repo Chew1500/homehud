@@ -191,6 +191,34 @@ tr:hover td { background: #fafbfc; }
 .error-msg { text-align: center; padding: 1rem; color: #e74c3c; background: #fee2e2;
   border-radius: 8px; margin: 1rem 0; }
 
+/* Timeline bar */
+.timeline-bar {
+  display: flex; height: 28px; border-radius: 6px; overflow: hidden;
+  background: #f0f2f5; width: 100%; min-width: 120px;
+}
+.timeline-seg {
+  min-width: 2px; height: 100%; position: relative;
+  transition: opacity 0.15s;
+}
+.timeline-seg:hover { opacity: 0.8; }
+.timeline-seg.phase-recording { background: #3b82f6; }
+.timeline-seg.phase-stt { background: #22c55e; }
+.timeline-seg.phase-routing { background: #f59e0b; }
+.timeline-seg.phase-tts { background: #a855f7; }
+.timeline-seg.phase-playback { background: #14b8a6; }
+.timeline-seg.gap { background: #e5e7eb; }
+.timeline-legend {
+  display: flex; gap: 0.75rem; flex-wrap: wrap; font-size: 0.75rem;
+  color: #666; margin-bottom: 0.5rem;
+}
+.timeline-legend .dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  margin-right: 0.25rem; vertical-align: middle;
+}
+.phase-breakdown { font-size: 0.8rem; margin: 0.5rem 0; }
+.phase-breakdown td { padding: 0.2rem 0.5rem; border-top: 1px solid #eee; }
+.phase-breakdown .gap-row td { color: #999; font-style: italic; }
+
 /* Responsive */
 @media (max-width: 600px) {
   body { padding: 0.5rem; }
@@ -333,6 +361,118 @@ function makeCard(label, value, cls) {
     + `<div class="value${cls ? ' ' + cls : ''}">${value}</div></div>`;
 }
 
+// --- Timeline helpers ---
+const PHASE_ORDER = ['recording', 'stt', 'routing', 'tts', 'playback'];
+const PHASE_LABELS = {
+  recording:'Recording', stt:'STT', routing:'Routing',
+  tts:'TTS', playback:'Playback'
+};
+
+function tsMs(iso) { return iso ? new Date(iso + 'Z').getTime() : null; }
+
+function exchangeWallClock(ex) {
+  let first = null, last = null;
+  for (const p of PHASE_ORDER) {
+    const s = tsMs(ex[p + '_started_at']);
+    const e = tsMs(ex[p + '_ended_at']);
+    if (s != null && (first == null || s < first)) first = s;
+    if (e != null && (last == null || e > last)) last = e;
+  }
+  return (first != null && last != null) ? last - first : null;
+}
+
+function computeSegments(ex) {
+  const segs = [];
+  let prevEnd = null;
+  for (const p of PHASE_ORDER) {
+    const s = tsMs(ex[p + '_started_at']);
+    const e = tsMs(ex[p + '_ended_at']);
+    if (s == null || e == null) continue;
+    if (prevEnd != null) {
+      const gap = Math.max(0, s - prevEnd);
+      if (gap > 0) segs.push({name: 'gap', type: 'gap', duration_ms: gap, from: p});
+    }
+    segs.push({name: p, type: 'phase', duration_ms: Math.max(0, e - s)});
+    prevEnd = e;
+  }
+  return segs;
+}
+
+function renderTimeline(ex) {
+  const wall = exchangeWallClock(ex);
+  if (!wall || wall <= 0) return '<span style="color:#888">-</span>';
+  const segs = computeSegments(ex);
+  let html = '<div class="timeline-bar">';
+  for (const seg of segs) {
+    const pct = Math.max(0.5, seg.duration_ms / wall * 100);
+    const cls = seg.type === 'gap' ? 'gap' : 'phase-' + seg.name;
+    const label = seg.type === 'gap'
+      ? 'gap: ' + Math.round(seg.duration_ms) + 'ms'
+      : PHASE_LABELS[seg.name] + ': ' + Math.round(seg.duration_ms) + 'ms';
+    const extra = (seg.name === 'tts' && seg.duration_ms < 10)
+      ? ' (streaming — actual synthesis during playback)' : '';
+    html += '<div class="timeline-seg ' + cls + '" style="width:' + pct.toFixed(2)
+      + '%" title="' + label + extra + '"></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderTimelineLegend() {
+  const colors = {
+    recording:'#3b82f6', stt:'#22c55e', routing:'#f59e0b',
+    tts:'#a855f7', playback:'#14b8a6', gap:'#e5e7eb'
+  };
+  let html = '<div class="timeline-legend">';
+  for (const [key, color] of Object.entries(colors)) {
+    const label = key === 'gap' ? 'Gap' : PHASE_LABELS[key] || key;
+    html += '<span><span class="dot" style="background:' + color + '"></span>' + label + '</span>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderPhaseBreakdown(ex) {
+  const wall = exchangeWallClock(ex);
+  const segs = computeSegments(ex);
+  if (!segs.length) return '<p style="color:#888;font-size:0.8rem">No phase timing data.</p>';
+  let html = '<table class="phase-breakdown"><thead><tr>'
+    + '<th>Phase</th><th>Duration</th><th>% of Total</th>'
+    + '</tr></thead><tbody>';
+  let sumPhases = 0;
+  for (const seg of segs) {
+    const isGap = seg.type === 'gap';
+    const cls = isGap ? ' class="gap-row"' : '';
+    const name = isGap ? '&nbsp;&nbsp;→ gap' : PHASE_LABELS[seg.name] || seg.name;
+    const dur = Math.round(seg.duration_ms);
+    const pct = wall ? (seg.duration_ms / wall * 100).toFixed(1) + '%' : '-';
+    if (!isGap) sumPhases += seg.duration_ms;
+    html += '<tr' + cls + '><td>' + name + '</td>'
+      + '<td>' + fmtMs(dur) + ' ms</td>'
+      + '<td>' + pct + '</td></tr>';
+  }
+  // Totals
+  if (wall) {
+    const unaccounted = Math.max(0, wall - segs.reduce((a, s) => a + s.duration_ms, 0));
+    html += '<tr style="font-weight:600;border-top:2px solid #ccc">'
+      + '<td>Total (wall)</td>'
+      + '<td>' + fmtMs(Math.round(wall)) + ' ms</td>'
+      + '<td>100%</td></tr>';
+    const pPct = (sumPhases / wall * 100).toFixed(1);
+    html += '<tr><td>Sum of phases</td>'
+      + '<td>' + fmtMs(Math.round(sumPhases)) + ' ms</td>'
+      + '<td>' + pPct + '%</td></tr>';
+    if (unaccounted > 0.5) {
+      const uPct = (unaccounted / wall * 100).toFixed(1);
+      html += '<tr class="gap-row"><td>Unaccounted</td>'
+        + '<td>' + fmtMs(Math.round(unaccounted)) + ' ms</td>'
+        + '<td>' + uPct + '%</td></tr>';
+    }
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
 async function loadStats() {
   try {
     const data = await fetchJSON('/api/stats');
@@ -348,18 +488,40 @@ async function loadStats() {
       makeCard('Today', `${fmt(data.sessions_today)}s / ${fmt(data.exchanges_today)}e`),
     ].join('');
 
-    // Performance table
+    // Performance table with gaps
     const phases = ['recording', 'stt', 'routing', 'tts', 'playback'];
+    const gapKeys = [
+      'avg_rec_to_stt_gap_ms', 'avg_stt_to_routing_gap_ms',
+      'avg_routing_to_tts_gap_ms', 'avg_tts_to_playback_gap_ms'
+    ];
     const tbody = document.querySelector('#perf-table tbody');
     let totalAvg = 0;
-    let totalCount = 0;
-    tbody.innerHTML = phases.map(p => {
+    let rows = '';
+    phases.forEach((p, i) => {
       const v = data['avg_' + p + '_ms'];
-      if (v != null) { totalAvg += v; totalCount++; }
-      return `<tr><td>${p}</td><td>${fmtMs(v)}</td></tr>`;
-    }).join('');
-    tbody.innerHTML += `<tr><td><strong>Total (sum of avgs)</strong></td>`
-      + `<td><strong>${totalCount ? fmtMs(totalAvg) : '-'}</strong></td></tr>`;
+      if (v != null) totalAvg += v;
+      rows += `<tr><td>${p}</td><td>${fmtMs(v)}</td></tr>`;
+      if (i < gapKeys.length) {
+        const g = data[gapKeys[i]];
+        rows += '<tr class="gap-row" style="color:#999;'
+          + 'font-style:italic"><td>&nbsp;&nbsp;→ gap</td>'
+          + '<td>' + fmtMs(g) + '</td></tr>';
+      }
+    });
+    const wallAvg = data.avg_wall_clock_ms;
+    rows += '<tr style="font-weight:600;border-top:2px solid #ccc">'
+      + '<td>Total (wall clock)</td>'
+      + '<td>' + fmtMs(wallAvg) + '</td></tr>';
+    rows += `<tr><td>Sum of phases</td><td>${fmtMs(totalAvg)}</td></tr>`;
+    if (wallAvg != null && totalAvg) {
+      const unaccounted = Math.round(wallAvg - totalAvg);
+      if (unaccounted > 0) {
+        rows += '<tr style="color:#999;font-style:italic">'
+          + '<td>&nbsp;&nbsp;Unaccounted</td>'
+          + '<td>' + fmtMs(unaccounted) + '</td></tr>';
+      }
+    }
+    tbody.innerHTML = rows;
 
     // Breakdowns
     const grid = document.getElementById('breakdown-grid');
@@ -480,9 +642,10 @@ async function toggleSession(id) {
       html += '<p style="color:#888">No exchanges.</p>';
     } else {
       html += '<h4>Exchanges</h4>';
+      html += renderTimelineLegend();
       html += '<table><thead><tr>'
-        + '<th>#</th><th>Transcription</th><th>Response</th><th>Route</th>'
-        + '<th>Rec</th><th>STT</th><th>Route</th><th>TTS</th><th>Play</th><th>Flags</th>'
+        + '<th>#</th><th>Transcription</th><th>Route</th>'
+        + '<th style="min-width:200px">Timeline</th><th>Total</th><th>Flags</th>'
         + '</tr></thead><tbody>';
 
       data.exchanges.forEach((ex, i) => {
@@ -494,22 +657,32 @@ async function toggleSession(id) {
         if (ex.routing_path && ex.routing_path.startsWith('rejected_'))
           flags += '<span class="flag flag-rejected">REJ</span>';
 
+        const wall = exchangeWallClock(ex);
         html += `<tr class="exchange-row" data-exid="${ex.id}">`
           + `<td>${ex.sequence}</td>`
-          + `<td>${truncate(ex.transcription, 30)}</td>`
-          + `<td>${truncate(ex.response_text, 30)}</td>`
+          + `<td>${truncate(ex.transcription, 40)}</td>`
           + `<td>${ex.routing_path || '-'}`
           + `${ex.matched_feature ? ' > ' + ex.matched_feature : ''}</td>`
-          + `<td>${fmtMs(ex.recording_duration_ms)}</td>`
-          + `<td>${fmtMs(ex.stt_duration_ms)}</td>`
-          + `<td>${fmtMs(ex.routing_duration_ms)}</td>`
-          + `<td>${fmtMs(ex.tts_duration_ms)}</td>`
-          + `<td>${fmtMs(ex.playback_duration_ms)}</td>`
+          + `<td>${renderTimeline(ex)}</td>`
+          + `<td>${fmtDuration(wall != null ? Math.round(wall) : null)}</td>`
           + `<td>${flags || '-'}</td></tr>`;
 
-        // Exchange detail row (LLM calls)
-        html += `<tr class="exchange-detail" data-exdetail="${ex.id}"><td colspan="10">`
+        // Exchange detail row
+        html += `<tr class="exchange-detail" data-exdetail="${ex.id}"><td colspan="6">`
           + `<div class="exchange-detail-inner">`;
+
+        // Response text (moved from table to detail)
+        if (ex.response_text) {
+          html += '<h4>Response</h4>';
+          html += '<pre style="background:#f0f2f5;padding:0.5rem;border-radius:4px;'
+            + 'white-space:pre-wrap;word-break:break-word;font-size:0.8rem;'
+            + 'max-height:200px;overflow-y:auto;margin-bottom:0.5rem">'
+            + escapeHtml(ex.response_text) + '</pre>';
+        }
+
+        // Phase breakdown
+        html += '<h4>Phase Breakdown</h4>';
+        html += renderPhaseBreakdown(ex);
 
         if (ex.error) {
           html += `<p style="color:#dc2626;margin-bottom:0.5rem">Error: ${ex.error}</p>`;
