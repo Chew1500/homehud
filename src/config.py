@@ -95,6 +95,9 @@ def load_config() -> dict:
         ),
         "vad_min_duration": float(os.getenv("HUD_VAD_MIN_DURATION", "0.5")),
         "vad_max_duration": float(os.getenv("HUD_VAD_MAX_DURATION", "15.0")),
+        "vad_adaptive": os.getenv("HUD_VAD_ADAPTIVE", "true").lower() == "true",
+        "vad_calibration_chunks": int(os.getenv("HUD_VAD_CALIBRATION_CHUNKS", "5")),
+        "vad_adaptive_multiplier": float(os.getenv("HUD_VAD_ADAPTIVE_MULTIPLIER", "1.5")),
         "voice_bargein_enabled": os.getenv("HUD_VOICE_BARGEIN_ENABLED", "true").lower() == "true",
         "voice_max_follow_ups": int(os.getenv("HUD_VOICE_MAX_FOLLOW_UPS", "5")),
         "voice_max_consecutive_low_confidence": int(

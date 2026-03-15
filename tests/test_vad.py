@@ -35,6 +35,13 @@ def _make_stream(chunks):
     return gen()
 
 
+def _noise_chunk(amplitude=200):
+    """Return an 80ms chunk of moderate noise (for ambient calibration)."""
+    rng = np.random.default_rng(42)
+    samples = (rng.standard_normal(CHUNK_SAMPLES) * amplitude).astype(np.int16)
+    return samples.tobytes()
+
+
 def _make_vad(**overrides):
     """Create a VAD with test-friendly defaults."""
     config = {
@@ -44,6 +51,7 @@ def _make_vad(**overrides):
         "vad_max_duration": 5.0,
         "audio_sample_rate": 16000,
         "vad_speech_chunks_required": 0,  # Disable gate for existing tests
+        "vad_adaptive": False,  # Disable adaptive for existing tests
     }
     config.update(overrides)
     return VoiceActivityDetector(config)
@@ -217,3 +225,121 @@ def test_vad_last_speech_detected_initial():
     """last_speech_detected should be False before any recording."""
     vad = _make_vad()
     assert vad.last_speech_detected is False
+
+
+# --- Adaptive VAD tests ---
+
+
+def test_adaptive_calibrates_from_ambient():
+    """Adaptive VAD should calibrate from ambient noise and detect silence after speech."""
+    noise = _noise_chunk(amplitude=200)
+    calibration = [noise] * 5  # ambient ~200 RMS
+    speech = [_loud_chunk(amplitude=5000)] * 5
+    silence = [_silence_chunk()] * 5
+    chunks = calibration + speech + silence
+    vad = _make_vad(
+        vad_adaptive=True,
+        vad_calibration_chunks=5,
+        vad_adaptive_multiplier=1.5,
+        vad_speech_chunks_required=0,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    result = vad.record_until_silence(_make_stream(chunks))
+    all_bytes = b"".join(chunks)
+    # Should stop on silence, not consume everything
+    assert len(result) < len(all_bytes)
+
+
+def test_adaptive_handles_high_ambient():
+    """Adaptive VAD should handle high ambient noise with speech well above it."""
+    noise = _noise_chunk(amplitude=400)
+    calibration = [noise] * 5  # ambient ~400 RMS → threshold ~600
+    speech = [_loud_chunk(amplitude=2000)] * 5  # well above 600
+    silence = [_silence_chunk()] * 5
+    chunks = calibration + speech + silence
+    vad = _make_vad(
+        vad_adaptive=True,
+        vad_calibration_chunks=5,
+        vad_adaptive_multiplier=1.5,
+        vad_speech_chunks_required=3,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    result = vad.record_until_silence(_make_stream(chunks))
+    assert vad.last_speech_detected is True
+    all_bytes = b"".join(chunks)
+    assert len(result) < len(all_bytes)
+
+
+def test_adaptive_minimum_floor():
+    """Effective threshold should be MIN_FLOOR (50) when ambient is near zero."""
+    calibration = [_silence_chunk()] * 5  # ambient = 0 RMS
+    # Chunks with low energy (below 50) should be treated as silence
+    silence = [_silence_chunk()] * 5
+    chunks = calibration + silence
+    vad = _make_vad(
+        vad_adaptive=True,
+        vad_calibration_chunks=5,
+        vad_adaptive_multiplier=1.5,
+        vad_speech_chunks_required=0,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    vad.record_until_silence(_make_stream(chunks))
+    # Ambient should be 0, but threshold floored at 50
+    assert vad.last_ambient_rms == 0.0
+
+
+def test_adaptive_disabled_uses_static():
+    """With adaptive disabled, behavior matches static threshold."""
+    chunks = [_loud_chunk()] * 5 + [_silence_chunk()] * 5
+    vad = _make_vad(
+        vad_adaptive=False,
+        vad_speech_chunks_required=0,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    result = vad.record_until_silence(_make_stream(chunks))
+    all_bytes = b"".join(chunks)
+    assert len(result) < len(all_bytes)
+    assert vad.last_ambient_rms is None  # adaptive never ran
+
+
+def test_adaptive_last_ambient_rms():
+    """last_ambient_rms should be set after adaptive recording."""
+    noise = _noise_chunk(amplitude=300)
+    chunks = [noise] * 5 + [_loud_chunk()] * 3 + [_silence_chunk()] * 5
+    vad = _make_vad(
+        vad_adaptive=True,
+        vad_calibration_chunks=5,
+        vad_adaptive_multiplier=1.5,
+        vad_speech_chunks_required=0,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    vad.record_until_silence(_make_stream(chunks))
+    assert vad.last_ambient_rms is not None
+    assert vad.last_ambient_rms > 0
+
+
+def test_adaptive_median_resists_speech_during_calibration():
+    """Median should reflect ambient, not speech spikes during calibration."""
+    quiet = _noise_chunk(amplitude=100)
+    loud = _loud_chunk(amplitude=5000)
+    # 3 quiet + 2 loud → median should be the quiet level
+    calibration = [quiet, quiet, quiet, loud, loud]
+    silence = [_silence_chunk()] * 5
+    chunks = calibration + silence
+    vad = _make_vad(
+        vad_adaptive=True,
+        vad_calibration_chunks=5,
+        vad_adaptive_multiplier=1.5,
+        vad_speech_chunks_required=0,
+        vad_silence_duration=0.0,
+        vad_min_duration=0.0,
+    )
+    vad.record_until_silence(_make_stream(chunks))
+    # Median of [~100, ~100, ~100, ~3500, ~3500] should be ~100, not ~3500
+    assert vad.last_ambient_rms is not None
+    assert vad.last_ambient_rms < 500  # well below speech level
