@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sqlite3
+import struct
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -18,6 +19,8 @@ log = logging.getLogger("home-hud.telemetry.web")
 
 # Regex for /api/sessions/<uuid>
 _SESSION_RE = re.compile(r"^/api/sessions/([0-9a-f-]+)$")
+# Regex for /api/tts-cache/<hash>/audio
+_TTS_CACHE_RE = re.compile(r"^/api/tts-cache/([0-9a-f]{64})/audio$")
 
 # Log line parsing: matches "2024-01-15 10:30:45,123 [INFO] home-hud: message"
 _LOG_LINE_RE = re.compile(
@@ -64,6 +67,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_logs(params)
         elif path == "/api/sessions":
             self._handle_sessions(params)
+        elif path == "/api/tts-cache":
+            self._handle_tts_cache_list()
+        elif m := _TTS_CACHE_RE.match(path):
+            self._handle_tts_cache_audio(m.group(1))
         elif m := _SESSION_RE.match(path):
             self._handle_session_detail(m.group(1))
         else:
@@ -280,6 +287,89 @@ class _Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
+    def _handle_tts_cache_list(self):
+        cache_dir = getattr(self.server, "tts_cache_dir", None)
+        if not cache_dir:
+            self._send_json({"entries": [], "total_entries": 0, "total_size_bytes": 0})
+            return
+
+        cache_path = Path(cache_dir)
+        if not cache_path.is_dir():
+            self._send_json({"entries": [], "total_entries": 0, "total_size_bytes": 0})
+            return
+
+        entries = []
+        seen_hashes = set()
+        total_size = 0
+
+        # Read sidecars
+        for meta_file in cache_path.glob("*.json"):
+            h = meta_file.stem
+            seen_hashes.add(h)
+            try:
+                data = json.loads(meta_file.read_text(encoding="utf-8"))
+                size = data.get("size_bytes", 0)
+                total_size += size
+                entries.append({
+                    "hash": h,
+                    "text": data.get("text", "(unknown)"),
+                    "voice": data.get("voice", ""),
+                    "model": data.get("model", ""),
+                    "created_at": data.get("created_at", ""),
+                    "hit_count": data.get("hit_count", 0),
+                    "size_bytes": size,
+                })
+            except (json.JSONDecodeError, OSError):
+                continue
+
+        # Detect orphaned .pcm files (no sidecar)
+        for pcm_file in cache_path.glob("*.pcm"):
+            h = pcm_file.stem
+            if h not in seen_hashes:
+                size = pcm_file.stat().st_size
+                total_size += size
+                entries.append({
+                    "hash": h,
+                    "text": "(unknown)",
+                    "voice": "",
+                    "model": "",
+                    "created_at": "",
+                    "hit_count": 0,
+                    "size_bytes": size,
+                })
+
+        entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+        self._send_json({
+            "entries": entries,
+            "total_entries": len(entries),
+            "total_size_bytes": total_size,
+        })
+
+    def _handle_tts_cache_audio(self, hash_id: str):
+        cache_dir = getattr(self.server, "tts_cache_dir", None)
+        if not cache_dir:
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+            return
+
+        pcm_path = Path(cache_dir) / f"{hash_id}.pcm"
+        if not pcm_path.is_file():
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+            return
+
+        try:
+            pcm = pcm_path.read_bytes()
+            wav = _pcm_to_wav(pcm)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(wav)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(wav)
+        except Exception:
+            self._send_json(
+                {"error": "Failed to read audio"}, HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+
     def _handle_logs(self, params):
         log_dir = getattr(self.server, "log_dir", None)
         if not log_dir:
@@ -324,6 +414,30 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+def _pcm_to_wav(pcm: bytes, sample_rate: int = 16000, channels: int = 1, bits: int = 16) -> bytes:
+    """Prepend a 44-byte WAV header to raw PCM data (int16 LE)."""
+    data_size = len(pcm)
+    byte_rate = sample_rate * channels * bits // 8
+    block_align = channels * bits // 8
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        36 + data_size,
+        b"WAVE",
+        b"fmt ",
+        16,           # chunk size
+        1,            # PCM format
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits,
+        b"data",
+        data_size,
+    )
+    return header + pcm
 
 
 def _ro_connect(db_path: str) -> sqlite3.Connection:
@@ -395,6 +509,7 @@ class TelemetryWeb:
         display_snapshot_path: str | None = None,
         log_dir: str | None = None,
         config: dict | None = None,
+        tts_cache_dir: str | None = None,
     ):
         self._db_path = db_path
         self._host = host
@@ -402,6 +517,7 @@ class TelemetryWeb:
         self._display_snapshot_path = display_snapshot_path
         self._log_dir = log_dir
         self._config = config
+        self._tts_cache_dir = tts_cache_dir
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -412,6 +528,7 @@ class TelemetryWeb:
         self._server.display_snapshot_path = self._display_snapshot_path
         self._server.log_dir = self._log_dir
         self._server.config = self._config
+        self._server.tts_cache_dir = self._tts_cache_dir
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         log.info("Telemetry dashboard at http://%s:%d", self._host, self._port)

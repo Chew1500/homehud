@@ -587,3 +587,56 @@ class TestCachedTTS:
         from speech import get_tts
         tts = get_tts(_make_config(tts_cache_enabled=False))
         assert isinstance(tts, MockTTS)
+
+    def test_sidecar_created_on_cache_miss(self, tmp_path):
+        """A .json sidecar is written alongside .pcm on first synthesis."""
+        import json
+
+        cached, _ = self._build(tmp_path)
+        cached.synthesize("hello sidecar")
+        cache_dir = tmp_path / "cache"
+        json_files = list(cache_dir.glob("*.json"))
+        assert len(json_files) == 1
+        meta = json.loads(json_files[0].read_text())
+        assert meta["text"] == "hello sidecar"
+        assert meta["hit_count"] == 0
+        assert meta["size_bytes"] == len(b"\x01\x00" * 1600)
+        assert "created_at" in meta
+
+    def test_hit_count_incremented_on_synthesize(self, tmp_path):
+        """hit_count increments on cache hit via synthesize."""
+        import json
+
+        cached, _ = self._build(tmp_path)
+        cached.synthesize("count me")
+        cached.synthesize("count me")
+        cached.synthesize("count me")
+        cache_dir = tmp_path / "cache"
+        json_files = list(cache_dir.glob("*.json"))
+        meta = json.loads(json_files[0].read_text())
+        assert meta["hit_count"] == 2
+
+    def test_hit_count_incremented_on_synthesize_stream(self, tmp_path):
+        """hit_count increments on cache hit via synthesize_stream."""
+        import json
+
+        cached, _ = self._build(tmp_path)
+        list(cached.synthesize_stream("stream count"))
+        list(cached.synthesize_stream("stream count"))
+        cache_dir = tmp_path / "cache"
+        json_files = list(cache_dir.glob("*.json"))
+        meta = json.loads(json_files[0].read_text())
+        assert meta["hit_count"] == 1
+
+    def test_backward_compat_bare_pcm_without_sidecar(self, tmp_path):
+        """A bare .pcm file without sidecar still works for cache hits."""
+        cached, inner = self._build(tmp_path)
+        # Manually create a bare .pcm (no sidecar) to simulate old cache
+        pcm_data = b"\x01\x00" * 1600
+        key = cached._cache_key("legacy text")
+        pcm_path = tmp_path / "cache" / f"{key}.pcm"
+        pcm_path.write_bytes(pcm_data)
+
+        result = cached.synthesize("legacy text")
+        inner.synthesize.assert_not_called()
+        assert result == pcm_data

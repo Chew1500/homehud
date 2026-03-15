@@ -315,3 +315,97 @@ def test_stats_avg_durations(store, server):
     data = _get_json(server, "/api/stats")
     assert data["avg_recording_ms"] is not None
     assert data["avg_stt_ms"] is not None
+
+
+# --- TTS Cache endpoint tests ---
+
+
+def test_tts_cache_list_empty(server):
+    """GET /api/tts-cache with no cache dir returns empty list."""
+    data = _get_json(server, "/api/tts-cache")
+    assert data["entries"] == []
+    assert data["total_entries"] == 0
+    assert data["total_size_bytes"] == 0
+
+
+def test_tts_cache_list_with_entries(store, tmp_path):
+    """GET /api/tts-cache returns entries from populated cache dir."""
+    cache_dir = tmp_path / "tts_cache"
+    cache_dir.mkdir()
+
+    # Create a sidecar + pcm pair
+    h = "a" * 64
+    (cache_dir / f"{h}.pcm").write_bytes(b"\x00" * 1000)
+    (cache_dir / f"{h}.json").write_text(json.dumps({
+        "text": "hello world",
+        "voice": "af_heart",
+        "model": "kokoro-v1.0",
+        "created_at": "2026-03-14T10:00:00Z",
+        "hit_count": 5,
+        "size_bytes": 1000,
+    }))
+
+    # Create an orphan pcm (no sidecar)
+    h2 = "b" * 64
+    (cache_dir / f"{h2}.pcm").write_bytes(b"\x00" * 500)
+
+    web = TelemetryWeb(
+        store._db_path, host="127.0.0.1", port=0, tts_cache_dir=str(cache_dir),
+    )
+    web.start()
+    try:
+        data = _get_json(web, "/api/tts-cache")
+        assert data["total_entries"] == 2
+        assert data["total_size_bytes"] == 1500
+
+        texts = {e["text"] for e in data["entries"]}
+        assert "hello world" in texts
+        assert "(unknown)" in texts
+
+        known = [e for e in data["entries"] if e["text"] == "hello world"][0]
+        assert known["hit_count"] == 5
+        assert known["voice"] == "af_heart"
+    finally:
+        web.close()
+
+
+def test_tts_cache_audio_returns_wav(store, tmp_path):
+    """GET /api/tts-cache/<hash>/audio returns valid WAV."""
+    cache_dir = tmp_path / "tts_cache"
+    cache_dir.mkdir()
+
+    h = "c" * 64
+    pcm_data = b"\x01\x00" * 800  # 1600 bytes
+    (cache_dir / f"{h}.pcm").write_bytes(pcm_data)
+
+    web = TelemetryWeb(
+        store._db_path, host="127.0.0.1", port=0, tts_cache_dir=str(cache_dir),
+    )
+    web.start()
+    try:
+        status, body = _get(web, f"/api/tts-cache/{h}/audio")
+        assert status == 200
+        # Check RIFF header
+        assert body[:4] == b"RIFF"
+        assert body[8:12] == b"WAVE"
+        # Total size = 44 header + 1600 pcm
+        assert len(body) == 44 + len(pcm_data)
+    finally:
+        web.close()
+
+
+def test_tts_cache_audio_404_for_missing_hash(store, tmp_path):
+    """GET /api/tts-cache/<hash>/audio returns 404 for nonexistent hash."""
+    cache_dir = tmp_path / "tts_cache"
+    cache_dir.mkdir()
+
+    web = TelemetryWeb(
+        store._db_path, host="127.0.0.1", port=0, tts_cache_dir=str(cache_dir),
+    )
+    web.start()
+    try:
+        h = "d" * 64
+        status, body = _get(web, f"/api/tts-cache/{h}/audio")
+        assert status == 404
+    finally:
+        web.close()

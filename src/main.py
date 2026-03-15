@@ -313,6 +313,7 @@ def main():
                         display_snapshot_path=config.get("display_snapshot_path"),
                         log_dir=config.get("log_dir"),
                         config=config,
+                        tts_cache_dir=config.get("tts_cache_dir"),
                     )
                     telemetry_web.start()
 

@@ -1,9 +1,11 @@
 """Disk-caching TTS wrapper — saves synthesized audio to avoid repeated API calls."""
 
 import hashlib
+import json
 import logging
 import threading
 from collections.abc import Generator
+from datetime import datetime, timezone
 from pathlib import Path
 
 from speech.base_tts import BaseTTS
@@ -41,6 +43,30 @@ class CachedTTS(BaseTTS):
     def _cache_path(self, text: str) -> Path:
         return self._cache_dir / f"{self._cache_key(text)}.pcm"
 
+    def _meta_path(self, text: str) -> Path:
+        return self._cache_dir / f"{self._cache_key(text)}.json"
+
+    def _write_meta(self, text: str, size_bytes: int) -> None:
+        """Write initial sidecar metadata for a cached clip."""
+        meta = {
+            "text": text,
+            "voice": self._voice,
+            "model": self._model,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "hit_count": 0,
+            "size_bytes": size_bytes,
+        }
+        self._meta_path(text).write_text(json.dumps(meta), encoding="utf-8")
+
+    def _bump_hit_count(self, meta_path: Path) -> None:
+        """Increment hit_count in sidecar; skip gracefully if missing."""
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            data["hit_count"] = data.get("hit_count", 0) + 1
+            meta_path.write_text(json.dumps(data), encoding="utf-8")
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
     def synthesize(self, text: str) -> bytes:
         if not text or not text.strip():
             return self._inner.synthesize(text)
@@ -50,6 +76,7 @@ class CachedTTS(BaseTTS):
         with self._lock:
             if path.exists():
                 logger.debug("TTS cache hit: %s", text[:40])
+                self._bump_hit_count(self._meta_path(text))
                 return path.read_bytes()
 
         # Call inner TTS outside the lock (no blocking during API calls)
@@ -57,6 +84,7 @@ class CachedTTS(BaseTTS):
 
         with self._lock:
             path.write_bytes(pcm)
+            self._write_meta(text, len(pcm))
             logger.debug("TTS cache write: %s (%d bytes)", text[:40], len(pcm))
 
         return pcm
@@ -71,6 +99,7 @@ class CachedTTS(BaseTTS):
         with self._lock:
             if path.exists():
                 logger.debug("TTS stream cache hit: %s", text[:40])
+                self._bump_hit_count(self._meta_path(text))
                 yield path.read_bytes()
                 return
 
@@ -82,6 +111,7 @@ class CachedTTS(BaseTTS):
 
         with self._lock:
             path.write_bytes(bytes(accumulated))
+            self._write_meta(text, len(accumulated))
             logger.debug(
                 "TTS stream cache write: %s (%d bytes)", text[:40], len(accumulated)
             )
