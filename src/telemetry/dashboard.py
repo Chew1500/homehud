@@ -336,7 +336,7 @@ async function fetchJSON(url) {
 }
 
 function fmt(v) { return v != null ? v.toLocaleString() : '-'; }
-function fmtMs(v) { return v != null ? Math.round(v).toLocaleString() : '-'; }
+function fmtMs(v) { return v != null && Number.isFinite(v) ? Math.round(v).toLocaleString() : '-'; }
 function fmtPct(n, total) { return total ? (n / total * 100).toFixed(1) + '%' : '0%'; }
 
 function fmtTime(iso) {
@@ -346,7 +346,7 @@ function fmtTime(iso) {
 }
 
 function fmtDuration(ms) {
-  if (ms == null) return '-';
+  if (ms == null || !Number.isFinite(ms)) return '-';
   if (ms < 1000) return ms + 'ms';
   return (ms / 1000).toFixed(1) + 's';
 }
@@ -368,7 +368,11 @@ const PHASE_LABELS = {
   tts:'TTS', playback:'Playback'
 };
 
-function tsMs(iso) { return iso ? new Date(iso + 'Z').getTime() : null; }
+function tsMs(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso.replace('+00:00', 'Z').replace('+0000', 'Z')).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
 
 function exchangeWallClock(ex) {
   let first = null, last = null;
