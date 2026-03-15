@@ -170,6 +170,22 @@ tr:hover td { background: #fafbfc; }
 .config-row .val { font-family: 'SF Mono', Monaco, monospace; font-weight: 500;
   color: #333; max-width: 60%; text-align: right; word-break: break-all; }
 
+/* Tab bar */
+.tab-bar {
+  display: flex; gap: 0; border-bottom: 2px solid #e0e3e8;
+  margin-bottom: 1rem; position: sticky; top: 0; background: #f5f7fa;
+  z-index: 10; padding-top: 0.25rem;
+}
+.tab-btn {
+  padding: 0.5rem 1.25rem; border: none; background: none; cursor: pointer;
+  font-size: 0.9rem; color: #888; font-weight: 500; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: #555; }
+.tab-btn.active { color: #3b82f6; border-bottom-color: #3b82f6; font-weight: 700; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
 /* Loading / error */
 .loading { text-align: center; padding: 2rem; color: #888; }
 .error-msg { text-align: center; padding: 1rem; color: #e74c3c; background: #fee2e2;
@@ -180,6 +196,7 @@ tr:hover td { background: #fafbfc; }
   body { padding: 0.5rem; }
   .cards { grid-template-columns: repeat(2, 1fr); }
   td, th { padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+  .tab-btn { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
 }
 </style>
 </head>
@@ -187,67 +204,79 @@ tr:hover td { background: #fafbfc; }
 <h1>Home HUD Telemetry</h1>
 <p class="subtitle">Voice pipeline performance and usage data</p>
 
-<div id="stats-loading" class="loading">Loading stats...</div>
-<div id="stats-error" class="error-msg" style="display:none"></div>
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('tab-overview')">Overview</button>
+  <button class="tab-btn" onclick="switchTab('tab-sessions')">Sessions</button>
+  <button class="tab-btn" onclick="switchTab('tab-logs')">Logs</button>
+  <button class="tab-btn" onclick="switchTab('tab-config')">Config</button>
+</div>
 
-<div id="stats-content" style="display:none">
-  <div class="cards" id="summary-cards"></div>
+<div class="tab-panel active" id="tab-overview">
+  <div id="stats-loading" class="loading">Loading stats...</div>
+  <div id="stats-error" class="error-msg" style="display:none"></div>
 
-  <h2>Phase Performance (avg ms)</h2>
-  <table id="perf-table">
-    <thead><tr><th>Phase</th><th>Avg Duration (ms)</th></tr></thead>
-    <tbody></tbody>
+  <div id="stats-content" style="display:none">
+    <div class="cards" id="summary-cards"></div>
+
+    <h2>Phase Performance (avg ms)</h2>
+    <table id="perf-table">
+      <thead><tr><th>Phase</th><th>Avg Duration (ms)</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="breakdown" id="breakdown-grid"></div>
+  </div>
+
+  <h2>Display Preview</h2>
+  <div class="display-preview" id="display-preview">
+    <div id="display-img-container" class="loading">Loading display...</div>
+    <div class="meta" id="display-meta"></div>
+  </div>
+</div>
+
+<div class="tab-panel" id="tab-sessions">
+  <div class="pagination" id="pagination-top"></div>
+  <table id="sessions-table">
+    <thead>
+      <tr>
+        <th>Time</th><th>Exchanges</th><th>Duration</th>
+        <th>Feature</th><th>Transcription</th>
+      </tr>
+    </thead>
+    <tbody id="sessions-body">
+      <tr><td colspan="5" class="loading">Loading sessions...</td></tr>
+    </tbody>
   </table>
-
-  <div class="breakdown" id="breakdown-grid"></div>
+  <div class="pagination" id="pagination-bottom"></div>
 </div>
 
-<h2>Display Preview</h2>
-<div class="display-preview" id="display-preview">
-  <div id="display-img-container" class="loading">Loading display...</div>
-  <div class="meta" id="display-meta"></div>
-</div>
-
-<h2>Configuration</h2>
-<div class="config-section" id="config-section">
-  <div class="loading" id="config-loading">Loading config...</div>
-  <div id="config-content"></div>
-</div>
-
-<h2>Application Logs</h2>
-<div class="log-viewer" id="log-viewer">
-  <div class="log-controls">
-    <select id="log-level-filter">
-      <option value="">All Levels</option>
-      <option value="DEBUG">DEBUG</option>
-      <option value="INFO" selected>INFO</option>
-      <option value="WARNING">WARNING</option>
-      <option value="ERROR">ERROR</option>
-      <option value="CRITICAL">CRITICAL</option>
-    </select>
-    <button onclick="loadLogs()">Refresh</button>
-    <label><input type="checkbox" id="log-auto-refresh" checked> Auto-refresh (10s)</label>
-    <span class="log-meta" id="log-meta"></span>
-  </div>
-  <div class="log-entries" id="log-entries">
-    <div style="color:#888;padding:1rem">Loading logs...</div>
+<div class="tab-panel" id="tab-logs">
+  <div class="log-viewer" id="log-viewer">
+    <div class="log-controls">
+      <select id="log-level-filter">
+        <option value="">All Levels</option>
+        <option value="DEBUG">DEBUG</option>
+        <option value="INFO" selected>INFO</option>
+        <option value="WARNING">WARNING</option>
+        <option value="ERROR">ERROR</option>
+        <option value="CRITICAL">CRITICAL</option>
+      </select>
+      <button onclick="loadLogs()">Refresh</button>
+      <label><input type="checkbox" id="log-auto-refresh" checked> Auto-refresh (10s)</label>
+      <span class="log-meta" id="log-meta"></span>
+    </div>
+    <div class="log-entries" id="log-entries">
+      <div style="color:#888;padding:1rem">Loading logs...</div>
+    </div>
   </div>
 </div>
 
-<h2>Sessions</h2>
-<div class="pagination" id="pagination-top"></div>
-<table id="sessions-table">
-  <thead>
-    <tr>
-      <th>Time</th><th>Exchanges</th><th>Duration</th>
-      <th>Feature</th><th>Transcription</th>
-    </tr>
-  </thead>
-  <tbody id="sessions-body">
-    <tr><td colspan="5" class="loading">Loading sessions...</td></tr>
-  </tbody>
-</table>
-<div class="pagination" id="pagination-bottom"></div>
+<div class="tab-panel" id="tab-config">
+  <div class="config-section" id="config-section">
+    <div class="loading" id="config-loading">Loading config...</div>
+    <div id="config-content"></div>
+  </div>
+</div>
 
 <script>
 const PAGE_SIZE = 50;
@@ -637,7 +666,9 @@ function setupLogAutoRefresh() {
   toggle();
 }
 
-document.getElementById('log-level-filter').addEventListener('change', loadLogs);
+document.getElementById('log-level-filter').addEventListener('change', () => {
+  if (loadedTabs.has('tab-logs')) loadLogs();
+});
 
 // --- Config viewer ---
 const CONFIG_GROUPS = {
@@ -742,14 +773,58 @@ function toggleConfigGroup(id) {
   }
 }
 
-// Initial load
+// --- Tab navigation ---
+const loadedTabs = new Set(['tab-overview']);
+const TAB_LOADERS = {
+  'tab-sessions': () => loadSessions(0),
+  'tab-logs': () => { loadLogs(); setupLogAutoRefresh(); },
+  'tab-config': () => loadConfig(),
+};
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+  const panel = document.getElementById(tabId);
+  if (panel) panel.classList.add('active');
+  const btn = document.querySelector(`.tab-btn[onclick*="${tabId}"]`);
+  if (btn) btn.classList.add('active');
+
+  // Lazy-load on first activation
+  if (!loadedTabs.has(tabId) && TAB_LOADERS[tabId]) {
+    loadedTabs.add(tabId);
+    TAB_LOADERS[tabId]();
+  }
+
+  // Pause/resume log auto-refresh
+  if (tabId === 'tab-logs') {
+    const cb = document.getElementById('log-auto-refresh');
+    if (cb.checked && !logAutoRefreshTimer) {
+      logAutoRefreshTimer = setInterval(loadLogs, 10000);
+    }
+  } else if (logAutoRefreshTimer) {
+    clearInterval(logAutoRefreshTimer);
+    logAutoRefreshTimer = null;
+  }
+
+  // Update URL hash without triggering hashchange handler
+  history.replaceState(null, '', '#' + tabId);
+}
+
+window.addEventListener('hashchange', () => {
+  const tabId = location.hash.slice(1);
+  if (document.getElementById(tabId)) switchTab(tabId);
+});
+
+// Initial load — overview only, then check hash
 loadStats();
-loadSessions(0);
 loadDisplay();
-loadConfig();
-loadLogs();
-setupLogAutoRefresh();
 setInterval(loadDisplay, 30000);
+
+const initTab = location.hash.slice(1);
+if (initTab && initTab !== 'tab-overview' && document.getElementById(initTab)) {
+  switchTab(initTab);
+}
 </script>
 </body>
 </html>
