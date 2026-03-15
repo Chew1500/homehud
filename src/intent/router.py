@@ -127,12 +127,28 @@ class IntentRouter:
         if intent_type == "conversation":
             self._last_feature = None
             self._llm_expects_follow_up = parsed.get("expects_follow_up", False)
-            return None  # Fall through to respond_stream() which has personality
+            if speech:
+                self._last_route_info = {
+                    "path": "llm_conversation",
+                    "matched_feature": None,
+                    "feature_action": None,
+                }
+                self._llm.record_exchange(text, speech)
+                return speech
+            return None  # Fall through to respond_stream()
 
         if intent_type == "clarification":
             self._last_feature = None
             self._llm_expects_follow_up = parsed.get("expects_follow_up", True)
-            return None  # Fall through to respond_stream() which has personality
+            if speech:
+                self._last_route_info = {
+                    "path": "llm_clarification",
+                    "matched_feature": None,
+                    "feature_action": None,
+                }
+                self._llm.record_exchange(text, speech)
+                return speech
+            return None  # Fall through to respond_stream()
 
         log.warning("Unknown intent type: %s", intent_type)
         return None
