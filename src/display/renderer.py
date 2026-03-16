@@ -60,29 +60,6 @@ def _load_fonts() -> dict[int, ImageFont.FreeTypeFont]:
 # ---------------------------------------------------------------------------
 
 
-def _fill_stipple(
-    draw: ImageDraw.ImageDraw,
-    x: int,
-    y: int,
-    w: int,
-    h: int,
-    density: float = 0.05,
-    color: str = BLACK,
-) -> None:
-    """Fill a rectangle with a staggered dot pattern at the given density."""
-    spacing = max(3, int(1 / math.sqrt(max(density, 0.001))))
-    row = 0
-    py = y
-    while py < y + h:
-        offset = (spacing // 2) if row % 2 else 0
-        px = x + offset
-        while px < x + w:
-            draw.point((px, py), fill=color)
-            px += spacing
-        py += spacing
-        row += 1
-
-
 def _fill_hatch(
     draw: ImageDraw.ImageDraw,
     x: int,
@@ -323,7 +300,6 @@ def _draw_solar_bar(
 def _render_date_bar(
     draw: ImageDraw.ImageDraw,
     fonts: dict,
-    ctx: DisplayContext | None,
 ) -> None:
     """Top bar: black-filled with white text, thick red accent below."""
     # Black background fill
@@ -332,26 +308,6 @@ def _render_date_bar(
     now = datetime.now()
     date_str = now.strftime("%A, %B %-d")
     draw.text((MARGIN, 10), date_str, fill=WHITE, font=fonts[24])
-
-    # System metrics (right-aligned)
-    system_monitor = ctx.system_monitor if ctx else None
-    if system_monitor:
-        metrics = system_monitor.get_metrics()
-        parts = []
-        if metrics.cpu_temp_c is not None:
-            parts.append(f"{metrics.cpu_temp_c:.1f}\u00b0C")
-        if metrics.power_w is not None:
-            parts.append(f"{metrics.power_w:.1f}W")
-        if parts:
-            metrics_text = "  ".join(parts)
-            bbox = draw.textbbox((0, 0), metrics_text, font=fonts[14])
-            text_w = bbox[2] - bbox[0]
-            draw.text(
-                (WIDTH - text_w - MARGIN, 14),
-                metrics_text,
-                fill=WHITE,
-                font=fonts[14],
-            )
 
     # Thick red accent line
     draw.line([(0, ACCENT_Y), (WIDTH, ACCENT_Y)], fill=RED, width=4)
@@ -362,21 +318,12 @@ def _render_weather_hero(
     fonts: dict,
     weather_data,
 ) -> None:
-    """Large weather icon + hero temperature + details with stipple bg."""
-    # Stipple background for texture
-    _fill_stipple(draw, 0, WEATHER_HERO_Y, WIDTH, WEATHER_HERO_H, density=0.03)
-
+    """Large weather icon + hero temperature + details."""
     if weather_data is None:
-        # White cutout + centered "no data" message
         text = "No weather data"
         bbox = draw.textbbox((0, 0), text, font=fonts[24])
         text_w = bbox[2] - bbox[0]
         y_center = WEATHER_HERO_Y + WEATHER_HERO_H // 2 - 12
-        draw.rectangle(
-            [(WIDTH - text_w) // 2 - 8, y_center - 4,
-             (WIDTH + text_w) // 2 + 8, y_center + 32],
-            fill=WHITE,
-        )
         draw.text(
             ((WIDTH - text_w) // 2, y_center), text, fill=BLACK, font=fonts[24]
         )
@@ -384,21 +331,11 @@ def _render_weather_hero(
 
     cur = weather_data.current
 
-    # White cutout behind icon area
     icon_cx = 80
     icon_cy = WEATHER_HERO_Y + 116
-    draw.rectangle(
-        [icon_cx - 70, icon_cy - 70, icon_cx + 70, icon_cy + 70],
-        fill=WHITE,
-    )
 
-    # White cutout behind text area
     temp_x = 170
     temp_y = WEATHER_HERO_Y + 52
-    draw.rectangle(
-        [temp_x - 8, temp_y - 4, WIDTH - MARGIN + 8, temp_y + 180],
-        fill=WHITE,
-    )
 
     # Weather icon (left side)
     _draw_weather_icon(draw, cur.weather_code, icon_cx, icon_cy, size=120)
@@ -605,7 +542,7 @@ def _render_solar(
     # Weekly offset percentage
     offset_pct = _compute_weekly_offset(solar_storage)
     if offset_pct is not None:
-        offset_text = f"\u25b2 {offset_pct:.0f}% offset"
+        offset_text = f"\u25b2 {offset_pct:.0f}% offset (7d)"
         offset_bbox = draw.textbbox((0, 0), offset_text, font=fonts[14])
         offset_w = offset_bbox[2] - offset_bbox[0]
         draw.text(
@@ -646,11 +583,9 @@ def _render_solar(
 def _render_footer(
     draw: ImageDraw.ImageDraw,
     fonts: dict,
+    ctx: DisplayContext | None,
 ) -> None:
-    """Footer with version and last updated time."""
-    # Stipple band above divider for visual separation
-    _fill_stipple(draw, MARGIN, FOOTER_Y - 4, WIDTH - 2 * MARGIN, 4, density=0.15)
-
+    """Footer with version, system metrics (with icons), and last updated time."""
     # Thicker divider
     draw.line(
         [(MARGIN, FOOTER_Y), (WIDTH - MARGIN, FOOTER_Y)],
@@ -673,6 +608,58 @@ def _render_footer(
         font=fonts[14],
     )
 
+    # System metrics (centered between version and time, with icons)
+    system_monitor = ctx.system_monitor if ctx else None
+    if system_monitor:
+        metrics = system_monitor.get_metrics()
+        parts = []
+        if metrics.cpu_temp_c is not None:
+            parts.append(("temp", f"{metrics.cpu_temp_c:.1f}\u00b0C"))
+        if metrics.power_w is not None:
+            parts.append(("power", f"{metrics.power_w:.1f}W"))
+
+        if parts:
+            # Measure total width to center the metrics block
+            icon_w = 12
+            gap_after_icon = 3
+            gap_between = 14
+            total_w = 0
+            for i, (kind, text) in enumerate(parts):
+                bbox = draw.textbbox((0, 0), text, font=fonts[14])
+                total_w += icon_w + gap_after_icon + (bbox[2] - bbox[0])
+                if i < len(parts) - 1:
+                    total_w += gap_between
+
+            x = (WIDTH - total_w) // 2
+            icon_y = FOOTER_Y + 12
+
+            for i, (kind, text) in enumerate(parts):
+                if kind == "temp":
+                    # Thermometer: vertical rect + circle at bottom
+                    tx = x + 4
+                    draw.rectangle([tx, icon_y, tx + 4, icon_y + 8], fill=BLACK)
+                    draw.ellipse(
+                        [tx - 1, icon_y + 7, tx + 5, icon_y + 13], fill=BLACK
+                    )
+                elif kind == "power":
+                    # Lightning bolt (tiny)
+                    bx = x + 2
+                    by = icon_y
+                    bolt_points = [
+                        (bx + 4, by),
+                        (bx + 1, by + 6),
+                        (bx + 5, by + 6),
+                        (bx + 2, by + 12),
+                        (bx + 8, by + 5),
+                        (bx + 4, by + 5),
+                        (bx + 7, by),
+                    ]
+                    draw.polygon(bolt_points, fill=BLACK)
+                x += icon_w + gap_after_icon
+                draw.text((x, icon_y), text, fill=BLACK, font=fonts[14])
+                bbox = draw.textbbox((0, 0), text, font=fonts[14])
+                x += (bbox[2] - bbox[0]) + gap_between
+
 
 # ---------------------------------------------------------------------------
 # Main entry point
@@ -693,10 +680,10 @@ def render_frame(display: BaseDisplay, ctx: DisplayContext | None = None) -> Non
 
     solar_storage = ctx.solar_storage if ctx else None
 
-    _render_date_bar(draw, fonts, ctx)
+    _render_date_bar(draw, fonts)
     _render_weather_hero(draw, fonts, weather_data)
     _render_forecast(draw, fonts, weather_data)
     _render_solar(draw, fonts, solar_storage)
-    _render_footer(draw, fonts)
+    _render_footer(draw, fonts, ctx)
 
     display.show(img)
