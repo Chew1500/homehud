@@ -84,6 +84,17 @@ class BaseAudio(ABC):
         """Return True if async playback is in progress. Override for real implementation."""
         return False
 
+    def get_volume(self) -> int:
+        """Return current playback volume (0-100). Override for real implementation."""
+        return 50
+
+    def set_volume(self, level: int) -> int:
+        """Set playback volume (0-100). Returns actual level after clamping.
+
+        Override for real implementation.
+        """
+        return max(0, min(100, level))
+
     def close(self) -> None:
         """Clean up resources. Override if needed."""
         pass

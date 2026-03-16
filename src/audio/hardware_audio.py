@@ -6,6 +6,8 @@ Only used on the Raspberry Pi — sounddevice is not required for local dev.
 
 import logging
 import queue
+import re
+import subprocess
 import sys
 import threading
 from collections.abc import Generator
@@ -66,6 +68,7 @@ class HardwareAudio(BaseAudio):
             ) from e
         self._device = self._parse_device(config.get("audio_device"))
         self._stale_timeout_s = config.get("audio_stale_timeout", 30)
+        self._volume_mixer = config.get("volume_mixer", "Master")
 
         # Validate device at startup — fail fast with helpful message
         try:
@@ -251,6 +254,39 @@ class HardwareAudio(BaseAudio):
     def is_playing(self) -> bool:
         """Return True if async playback is in progress."""
         return self._playing.is_set()
+
+    def get_volume(self) -> int:
+        """Return current playback volume (0-100) via amixer."""
+        try:
+            result = subprocess.run(
+                ["amixer", "get", self._volume_mixer],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                m = re.search(r"\[(\d+)%]", result.stdout)
+                if m:
+                    return int(m.group(1))
+        except (OSError, subprocess.TimeoutExpired):
+            log.warning("amixer not available, returning default volume")
+        return 50
+
+    def set_volume(self, level: int) -> int:
+        """Set playback volume (0-100) via amixer. Returns actual level."""
+        level = max(0, min(100, level))
+        try:
+            result = subprocess.run(
+                ["amixer", "set", self._volume_mixer, f"{level}%"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                m = re.search(r"\[(\d+)%]", result.stdout)
+                if m:
+                    actual = int(m.group(1))
+                    log.info(f"Volume set to {actual}% via amixer")
+                    return actual
+        except (OSError, subprocess.TimeoutExpired):
+            log.warning("amixer not available, volume unchanged")
+        return level
 
     def close(self) -> None:
         """Stop any active playback/recording."""

@@ -27,6 +27,7 @@ class MockAudio(BaseAudio):
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._mock_input_file = config.get("audio_mock_input_file")
         self._playing = threading.Event()
+        self._volume = 50
 
     def record(self, duration: float) -> bytes:
         """Return PCM from a mock input WAV file, or silence."""
@@ -71,6 +72,16 @@ class MockAudio(BaseAudio):
     def is_playing(self) -> bool:
         """Return mock playing state."""
         return self._playing.is_set()
+
+    def get_volume(self) -> int:
+        """Return mock volume level."""
+        return self._volume
+
+    def set_volume(self, level: int) -> int:
+        """Set mock volume level (0-100)."""
+        self._volume = max(0, min(100, level))
+        log.info(f"Mock volume set to {self._volume}%")
+        return self._volume
 
 
 def _read_wav(path: Path) -> bytes:

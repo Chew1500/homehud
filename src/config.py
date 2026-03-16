@@ -117,6 +117,12 @@ def load_config() -> dict:
             os.getenv("HUD_INTENT_RECOVERY_ENABLED", "true").lower() == "true"
         ),
 
+        # Volume control
+        "volume_mixer": os.getenv("HUD_VOLUME_MIXER", "Master"),
+        "volume_step_small": int(os.getenv("HUD_VOLUME_STEP_SMALL", "10")),
+        "volume_step_medium": int(os.getenv("HUD_VOLUME_STEP_MEDIUM", "20")),
+        "volume_step_large": int(os.getenv("HUD_VOLUME_STEP_LARGE", "30")),
+
         # Feature settings
         "grocery_file": os.getenv("HUD_GROCERY_FILE", str(PROJECT_ROOT / "data" / "grocery.json")),
         "reminder_file": os.getenv(

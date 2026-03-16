@@ -228,6 +228,7 @@ def main():
             from features.reminder import ReminderFeature
             from features.repeat import RepeatFeature
             from features.solar import SolarFeature
+            from features.volume import VolumeFeature
             from intent import get_router
             from jellyfin import get_jellyfin_client
             from llm import get_llm
@@ -286,6 +287,7 @@ def main():
             )
             features = [
                 repeat_feature,
+                VolumeFeature(config, audio=audio),
                 grocery_feature,
                 reminder_feature,
                 SolarFeature(config, solar_storage, llm),

@@ -23,7 +23,7 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `__init__.py`: factory function `get_display(config) -> BaseDisplay`
 
 **`src/audio/`** — Audio I/O
-- `base.py`: `BaseAudio` ABC — `record(duration) -> bytes`, `stream(chunk_duration_ms) -> Generator`, `play(data) -> None`, `play_async(data)`, `stop_playback()`, `is_playing() -> bool`, `close()`
+- `base.py`: `BaseAudio` ABC — `record(duration) -> bytes`, `stream(chunk_duration_ms) -> Generator`, `play(data) -> None`, `play_async(data)`, `stop_playback()`, `is_playing() -> bool`, `get_volume() -> int`, `set_volume(level) -> int`, `close()`
 - `mock_audio.py`: `MockAudio` — reads/writes WAV files for local dev
 - `hardware_audio.py`: `HardwareAudio` — real mic/speaker via sounddevice
 - `__init__.py`: factory function `get_audio(config) -> BaseAudio`
@@ -73,6 +73,7 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `repeat.py`: `RepeatFeature` — replays the last spoken response
 - `solar.py`: `SolarFeature` — solar production queries, simple answers + LLM-assisted analysis
 - `media.py`: `MediaFeature` — voice-controlled media library management via Sonarr (TV) and Radarr (movies); supports list, check, track commands with conversational disambiguation
+- `volume.py`: `VolumeFeature` — voice-controlled speaker volume; relative adjustments ("a bit louder", "way quieter"), absolute set ("volume to 50%"), and queries; delegates to `BaseAudio.get_volume()`/`set_volume()`
 - `capabilities.py`: `CapabilitiesFeature` — auto-discovers features and lists capabilities; answers "what can you do" and "tell me about X"
 - Each feature self-selects via `matches()`, intent router dispatches to first match
 
