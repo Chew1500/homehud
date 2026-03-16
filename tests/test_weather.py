@@ -44,7 +44,7 @@ class TestMockClient:
         data = client.get_weather()
         cur = data.current
         assert isinstance(cur, CurrentWeather)
-        assert cur.temperature_c == 22.0
+        assert cur.temperature_f == 72.0
         assert cur.humidity_pct == 65
         assert cur.weather_code == 2
 
@@ -65,7 +65,7 @@ class TestMockClient:
         client = MockWeatherClient()
         data = client.get_weather()
         for day in data.forecast:
-            assert day.temp_max_c >= day.temp_min_c
+            assert day.temp_max_f >= day.temp_min_f
 
     def test_precipitation_probability_range(self):
         client = MockWeatherClient()
@@ -80,33 +80,33 @@ class TestAPIResponseParsing:
     def test_parse_current_weather(self):
         """Verify CurrentWeather can be constructed from API-like values."""
         cur = CurrentWeather(
-            temperature_c=18.5,
+            temperature_f=65.3,
             weather_code=61,
             humidity_pct=82,
-            wind_speed_kmh=25.3,
-            feels_like_c=16.0,
+            wind_speed_mph=15.7,
+            feels_like_f=60.8,
         )
-        assert cur.temperature_c == 18.5
+        assert cur.temperature_f == 65.3
         assert cur.weather_code == 61
-        assert cur.feels_like_c == 16.0
+        assert cur.feels_like_f == 60.8
 
     def test_parse_day_forecast(self):
         """Verify DayForecast can be constructed from API-like values."""
         day = DayForecast(
             date=date(2026, 3, 16),
             weather_code=3,
-            temp_max_c=20.0,
-            temp_min_c=10.0,
+            temp_max_f=68.0,
+            temp_min_f=50.0,
             precipitation_probability=45,
         )
-        assert day.temp_max_c == 20.0
+        assert day.temp_max_f == 68.0
         assert day.precipitation_probability == 45
 
     def test_weather_data_defaults(self):
         """WeatherData should have sensible defaults."""
         cur = CurrentWeather(
-            temperature_c=0.0, weather_code=0,
-            humidity_pct=0, wind_speed_kmh=0.0, feels_like_c=0.0,
+            temperature_f=0.0, weather_code=0,
+            humidity_pct=0, wind_speed_mph=0.0, feels_like_f=0.0,
         )
         data = WeatherData(current=cur)
         assert data.forecast == []

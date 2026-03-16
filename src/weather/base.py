@@ -11,11 +11,11 @@ from datetime import date, datetime
 class CurrentWeather:
     """Current weather conditions."""
 
-    temperature_c: float
+    temperature_f: float
     weather_code: int
     humidity_pct: int
-    wind_speed_kmh: float
-    feels_like_c: float
+    wind_speed_mph: float
+    feels_like_f: float
 
 
 @dataclass
@@ -24,8 +24,8 @@ class DayForecast:
 
     date: date
     weather_code: int
-    temp_max_c: float
-    temp_min_c: float
+    temp_max_f: float
+    temp_min_f: float
     precipitation_probability: int
 
 

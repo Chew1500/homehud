@@ -120,7 +120,7 @@ def render_frame(display, ctx=None):
         # Current conditions (large)
         draw.text(
             (20, 390),
-            f"{cur.temperature_c:.0f}\u00b0C  {describe_weather(cur.weather_code)}",
+            f"{cur.temperature_f:.0f}\u00b0F  {describe_weather(cur.weather_code)}",
             fill="black",
             font=font_lg,
         )
@@ -128,9 +128,9 @@ def render_frame(display, ctx=None):
         draw.text(
             (20, 430),
             (
-                f"Feels like {cur.feels_like_c:.0f}\u00b0C  \u00b7  "
+                f"Feels like {cur.feels_like_f:.0f}\u00b0F  \u00b7  "
                 f"{cur.humidity_pct}% humidity  \u00b7  "
-                f"{cur.wind_speed_kmh:.0f} km/h"
+                f"{cur.wind_speed_mph:.0f} mph"
             ),
             fill="black",
             font=font_sm,
@@ -155,7 +155,7 @@ def render_frame(display, ctx=None):
                 )
                 draw.text(
                     (x, 540),
-                    f"{day.temp_max_c:.0f}\u00b0 / {day.temp_min_c:.0f}\u00b0",
+                    f"{day.temp_max_f:.0f}\u00b0 / {day.temp_min_f:.0f}\u00b0",
                     fill="black",
                     font=font_sm,
                 )

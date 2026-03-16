@@ -49,6 +49,8 @@ class OpenMeteoWeatherClient(BaseWeatherClient):
                         "temperature_2m_min,precipitation_probability_max"
                     ),
                     "forecast_days": 4,
+                    "temperature_unit": "fahrenheit",
+                    "wind_speed_unit": "mph",
                     "timezone": "auto",
                 },
             )
@@ -60,11 +62,11 @@ class OpenMeteoWeatherClient(BaseWeatherClient):
 
         cur = data.get("current", {})
         current = CurrentWeather(
-            temperature_c=cur.get("temperature_2m", 0.0),
+            temperature_f=cur.get("temperature_2m", 0.0),
             weather_code=cur.get("weather_code", 0),
             humidity_pct=int(cur.get("relative_humidity_2m", 0)),
-            wind_speed_kmh=cur.get("wind_speed_10m", 0.0),
-            feels_like_c=cur.get("apparent_temperature", 0.0),
+            wind_speed_mph=cur.get("wind_speed_10m", 0.0),
+            feels_like_f=cur.get("apparent_temperature", 0.0),
         )
 
         daily = data.get("daily", {})
@@ -81,8 +83,8 @@ class OpenMeteoWeatherClient(BaseWeatherClient):
                 DayForecast(
                     date=date.fromisoformat(dates[i]),
                     weather_code=codes[i] if i < len(codes) else 0,
-                    temp_max_c=maxes[i] if i < len(maxes) else 0.0,
-                    temp_min_c=mins[i] if i < len(mins) else 0.0,
+                    temp_max_f=maxes[i] if i < len(maxes) else 0.0,
+                    temp_min_f=mins[i] if i < len(mins) else 0.0,
                     precipitation_probability=int(precip[i]) if i < len(precip) else 0,
                 )
             )
