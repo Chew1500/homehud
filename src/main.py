@@ -11,6 +11,7 @@ from pathlib import Path
 from config import load_config
 from display import get_display
 from display.context import DisplayContext
+from display.renderer import render_frame
 
 log = logging.getLogger("home-hud")
 
@@ -40,137 +41,6 @@ def setup_logging(config: dict) -> None:
     root.addHandler(file_handler)
 
 
-def render_frame(display, ctx=None):
-    """Render a single frame to the display."""
-    from PIL import Image, ImageDraw, ImageFont
-
-    width, height = display.size
-    img = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(img)
-
-    # -- Fonts (bold for e-ink clarity) --
-    try:
-        font_lg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        font_md = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
-        font_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-    except OSError:
-        font_lg = ImageFont.load_default()
-        font_md = font_lg
-        font_sm = font_lg
-
-    # -- Header (red bar with date) --
-    from datetime import datetime
-
-    draw.rectangle([(0, 0), (width, 56)], fill="red")
-    date_str = datetime.now().strftime("%B %d, %Y")
-    draw.text((12, 12), date_str, fill="white", font=font_lg)
-
-    # System metrics (right-aligned in header)
-    system_monitor = ctx.system_monitor if ctx else None
-    if system_monitor:
-        metrics = system_monitor.get_metrics()
-        parts = []
-        if metrics.cpu_temp_c is not None:
-            parts.append(f"{metrics.cpu_temp_c:.1f}\u00b0C")
-        if metrics.power_w is not None:
-            parts.append(f"{metrics.power_w:.1f}W")
-        if parts:
-            metrics_text = "  ".join(parts)
-            bbox = draw.textbbox((0, 0), metrics_text, font=font_sm)
-            text_w = bbox[2] - bbox[0]
-            draw.text((width - text_w - 12, 20), metrics_text, fill="white", font=font_sm)
-
-    # -- Solar panel (full width) --
-    draw.rectangle([(12, 68), (width - 12, 328)], outline="red", width=2)
-    draw.text((20, 76), "Solar Production", fill="red", font=font_md)
-
-    solar_storage = ctx.solar_storage if ctx else None
-    if solar_storage is None:
-        draw.text((20, 113), "-- kW", fill="black", font=font_lg)
-        draw.text((20, 158), "Solar: not configured", fill="black", font=font_sm)
-    else:
-        reading = solar_storage.get_latest()
-        if reading:
-            prod_kw = reading["production_w"] / 1000
-            cons_kw = reading["consumption_w"] / 1000
-            net_w = reading["net_w"]
-            draw.text((20, 113), f"{prod_kw:.1f} kW", fill="black", font=font_lg)
-            draw.text((20, 158), f"Using {cons_kw:.1f} kW", fill="black", font=font_sm)
-            if net_w >= 0:
-                draw.text((20, 183), f"Exporting {net_w / 1000:.1f} kW", fill="black", font=font_sm)
-            else:
-                imp_kw = abs(net_w) / 1000
-                draw.text((20, 183), f"Importing {imp_kw:.1f} kW", fill="red", font=font_sm)
-        else:
-            draw.text((20, 113), "-- kW", fill="black", font=font_lg)
-            draw.text((20, 158), "Waiting for Enphase...", fill="black", font=font_sm)
-
-    # -- Weather panel (replaces grocery + recommendations) --
-    from weather.codes import describe_weather
-
-    draw.rectangle([(12, 348), (width - 12, 728)], outline="red", width=2)
-    draw.text((20, 356), "Weather", fill="red", font=font_md)
-
-    weather_client = ctx.weather_client if ctx else None
-    weather = weather_client.get_weather() if weather_client else None
-    if weather is None:
-        draw.text((20, 390), "No weather data", fill="black", font=font_sm)
-    else:
-        cur = weather.current
-        # Current conditions (large)
-        draw.text(
-            (20, 390),
-            f"{cur.temperature_f:.0f}\u00b0F  {describe_weather(cur.weather_code)}",
-            fill="black",
-            font=font_lg,
-        )
-        # Details line
-        draw.text(
-            (20, 430),
-            (
-                f"Feels like {cur.feels_like_f:.0f}\u00b0F  \u00b7  "
-                f"{cur.humidity_pct}% humidity  \u00b7  "
-                f"{cur.wind_speed_mph:.0f} mph"
-            ),
-            fill="black",
-            font=font_sm,
-        )
-
-        # Divider
-        draw.line([(20, 465), (width - 20, 465)], fill="black", width=1)
-
-        # 3-day forecast columns
-        if weather.forecast:
-            col_count = min(3, len(weather.forecast))
-            panel_left = 20
-            panel_right = width - 20
-            col_width = (panel_right - panel_left) // col_count
-
-            for i, day in enumerate(weather.forecast[:3]):
-                x = panel_left + i * col_width
-                day_name = day.date.strftime("%a")
-                draw.text((x, 485), day_name, fill="black", font=font_md)
-                draw.text(
-                    (x, 515), describe_weather(day.weather_code), fill="black", font=font_sm
-                )
-                draw.text(
-                    (x, 540),
-                    f"{day.temp_max_f:.0f}\u00b0 / {day.temp_min_f:.0f}\u00b0",
-                    fill="black",
-                    font=font_sm,
-                )
-                draw.text(
-                    (x, 565),
-                    f"{day.precipitation_probability}% rain",
-                    fill="black",
-                    font=font_sm,
-                )
-
-    # -- Footer --
-    draw.line([(12, height - 40), (width - 12, height - 40)], fill="black", width=1)
-    draw.text((12, height - 32), "home-hud v0.1.0", fill="black", font=font_sm)
-
-    display.show(img)
 
 
 def main():
