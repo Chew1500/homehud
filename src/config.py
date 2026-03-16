@@ -123,6 +123,9 @@ def load_config() -> dict:
         "volume_step_medium": int(os.getenv("HUD_VOLUME_STEP_MEDIUM", "20")),
         "volume_step_large": int(os.getenv("HUD_VOLUME_STEP_LARGE", "30")),
 
+        # Weather display
+        "weather_poll_interval": int(os.getenv("HUD_WEATHER_POLL_INTERVAL", "900")),
+
         # Feature settings
         "grocery_file": os.getenv("HUD_GROCERY_FILE", str(PROJECT_ROOT / "data" / "grocery.json")),
         "reminder_file": os.getenv(

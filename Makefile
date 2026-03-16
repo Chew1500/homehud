@@ -11,10 +11,11 @@ from config import load_config; \
 from display import get_display; \
 from display.context import DisplayContext; \
 from sysmon import get_system_monitor; \
+from weather import get_weather_client; \
 from main import render_frame; \
 config = load_config(); \
 d = get_display(config); \
-ctx = DisplayContext(system_monitor=get_system_monitor(config)); \
+ctx = DisplayContext(system_monitor=get_system_monitor(config), weather_client=get_weather_client(config)); \
 render_frame(d, ctx=ctx); \
 print('Frame saved to output/latest.png')"
 

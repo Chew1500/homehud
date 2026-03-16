@@ -105,56 +105,66 @@ def render_frame(display, ctx=None):
             draw.text((20, 113), "-- kW", fill="black", font=font_lg)
             draw.text((20, 158), "Waiting for Enphase...", fill="black", font=font_sm)
 
-    # -- Grocery list (full width, compact) --
-    draw.rectangle([(12, 348), (width - 12, 568)], outline="red", width=2)
-    draw.text((20, 356), "Grocery List", fill="red", font=font_md)
+    # -- Weather panel (replaces grocery + recommendations) --
+    from weather.codes import describe_weather
 
-    grocery = ctx.grocery if ctx else None
-    if grocery is None:
-        draw.text((20, 388), "Not configured", fill="black", font=font_sm)
+    draw.rectangle([(12, 348), (width - 12, 728)], outline="red", width=2)
+    draw.text((20, 356), "Weather", fill="red", font=font_md)
+
+    weather_client = ctx.weather_client if ctx else None
+    weather = weather_client.get_weather() if weather_client else None
+    if weather is None:
+        draw.text((20, 390), "No weather data", fill="black", font=font_sm)
     else:
-        items = grocery.get_items()
-        if not items:
-            draw.text((20, 388), "No items", fill="black", font=font_sm)
-        else:
-            max_visible = 8
-            y = 384
-            for item in items[:max_visible]:
-                draw.text((20, y), f"- {item}", fill="black", font=font_sm)
-                y += 22
-            overflow = len(items) - max_visible
-            if overflow > 0:
-                draw.text((20, y), f"+{overflow} more", fill="black", font=font_sm)
+        cur = weather.current
+        # Current conditions (large)
+        draw.text(
+            (20, 390),
+            f"{cur.temperature_c:.0f}\u00b0C  {describe_weather(cur.weather_code)}",
+            fill="black",
+            font=font_lg,
+        )
+        # Details line
+        draw.text(
+            (20, 430),
+            (
+                f"Feels like {cur.feels_like_c:.0f}\u00b0C  \u00b7  "
+                f"{cur.humidity_pct}% humidity  \u00b7  "
+                f"{cur.wind_speed_kmh:.0f} km/h"
+            ),
+            fill="black",
+            font=font_sm,
+        )
 
-    # -- Recommendations panel (full width) --
-    draw.rectangle([(12, 588), (width - 12, 728)], outline="red", width=2)
-    draw.text((20, 596), "Recommendations", fill="red", font=font_md)
+        # Divider
+        draw.line([(20, 465), (width - 20, 465)], fill="black", width=1)
 
-    discovery_storage = ctx.discovery_storage if ctx else None
-    if discovery_storage is None:
-        draw.text((20, 624), "Not configured", fill="black", font=font_sm)
-    else:
-        try:
-            recs = discovery_storage.get_active_recommendations()
-        except Exception:
-            recs = []
-        if not recs:
-            draw.text((20, 624), "No recommendations yet", fill="black", font=font_sm)
-        else:
-            y = 624
-            for rec in recs[:3]:
-                type_icon = "F" if rec["media_type"] == "movie" else "T"
-                year_str = f" ({rec['year']})" if rec.get("year") else ""
+        # 3-day forecast columns
+        if weather.forecast:
+            col_count = min(3, len(weather.forecast))
+            panel_left = 20
+            panel_right = width - 20
+            col_width = (panel_right - panel_left) // col_count
+
+            for i, day in enumerate(weather.forecast[:3]):
+                x = panel_left + i * col_width
+                day_name = day.date.strftime("%a")
+                draw.text((x, 485), day_name, fill="black", font=font_md)
                 draw.text(
-                    (20, y),
-                    f"[{type_icon}] {rec['title']}{year_str}",
+                    (x, 515), describe_weather(day.weather_code), fill="black", font=font_sm
+                )
+                draw.text(
+                    (x, 540),
+                    f"{day.temp_max_c:.0f}\u00b0 / {day.temp_min_c:.0f}\u00b0",
                     fill="black",
                     font=font_sm,
                 )
-                y += 22
-            overflow = len(recs) - 3
-            if overflow > 0:
-                draw.text((20, y), f"+{overflow} more", fill="black", font=font_sm)
+                draw.text(
+                    (x, 565),
+                    f"{day.precipitation_probability}% rain",
+                    fill="black",
+                    font=font_sm,
+                )
 
     # -- Footer --
     draw.line([(12, height - 40), (width - 12, height - 40)], fill="black", width=1)
@@ -181,6 +191,13 @@ def main():
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
+
+    # Weather client (independent of voice pipeline — works for display-only mode too)
+    from weather import get_weather_client
+
+    weather_client = get_weather_client(config)
+    if weather_client:
+        log.info(f"Weather client: {weather_client.__class__.__name__}")
 
     # System monitor (independent of voice pipeline)
     from sysmon import get_system_monitor
@@ -345,6 +362,7 @@ def main():
         reminders=reminder_feature,
         system_monitor=system_monitor,
         discovery_storage=discovery_storage,
+        weather_client=weather_client,
     )
 
     try:
@@ -394,6 +412,8 @@ def main():
             wake.close()
         if stt:
             stt.close()
+        if weather_client:
+            weather_client.close()
         if system_monitor:
             system_monitor.close()
         if audio:

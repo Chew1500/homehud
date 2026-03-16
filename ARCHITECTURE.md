@@ -86,6 +86,13 @@ Consult this file before creating new files or modules. Update it as planned pac
 - `collector.py`: `SolarCollector` — background daemon thread that polls gateway and stores readings
 - `__init__.py`: factory function `get_enphase_client(config) -> BaseEnphaseClient`
 
+**`src/weather/`** — Weather display data (current conditions + forecast)
+- `base.py`: `BaseWeatherClient` ABC — `get_weather() -> WeatherData | None`, `close()`; dataclasses `CurrentWeather`, `DayForecast`, `WeatherData`
+- `mock_client.py`: `MockWeatherClient` — static data for local dev
+- `client.py`: `OpenMeteoWeatherClient` — live Open-Meteo API with internal TTL cache (default 15 min)
+- `codes.py`: `describe_weather(code)` — WMO weather code → human-readable string
+- `__init__.py`: factory function `get_weather_client(config) -> BaseWeatherClient | None`; reuses `solar_latitude`/`solar_longitude` for location
+
 **`src/media/`** — Sonarr/Radarr media library clients
 - `base.py`: `BaseSonarrClient` and `BaseRadarrClient` ABCs — search, list, list_detailed, add, is_tracked, close
 - `mock_sonarr.py`: `MockSonarrClient` — canned TV show data for local dev

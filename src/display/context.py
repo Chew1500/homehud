@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from features.grocery import GroceryFeature
     from features.reminder import ReminderFeature
     from sysmon.base import BaseSystemMonitor
+    from weather.base import BaseWeatherClient
 
 
 @dataclass
@@ -22,3 +23,4 @@ class DisplayContext:
     reminders: ReminderFeature | None = None
     system_monitor: BaseSystemMonitor | None = None
     discovery_storage: DiscoveryStorage | None = None
+    weather_client: BaseWeatherClient | None = None
