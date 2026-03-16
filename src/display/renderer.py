@@ -60,26 +60,6 @@ def _load_fonts() -> dict[int, ImageFont.FreeTypeFont]:
 # ---------------------------------------------------------------------------
 
 
-def _fill_hatch(
-    draw: ImageDraw.ImageDraw,
-    x: int,
-    y: int,
-    w: int,
-    h: int,
-    spacing: int = 6,
-    color: str = BLACK,
-    width: int = 1,
-) -> None:
-    """Fill a rectangle with 45-degree diagonal lines."""
-    for offset in range(-h, w, spacing):
-        x1 = x + max(0, offset)
-        y1 = y + max(0, -offset)
-        x2 = x + min(w, offset + h)
-        y2 = y + min(h, h - offset)
-        if x1 < x + w and y1 < y + h:
-            draw.line([(x1, y1), (x2, y2)], fill=color, width=width)
-
-
 # ---------------------------------------------------------------------------
 # Weather icons — all drawn with PIL primitives
 # ---------------------------------------------------------------------------
@@ -558,9 +538,7 @@ def _render_solar(
     bar_x = MARGIN
     bar_w = WIDTH - 2 * MARGIN
 
-    # Hatched background
     draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], outline=BLACK, width=1)
-    _fill_hatch(draw, bar_x + 1, bar_y + 1, bar_w - 2, bar_h - 2, spacing=6)
 
     # Production fill (solid black) and consumption marker on top
     max_val = max(prod_kw, cons_kw) * 1.2
