@@ -24,11 +24,11 @@ DATE_BAR_Y = 0
 DATE_BAR_H = 44
 ACCENT_Y = DATE_BAR_H
 WEATHER_HERO_Y = 48
-WEATHER_HERO_H = 232
-FORECAST_Y = 288
+WEATHER_HERO_H = 264
+FORECAST_Y = 320
 FORECAST_H = 172
-SOLAR_Y = 472
-SOLAR_H = 228
+SOLAR_Y = 504
+SOLAR_H = 160
 FOOTER_Y = HEIGHT - 44
 FOOTER_H = 44
 
@@ -53,6 +53,54 @@ def _load_fonts() -> dict[int, ImageFont.FreeTypeFont]:
         except OSError:
             fonts[s] = ImageFont.load_default()
     return fonts
+
+
+# ---------------------------------------------------------------------------
+# Pattern fill utilities (simulated gradation for e-ink)
+# ---------------------------------------------------------------------------
+
+
+def _fill_stipple(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    density: float = 0.05,
+    color: str = BLACK,
+) -> None:
+    """Fill a rectangle with a staggered dot pattern at the given density."""
+    spacing = max(3, int(1 / math.sqrt(max(density, 0.001))))
+    row = 0
+    py = y
+    while py < y + h:
+        offset = (spacing // 2) if row % 2 else 0
+        px = x + offset
+        while px < x + w:
+            draw.point((px, py), fill=color)
+            px += spacing
+        py += spacing
+        row += 1
+
+
+def _fill_hatch(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    spacing: int = 6,
+    color: str = BLACK,
+    width: int = 1,
+) -> None:
+    """Fill a rectangle with 45-degree diagonal lines."""
+    for offset in range(-h, w, spacing):
+        x1 = x + max(0, offset)
+        y1 = y + max(0, -offset)
+        x2 = x + min(w, offset + h)
+        y2 = y + min(h, h - offset)
+        if x1 < x + w and y1 < y + h:
+            draw.line([(x1, y1), (x2, y2)], fill=color, width=width)
 
 
 # ---------------------------------------------------------------------------
@@ -277,10 +325,13 @@ def _render_date_bar(
     fonts: dict,
     ctx: DisplayContext | None,
 ) -> None:
-    """Top bar: date on left, system metrics on right, thin red accent below."""
+    """Top bar: black-filled with white text, thick red accent below."""
+    # Black background fill
+    draw.rectangle([0, 0, WIDTH, DATE_BAR_H], fill=BLACK)
+
     now = datetime.now()
     date_str = now.strftime("%A, %B %-d")
-    draw.text((MARGIN, 10), date_str, fill=BLACK, font=fonts[24])
+    draw.text((MARGIN, 10), date_str, fill=WHITE, font=fonts[24])
 
     # System metrics (right-aligned)
     system_monitor = ctx.system_monitor if ctx else None
@@ -298,12 +349,12 @@ def _render_date_bar(
             draw.text(
                 (WIDTH - text_w - MARGIN, 14),
                 metrics_text,
-                fill=BLACK,
+                fill=WHITE,
                 font=fonts[14],
             )
 
-    # Thin red accent line
-    draw.line([(0, ACCENT_Y), (WIDTH, ACCENT_Y)], fill=RED, width=2)
+    # Thick red accent line
+    draw.line([(0, ACCENT_Y), (WIDTH, ACCENT_Y)], fill=RED, width=4)
 
 
 def _render_weather_hero(
@@ -311,13 +362,21 @@ def _render_weather_hero(
     fonts: dict,
     weather_data,
 ) -> None:
-    """Large weather icon + hero temperature + details."""
+    """Large weather icon + hero temperature + details with stipple bg."""
+    # Stipple background for texture
+    _fill_stipple(draw, 0, WEATHER_HERO_Y, WIDTH, WEATHER_HERO_H, density=0.03)
+
     if weather_data is None:
-        # Centered "no data" message
+        # White cutout + centered "no data" message
         text = "No weather data"
         bbox = draw.textbbox((0, 0), text, font=fonts[24])
         text_w = bbox[2] - bbox[0]
         y_center = WEATHER_HERO_Y + WEATHER_HERO_H // 2 - 12
+        draw.rectangle(
+            [(WIDTH - text_w) // 2 - 8, y_center - 4,
+             (WIDTH + text_w) // 2 + 8, y_center + 32],
+            fill=WHITE,
+        )
         draw.text(
             ((WIDTH - text_w) // 2, y_center), text, fill=BLACK, font=fonts[24]
         )
@@ -325,14 +384,26 @@ def _render_weather_hero(
 
     cur = weather_data.current
 
-    # Weather icon (left side)
+    # White cutout behind icon area
     icon_cx = 80
-    icon_cy = WEATHER_HERO_Y + 100
+    icon_cy = WEATHER_HERO_Y + 116
+    draw.rectangle(
+        [icon_cx - 70, icon_cy - 70, icon_cx + 70, icon_cy + 70],
+        fill=WHITE,
+    )
+
+    # White cutout behind text area
+    temp_x = 170
+    temp_y = WEATHER_HERO_Y + 52
+    draw.rectangle(
+        [temp_x - 8, temp_y - 4, WIDTH - MARGIN + 8, temp_y + 180],
+        fill=WHITE,
+    )
+
+    # Weather icon (left side)
     _draw_weather_icon(draw, cur.weather_code, icon_cx, icon_cy, size=120)
 
     # Hero temperature (red, 64pt) — right of icon
-    temp_x = 170
-    temp_y = WEATHER_HERO_Y + 40
     temp_str = f"{cur.temperature_f:.0f}"
     draw.text((temp_x, temp_y), temp_str, fill=RED, font=fonts[64])
 
@@ -345,11 +416,11 @@ def _render_weather_hero(
     from weather.codes import describe_weather
 
     desc = describe_weather(cur.weather_code)
-    draw.text((temp_x, temp_y + 80), desc, fill=BLACK, font=fonts[24])
+    draw.text((temp_x, temp_y + 84), desc, fill=BLACK, font=fonts[24])
 
     # Feels like
     draw.text(
-        (temp_x, temp_y + 112),
+        (temp_x, temp_y + 120),
         f"Feels like {cur.feels_like_f:.0f}\u00b0F",
         fill=BLACK,
         font=fonts[20],
@@ -357,7 +428,7 @@ def _render_weather_hero(
 
     # Humidity + wind
     detail = f"{cur.humidity_pct}% humidity \u00b7 {cur.wind_speed_mph:.0f} mph"
-    draw.text((temp_x, temp_y + 140), detail, fill=BLACK, font=fonts[16])
+    draw.text((temp_x, temp_y + 152), detail, fill=BLACK, font=fonts[16])
 
 
 def _render_forecast(
@@ -365,17 +436,18 @@ def _render_forecast(
     fonts: dict,
     weather_data,
 ) -> None:
-    """3-day forecast strip with mini weather icons."""
+    """3-day forecast strip with black banner header and column dividers."""
     if weather_data is None or not weather_data.forecast:
         return
 
-    # Thin divider above forecast
-    draw.line(
-        [(MARGIN, FORECAST_Y - 4), (WIDTH - MARGIN, FORECAST_Y - 4)],
-        fill=BLACK,
-        width=1,
+    # Black banner header
+    banner_h = 28
+    draw.rectangle([0, FORECAST_Y, WIDTH, FORECAST_Y + banner_h], fill=BLACK)
+    draw.text(
+        (MARGIN, FORECAST_Y + 5), "FORECAST", fill=WHITE, font=fonts[14]
     )
 
+    content_y = FORECAST_Y + banner_h
     col_count = min(3, len(weather_data.forecast))
     col_width = (WIDTH - 2 * MARGIN) // col_count
 
@@ -383,12 +455,21 @@ def _render_forecast(
         col_x = MARGIN + i * col_width
         col_cx = col_x + col_width // 2  # center of column
 
+        # Column dividers (between columns)
+        if i > 0:
+            div_x = col_x
+            draw.line(
+                [(div_x, content_y + 4), (div_x, FORECAST_Y + FORECAST_H - 4)],
+                fill=BLACK,
+                width=1,
+            )
+
         # Day name
         day_name = day.date.strftime("%a")
         bbox = draw.textbbox((0, 0), day_name, font=fonts[18])
         name_w = bbox[2] - bbox[0]
         draw.text(
-            (col_cx - name_w // 2, FORECAST_Y + 4),
+            (col_cx - name_w // 2, content_y + 4),
             day_name,
             fill=BLACK,
             font=fonts[18],
@@ -396,7 +477,7 @@ def _render_forecast(
 
         # Mini weather icon
         _draw_weather_icon(
-            draw, day.weather_code, col_cx, FORECAST_Y + 68, size=56
+            draw, day.weather_code, col_cx, content_y + 56, size=56
         )
 
         # High / Low temps
@@ -404,7 +485,7 @@ def _render_forecast(
         bbox = draw.textbbox((0, 0), temps, font=fonts[18])
         tw = bbox[2] - bbox[0]
         draw.text(
-            (col_cx - tw // 2, FORECAST_Y + 105),
+            (col_cx - tw // 2, content_y + 90),
             temps,
             fill=BLACK,
             font=fonts[18],
@@ -416,11 +497,29 @@ def _render_forecast(
         bbox = draw.textbbox((0, 0), rain_text, font=fonts[16])
         rw = bbox[2] - bbox[0]
         draw.text(
-            (col_cx - rw // 2, FORECAST_Y + 132),
+            (col_cx - rw // 2, content_y + 118),
             rain_text,
             fill=rain_color,
             font=fonts[16],
         )
+
+
+def _compute_weekly_offset(solar_storage) -> float | None:
+    """Compute weekly production/consumption offset percentage.
+
+    Returns percentage (e.g. 78.0 for 78%) or None if insufficient data.
+    """
+    summaries = solar_storage.get_daily_summaries(days=7)
+    if len(summaries) < 2:
+        return None
+
+    total_prod = sum(s.get("total_production_wh", 0) or 0 for s in summaries)
+    total_cons = sum(s.get("total_consumption_wh", 0) or 0 for s in summaries)
+
+    if total_cons <= 0:
+        return None
+
+    return (total_prod / total_cons) * 100
 
 
 def _render_solar(
@@ -428,20 +527,15 @@ def _render_solar(
     fonts: dict,
     solar_storage,
 ) -> None:
-    """Solar section with hero kW numbers and energy flow bar."""
-    # Thin divider above solar
-    draw.line(
-        [(MARGIN, SOLAR_Y - 4), (WIDTH - MARGIN, SOLAR_Y - 4)],
-        fill=BLACK,
-        width=1,
-    )
-
-    # Section label
-    draw.text((MARGIN, SOLAR_Y + 4), "SOLAR", fill=BLACK, font=fonts[14])
+    """Compact solar section with black banner, hero numbers, and energy bar."""
+    # Row 1: Black banner header (28px)
+    banner_h = 28
+    draw.rectangle([0, SOLAR_Y, WIDTH, SOLAR_Y + banner_h], fill=BLACK)
+    draw.text((MARGIN, SOLAR_Y + 5), "SOLAR", fill=WHITE, font=fonts[14])
 
     if solar_storage is None:
         draw.text(
-            (MARGIN, SOLAR_Y + 30),
+            (MARGIN, SOLAR_Y + banner_h + 10),
             "Not configured",
             fill=BLACK,
             font=fonts[20],
@@ -451,7 +545,7 @@ def _render_solar(
     reading = solar_storage.get_latest()
     if not reading:
         draw.text(
-            (MARGIN, SOLAR_Y + 30),
+            (MARGIN, SOLAR_Y + banner_h + 10),
             "Waiting for data...",
             fill=BLACK,
             font=fonts[20],
@@ -462,56 +556,91 @@ def _render_solar(
     cons_kw = reading["consumption_w"] / 1000
     net_w = reading["net_w"]
 
-    # Hero numbers — production left, consumption right
+    # Net status in banner (right side)
+    if net_w >= 0:
+        net_text = f"Exporting {net_w / 1000:.1f} kW"
+        net_color = WHITE
+    else:
+        net_text = f"Importing {abs(net_w) / 1000:.1f} kW"
+        net_color = RED
+    net_bbox = draw.textbbox((0, 0), net_text, font=fonts[14])
+    net_w_px = net_bbox[2] - net_bbox[0]
+    draw.text(
+        (WIDTH - MARGIN - net_w_px, SOLAR_Y + 5),
+        net_text,
+        fill=net_color,
+        font=fonts[14],
+    )
+
+    # Row 2: Hero production (left) + consumption stats (right) — 72px
+    row2_y = SOLAR_Y + banner_h + 4
+
+    # Production — large RED number
     prod_str = f"{prod_kw:.1f}"
+    draw.text((MARGIN, row2_y), prod_str, fill=RED, font=fonts[48])
+    prod_bbox = draw.textbbox((MARGIN, row2_y), prod_str, font=fonts[48])
+    draw.text(
+        (prod_bbox[2] + 4, row2_y + 12), "kW", fill=RED, font=fonts[20]
+    )
+    draw.text(
+        (MARGIN, row2_y + 52), "producing", fill=BLACK, font=fonts[14]
+    )
+
+    # Consumption (right side) — smaller
     cons_str = f"{cons_kw:.1f}"
-
-    # Production (left)
-    draw.text((MARGIN, SOLAR_Y + 28), prod_str, fill=BLACK, font=fonts[48])
-    prod_bbox = draw.textbbox((MARGIN, SOLAR_Y + 28), prod_str, font=fonts[48])
-    draw.text(
-        (prod_bbox[2] + 4, SOLAR_Y + 40), "kW", fill=BLACK, font=fonts[20]
-    )
-    draw.text(
-        (MARGIN, SOLAR_Y + 84), "producing", fill=BLACK, font=fonts[14]
-    )
-
-    # Consumption (right-aligned)
-    kw_bbox = draw.textbbox((0, 0), "kW", font=fonts[20])
-    kw_w = kw_bbox[2] - kw_bbox[0]
-    cons_bbox = draw.textbbox((0, 0), cons_str, font=fonts[48])
+    kw_using = "kW using"
+    cons_bbox = draw.textbbox((0, 0), cons_str, font=fonts[28])
     cons_w = cons_bbox[2] - cons_bbox[0]
-    cons_x = WIDTH - MARGIN - cons_w - kw_w - 4
-    draw.text((cons_x, SOLAR_Y + 28), cons_str, fill=BLACK, font=fonts[48])
+    kw_using_bbox = draw.textbbox((0, 0), kw_using, font=fonts[14])
+    kw_using_w = kw_using_bbox[2] - kw_using_bbox[0]
+    cons_x = WIDTH - MARGIN - cons_w - kw_using_w - 6
+    draw.text((cons_x, row2_y + 8), cons_str, fill=BLACK, font=fonts[28])
     draw.text(
-        (cons_x + cons_w + 4, SOLAR_Y + 40), "kW", fill=BLACK, font=fonts[20]
-    )
-    # Right-align "using" label
-    using_bbox = draw.textbbox((0, 0), "using", font=fonts[14])
-    using_w = using_bbox[2] - using_bbox[0]
-    draw.text(
-        (WIDTH - MARGIN - using_w, SOLAR_Y + 84),
-        "using",
+        (cons_x + cons_w + 6, row2_y + 14),
+        kw_using,
         fill=BLACK,
         font=fonts[14],
     )
 
-    # Energy flow bar
-    bar_y = SOLAR_Y + 110
+    # Weekly offset percentage
+    offset_pct = _compute_weekly_offset(solar_storage)
+    if offset_pct is not None:
+        offset_text = f"\u25b2 {offset_pct:.0f}% offset"
+        offset_bbox = draw.textbbox((0, 0), offset_text, font=fonts[14])
+        offset_w = offset_bbox[2] - offset_bbox[0]
+        draw.text(
+            (WIDTH - MARGIN - offset_w, row2_y + 42),
+            offset_text,
+            fill=BLACK,
+            font=fonts[14],
+        )
+
+    # Row 3: Energy bar with hatched background (20px)
+    bar_y = row2_y + 72
     bar_h = 20
     bar_x = MARGIN
     bar_w = WIDTH - 2 * MARGIN
-    _draw_solar_bar(draw, bar_x, bar_y, bar_w, bar_h, prod_kw, cons_kw)
 
-    # Net status
-    status_y = SOLAR_Y + 145
-    if net_w >= 0:
-        net_text = f"Exporting {net_w / 1000:.1f} kW"
-        draw.text((MARGIN, status_y), net_text, fill=BLACK, font=fonts[20])
-    else:
-        imp_kw = abs(net_w) / 1000
-        net_text = f"Importing {imp_kw:.1f} kW"
-        draw.text((MARGIN, status_y), net_text, fill=RED, font=fonts[20])
+    # Hatched background
+    draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], outline=BLACK, width=1)
+    _fill_hatch(draw, bar_x + 1, bar_y + 1, bar_w - 2, bar_h - 2, spacing=6)
+
+    # Production fill (solid black) and consumption marker on top
+    max_val = max(prod_kw, cons_kw) * 1.2
+    if max_val > 0:
+        prod_px = int((prod_kw / max_val) * bar_w)
+        if prod_px > 0:
+            draw.rectangle(
+                [bar_x, bar_y, bar_x + prod_px, bar_y + bar_h], fill=BLACK
+            )
+        cons_px = int((cons_kw / max_val) * bar_w)
+        if cons_px > 0:
+            marker_x = bar_x + cons_px
+            draw.line(
+                [(marker_x, bar_y - 3), (marker_x, bar_y + bar_h + 3)],
+                fill=RED,
+                width=3,
+            )
 
 
 def _render_footer(
@@ -519,11 +648,14 @@ def _render_footer(
     fonts: dict,
 ) -> None:
     """Footer with version and last updated time."""
-    # Thin divider
+    # Stipple band above divider for visual separation
+    _fill_stipple(draw, MARGIN, FOOTER_Y - 4, WIDTH - 2 * MARGIN, 4, density=0.15)
+
+    # Thicker divider
     draw.line(
         [(MARGIN, FOOTER_Y), (WIDTH - MARGIN, FOOTER_Y)],
         fill=BLACK,
-        width=1,
+        width=2,
     )
 
     draw.text(
