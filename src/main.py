@@ -58,9 +58,12 @@ def render_frame(display, ctx=None):
         font_md = font_lg
         font_sm = font_lg
 
-    # -- Header (red bar) --
+    # -- Header (red bar with date) --
+    from datetime import datetime
+
     draw.rectangle([(0, 0), (width, 56)], fill="red")
-    draw.text((12, 12), "HOME HUD", fill="white", font=font_lg)
+    date_str = datetime.now().strftime("%B %d, %Y")
+    draw.text((12, 12), date_str, fill="white", font=font_lg)
 
     # System metrics (right-aligned in header)
     system_monitor = ctx.system_monitor if ctx else None
@@ -77,51 +80,45 @@ def render_frame(display, ctx=None):
             text_w = bbox[2] - bbox[0]
             draw.text((width - text_w - 12, 20), metrics_text, fill="white", font=font_sm)
 
-    # -- Timestamp --
-    from datetime import datetime
-
-    now = datetime.now().strftime("%B %d, %Y  %I:%M %p")
-    draw.text((12, 68), now, fill="black", font=font_md)
-
     # -- Solar panel (full width) --
-    draw.rectangle([(12, 100), (width - 12, 360)], outline="red", width=2)
-    draw.text((20, 108), "Solar Production", fill="red", font=font_md)
+    draw.rectangle([(12, 68), (width - 12, 328)], outline="red", width=2)
+    draw.text((20, 76), "Solar Production", fill="red", font=font_md)
 
     solar_storage = ctx.solar_storage if ctx else None
     if solar_storage is None:
-        draw.text((20, 145), "-- kW", fill="black", font=font_lg)
-        draw.text((20, 190), "Solar: not configured", fill="black", font=font_sm)
+        draw.text((20, 113), "-- kW", fill="black", font=font_lg)
+        draw.text((20, 158), "Solar: not configured", fill="black", font=font_sm)
     else:
         reading = solar_storage.get_latest()
         if reading:
             prod_kw = reading["production_w"] / 1000
             cons_kw = reading["consumption_w"] / 1000
             net_w = reading["net_w"]
-            draw.text((20, 145), f"{prod_kw:.1f} kW", fill="black", font=font_lg)
-            draw.text((20, 190), f"Using {cons_kw:.1f} kW", fill="black", font=font_sm)
+            draw.text((20, 113), f"{prod_kw:.1f} kW", fill="black", font=font_lg)
+            draw.text((20, 158), f"Using {cons_kw:.1f} kW", fill="black", font=font_sm)
             if net_w >= 0:
-                draw.text((20, 215), f"Exporting {net_w / 1000:.1f} kW", fill="black", font=font_sm)
+                draw.text((20, 183), f"Exporting {net_w / 1000:.1f} kW", fill="black", font=font_sm)
             else:
                 imp_kw = abs(net_w) / 1000
-                draw.text((20, 215), f"Importing {imp_kw:.1f} kW", fill="red", font=font_sm)
+                draw.text((20, 183), f"Importing {imp_kw:.1f} kW", fill="red", font=font_sm)
         else:
-            draw.text((20, 145), "-- kW", fill="black", font=font_lg)
-            draw.text((20, 190), "Waiting for Enphase...", fill="black", font=font_sm)
+            draw.text((20, 113), "-- kW", fill="black", font=font_lg)
+            draw.text((20, 158), "Waiting for Enphase...", fill="black", font=font_sm)
 
     # -- Grocery list (full width, compact) --
-    draw.rectangle([(12, 380), (width - 12, 600)], outline="red", width=2)
-    draw.text((20, 388), "Grocery List", fill="red", font=font_md)
+    draw.rectangle([(12, 348), (width - 12, 568)], outline="red", width=2)
+    draw.text((20, 356), "Grocery List", fill="red", font=font_md)
 
     grocery = ctx.grocery if ctx else None
     if grocery is None:
-        draw.text((20, 420), "Not configured", fill="black", font=font_sm)
+        draw.text((20, 388), "Not configured", fill="black", font=font_sm)
     else:
         items = grocery.get_items()
         if not items:
-            draw.text((20, 420), "No items", fill="black", font=font_sm)
+            draw.text((20, 388), "No items", fill="black", font=font_sm)
         else:
             max_visible = 8
-            y = 416
+            y = 384
             for item in items[:max_visible]:
                 draw.text((20, y), f"- {item}", fill="black", font=font_sm)
                 y += 22
@@ -130,21 +127,21 @@ def render_frame(display, ctx=None):
                 draw.text((20, y), f"+{overflow} more", fill="black", font=font_sm)
 
     # -- Recommendations panel (full width) --
-    draw.rectangle([(12, 620), (width - 12, 760)], outline="red", width=2)
-    draw.text((20, 628), "Recommendations", fill="red", font=font_md)
+    draw.rectangle([(12, 588), (width - 12, 728)], outline="red", width=2)
+    draw.text((20, 596), "Recommendations", fill="red", font=font_md)
 
     discovery_storage = ctx.discovery_storage if ctx else None
     if discovery_storage is None:
-        draw.text((20, 656), "Not configured", fill="black", font=font_sm)
+        draw.text((20, 624), "Not configured", fill="black", font=font_sm)
     else:
         try:
             recs = discovery_storage.get_active_recommendations()
         except Exception:
             recs = []
         if not recs:
-            draw.text((20, 656), "No recommendations yet", fill="black", font=font_sm)
+            draw.text((20, 624), "No recommendations yet", fill="black", font=font_sm)
         else:
-            y = 656
+            y = 624
             for rec in recs[:3]:
                 type_icon = "F" if rec["media_type"] == "movie" else "T"
                 year_str = f" ({rec['year']})" if rec.get("year") else ""

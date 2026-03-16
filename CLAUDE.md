@@ -39,6 +39,7 @@ src/utils/       — [planned] Shared helpers (avoid duplicating across modules)
 - **Abstraction pattern**: ABC base class → mock impl (local dev) + real impl (Pi hardware). Applies to audio, speech, display, and any new hardware interface.
 - **Shared utilities**: Common helpers go in `src/utils/`, not copied between packages.
 - **Consult `ARCHITECTURE.md`** before creating new files or modules.
+- **New features**: When adding a new feature to `src/features/`, also add it to the hardcoded `_INTENT_SYSTEM_PROMPT` in `src/llm/claude_llm.py` so the LLM intent parser knows it exists. The prompt is not auto-generated.
 
 ## Commands
 

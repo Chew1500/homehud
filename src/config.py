@@ -131,7 +131,7 @@ def load_config() -> dict:
         "reminder_check_interval": int(os.getenv("HUD_REMINDER_CHECK_INTERVAL", "15")),
 
         # Refresh interval in seconds (e-ink shouldn't refresh too often)
-        "refresh_interval": int(os.getenv("HUD_REFRESH_INTERVAL", "300")),
+        "refresh_interval": int(os.getenv("HUD_REFRESH_INTERVAL", "3600")),
 
         # Logging
         "log_dir": os.getenv("HUD_LOG_DIR", str(PROJECT_ROOT / "logs")),

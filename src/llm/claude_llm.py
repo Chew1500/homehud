@@ -78,6 +78,14 @@ _INTENT_SYSTEM_PROMPT = (
     'media_type: "movie", "series", or omit for any\n'
     'Example triggers: "recommend a movie", "what should I watch", '
     '"add that", "next", "not interested", "what\'s my taste profile"\n\n'
+    "### volume\n"
+    "Actions: adjust_volume(direction, magnitude), set_volume(level), query()\n"
+    'direction: "up" or "down"; magnitude: "small", "medium", or "large"\n'
+    'Example triggers: "speak up a bit", "louder", "turn it down", '
+    '"volume to 50%", "what\'s the volume", "too loud", "too quiet"\n\n'
+    "### network\n"
+    "Actions: query()\n"
+    'Example triggers: "what\'s my IP", "what\'s my IP address", "network info"\n\n'
     "### capabilities\n"
     "Actions: list(), describe(feature)\n"
     'Example triggers: "what can you do", "tell me about reminders"\n\n'
