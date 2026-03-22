@@ -17,7 +17,15 @@ class EinkDisplay(BaseDisplay):
     """Drives the Waveshare 7.5" tri-color e-Paper display."""
 
     def __init__(self, config: dict):
-        super().__init__(snapshot_path=config.get("display_snapshot_path"))
+        from display import _display_dimensions
+
+        width, height = _display_dimensions(config)
+        self._orientation = config.get("display_orientation", "portrait")
+        super().__init__(
+            width=width,
+            height=height,
+            snapshot_path=config.get("display_snapshot_path"),
+        )
         try:
             from waveshare_epd import epd7in5b_V2  # noqa: F401
             self._epd = epd7in5b_V2.EPD()
@@ -49,8 +57,10 @@ class EinkDisplay(BaseDisplay):
         # Snapshot before rotation so dashboard gets the readable portrait image
         self._save_snapshot(image)
 
-        # Rotate portrait canvas (480x800) -> hardware buffer (800x480)
-        image = image.transpose(Image.ROTATE_90)
+        # Portrait canvas (480x800) must be rotated to hardware buffer (800x480).
+        # Landscape canvas (800x480) already matches the hardware buffer.
+        if self._orientation == "portrait":
+            image = image.transpose(Image.ROTATE_90)
 
         # Separate RGB image into black and red channels for tri-color display.
         import numpy as np

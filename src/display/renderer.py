@@ -9,31 +9,13 @@ from typing import TYPE_CHECKING
 
 from PIL import Image, ImageDraw, ImageFont
 
+from display.layout import Layout, compute_layout
+
 if TYPE_CHECKING:
     from display.base import BaseDisplay
     from display.context import DisplayContext
 
 log = logging.getLogger(__name__)
-
-# Layout constants (480 x 800 portrait)
-WIDTH = 480
-HEIGHT = 800
-
-# Section Y positions
-DATE_BAR_Y = 0
-DATE_BAR_H = 44
-ACCENT_Y = DATE_BAR_H
-WEATHER_HERO_Y = 48
-WEATHER_HERO_H = 264
-FORECAST_Y = 320
-FORECAST_H = 172
-SOLAR_Y = 504
-SOLAR_H = 160
-FOOTER_Y = HEIGHT - 44
-FOOTER_H = 44
-
-# Margins
-MARGIN = 20
 
 # Colors
 RED = "red"
@@ -280,42 +262,48 @@ def _draw_solar_bar(
 def _render_date_bar(
     draw: ImageDraw.ImageDraw,
     fonts: dict,
+    layout: Layout,
 ) -> None:
     """Top bar: black-filled with white text, thick red accent below."""
+    r = layout.date_bar
+
     # Black background fill
-    draw.rectangle([0, 0, WIDTH, DATE_BAR_H], fill=BLACK)
+    draw.rectangle([r.x, r.y, r.x2, r.y2], fill=BLACK)
 
     now = datetime.now()
     date_str = now.strftime("%A, %B %-d")
-    draw.text((MARGIN, 10), date_str, fill=WHITE, font=fonts[24])
+    draw.text((r.x + layout.margin, r.y + 10), date_str, fill=WHITE, font=fonts[24])
 
     # Thick red accent line
-    draw.line([(0, ACCENT_Y), (WIDTH, ACCENT_Y)], fill=RED, width=4)
+    draw.line([(r.x, r.y2), (r.x2, r.y2)], fill=RED, width=4)
 
 
 def _render_weather_hero(
     draw: ImageDraw.ImageDraw,
     fonts: dict,
     weather_data,
+    layout: Layout,
 ) -> None:
     """Large weather icon + hero temperature + details."""
+    r = layout.weather_hero
+
     if weather_data is None:
         text = "No weather data"
         bbox = draw.textbbox((0, 0), text, font=fonts[24])
         text_w = bbox[2] - bbox[0]
-        y_center = WEATHER_HERO_Y + WEATHER_HERO_H // 2 - 12
+        y_center = r.y + r.h // 2 - 12
         draw.text(
-            ((WIDTH - text_w) // 2, y_center), text, fill=BLACK, font=fonts[24]
+            ((r.x + r.w - text_w) // 2, y_center), text, fill=BLACK, font=fonts[24]
         )
         return
 
     cur = weather_data.current
 
-    icon_cx = 80
-    icon_cy = WEATHER_HERO_Y + 116
+    icon_cx = r.x + 80
+    icon_cy = r.y + 116
 
-    temp_x = 170
-    temp_y = WEATHER_HERO_Y + 52
+    temp_x = r.x + 170
+    temp_y = r.y + 52
 
     # Weather icon (left side)
     _draw_weather_icon(draw, cur.weather_code, icon_cx, icon_cy, size=120)
@@ -352,31 +340,35 @@ def _render_forecast(
     draw: ImageDraw.ImageDraw,
     fonts: dict,
     weather_data,
+    layout: Layout,
 ) -> None:
     """3-day forecast strip with black banner header and column dividers."""
     if weather_data is None or not weather_data.forecast:
         return
 
+    r = layout.forecast
+
     # Black banner header
     banner_h = 28
-    draw.rectangle([0, FORECAST_Y, WIDTH, FORECAST_Y + banner_h], fill=BLACK)
+    draw.rectangle([r.x, r.y, r.x2, r.y + banner_h], fill=BLACK)
     draw.text(
-        (MARGIN, FORECAST_Y + 5), "FORECAST", fill=WHITE, font=fonts[14]
+        (r.x + layout.margin, r.y + 5), "FORECAST", fill=WHITE, font=fonts[14]
     )
 
-    content_y = FORECAST_Y + banner_h
+    content_y = r.y + banner_h
     col_count = min(3, len(weather_data.forecast))
-    col_width = (WIDTH - 2 * MARGIN) // col_count
+    usable_w = r.w - 2 * layout.margin
+    col_width = usable_w // col_count
 
     for i, day in enumerate(weather_data.forecast[:3]):
-        col_x = MARGIN + i * col_width
+        col_x = r.x + layout.margin + i * col_width
         col_cx = col_x + col_width // 2  # center of column
 
         # Column dividers (between columns)
         if i > 0:
             div_x = col_x
             draw.line(
-                [(div_x, content_y + 4), (div_x, FORECAST_Y + FORECAST_H - 4)],
+                [(div_x, content_y + 4), (div_x, r.y2 - 4)],
                 fill=BLACK,
                 width=1,
             )
@@ -443,16 +435,20 @@ def _render_solar(
     draw: ImageDraw.ImageDraw,
     fonts: dict,
     solar_storage,
+    layout: Layout,
 ) -> None:
     """Compact solar section with black banner, hero numbers, and energy bar."""
+    r = layout.solar
+    margin = layout.margin
+
     # Row 1: Black banner header (28px)
     banner_h = 28
-    draw.rectangle([0, SOLAR_Y, WIDTH, SOLAR_Y + banner_h], fill=BLACK)
-    draw.text((MARGIN, SOLAR_Y + 5), "SOLAR", fill=WHITE, font=fonts[14])
+    draw.rectangle([r.x, r.y, r.x2, r.y + banner_h], fill=BLACK)
+    draw.text((r.x + margin, r.y + 5), "SOLAR", fill=WHITE, font=fonts[14])
 
     if solar_storage is None:
         draw.text(
-            (MARGIN, SOLAR_Y + banner_h + 10),
+            (r.x + margin, r.y + banner_h + 10),
             "Not configured",
             fill=BLACK,
             font=fonts[20],
@@ -462,7 +458,7 @@ def _render_solar(
     reading = solar_storage.get_latest()
     if not reading:
         draw.text(
-            (MARGIN, SOLAR_Y + banner_h + 10),
+            (r.x + margin, r.y + banner_h + 10),
             "Waiting for data...",
             fill=BLACK,
             font=fonts[20],
@@ -483,37 +479,37 @@ def _render_solar(
     net_bbox = draw.textbbox((0, 0), net_text, font=fonts[14])
     net_w_px = net_bbox[2] - net_bbox[0]
     draw.text(
-        (WIDTH - MARGIN - net_w_px, SOLAR_Y + 5),
+        (r.x2 - margin - net_w_px, r.y + 5),
         net_text,
         fill=net_color,
         font=fonts[14],
     )
 
     # Row 2: Hero production (left) + consumption stats (right) — 72px
-    row2_y = SOLAR_Y + banner_h + 4
+    row2_y = r.y + banner_h + 4
 
     # Production — large RED number
     prod_str = f"{prod_kw:.1f}"
-    draw.text((MARGIN, row2_y), prod_str, fill=RED, font=fonts[48])
-    prod_bbox = draw.textbbox((MARGIN, row2_y), prod_str, font=fonts[48])
+    draw.text((r.x + margin, row2_y), prod_str, fill=RED, font=fonts[48])
+    prod_bbox = draw.textbbox((r.x + margin, row2_y), prod_str, font=fonts[48])
     draw.text(
         (prod_bbox[2] + 4, row2_y + 12), "kW", fill=RED, font=fonts[20]
     )
     draw.text(
-        (MARGIN, row2_y + 52), "producing", fill=BLACK, font=fonts[14]
+        (r.x + margin, row2_y + 52), "producing", fill=BLACK, font=fonts[14]
     )
 
     # Consumption (right side) — smaller
     cons_str = f"{cons_kw:.1f}"
     kw_using = "kW using"
     cons_bbox = draw.textbbox((0, 0), cons_str, font=fonts[28])
-    cons_w = cons_bbox[2] - cons_bbox[0]
+    cons_w_px = cons_bbox[2] - cons_bbox[0]
     kw_using_bbox = draw.textbbox((0, 0), kw_using, font=fonts[14])
     kw_using_w = kw_using_bbox[2] - kw_using_bbox[0]
-    cons_x = WIDTH - MARGIN - cons_w - kw_using_w - 6
+    cons_x = r.x2 - margin - cons_w_px - kw_using_w - 6
     draw.text((cons_x, row2_y + 8), cons_str, fill=BLACK, font=fonts[28])
     draw.text(
-        (cons_x + cons_w + 6, row2_y + 14),
+        (cons_x + cons_w_px + 6, row2_y + 14),
         kw_using,
         fill=BLACK,
         font=fonts[14],
@@ -526,7 +522,7 @@ def _render_solar(
         offset_bbox = draw.textbbox((0, 0), offset_text, font=fonts[14])
         offset_w = offset_bbox[2] - offset_bbox[0]
         draw.text(
-            (WIDTH - MARGIN - offset_w, row2_y + 42),
+            (r.x2 - margin - offset_w, row2_y + 42),
             offset_text,
             fill=BLACK,
             font=fonts[14],
@@ -535,8 +531,8 @@ def _render_solar(
     # Row 3: Energy bar with hatched background (20px)
     bar_y = row2_y + 72
     bar_h = 20
-    bar_x = MARGIN
-    bar_w = WIDTH - 2 * MARGIN
+    bar_x = r.x + margin
+    bar_w = r.w - 2 * margin
 
     draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], outline=BLACK, width=1)
 
@@ -562,17 +558,21 @@ def _render_footer(
     draw: ImageDraw.ImageDraw,
     fonts: dict,
     ctx: DisplayContext | None,
+    layout: Layout,
 ) -> None:
     """Footer with version, system metrics (with icons), and last updated time."""
+    r = layout.footer
+    margin = layout.margin
+
     # Thicker divider
     draw.line(
-        [(MARGIN, FOOTER_Y), (WIDTH - MARGIN, FOOTER_Y)],
+        [(r.x + margin, r.y), (r.x2 - margin, r.y)],
         fill=BLACK,
         width=2,
     )
 
     draw.text(
-        (MARGIN, FOOTER_Y + 12), "home-hud v0.1.0", fill=BLACK, font=fonts[14]
+        (r.x + margin, r.y + 12), "home-hud v0.1.0", fill=BLACK, font=fonts[14]
     )
 
     # Last updated time (right-aligned)
@@ -580,7 +580,7 @@ def _render_footer(
     bbox = draw.textbbox((0, 0), updated, font=fonts[14])
     tw = bbox[2] - bbox[0]
     draw.text(
-        (WIDTH - MARGIN - tw, FOOTER_Y + 12),
+        (r.x2 - margin - tw, r.y + 12),
         updated,
         fill=BLACK,
         font=fonts[14],
@@ -608,8 +608,8 @@ def _render_footer(
                 if i < len(parts) - 1:
                     total_w += gap_between
 
-            x = (WIDTH - total_w) // 2
-            icon_y = FOOTER_Y + 12
+            x = r.x + (r.w - total_w) // 2
+            icon_y = r.y + 12
 
             for i, (kind, text) in enumerate(parts):
                 if kind == "temp":
@@ -647,6 +647,9 @@ def _render_footer(
 def render_frame(display: BaseDisplay, ctx: DisplayContext | None = None) -> None:
     """Render a complete frame and push it to the display."""
     width, height = display.size
+    orientation = ctx.orientation if ctx else "portrait"
+    layout = compute_layout(width, height, orientation)
+
     img = Image.new("RGB", (width, height), WHITE)
     draw = ImageDraw.Draw(img)
 
@@ -658,10 +661,10 @@ def render_frame(display: BaseDisplay, ctx: DisplayContext | None = None) -> Non
 
     solar_storage = ctx.solar_storage if ctx else None
 
-    _render_date_bar(draw, fonts)
-    _render_weather_hero(draw, fonts, weather_data)
-    _render_forecast(draw, fonts, weather_data)
-    _render_solar(draw, fonts, solar_storage)
-    _render_footer(draw, fonts, ctx)
+    _render_date_bar(draw, fonts, layout)
+    _render_weather_hero(draw, fonts, weather_data, layout)
+    _render_forecast(draw, fonts, weather_data, layout)
+    _render_solar(draw, fonts, solar_storage, layout)
+    _render_footer(draw, fonts, ctx, layout)
 
     display.show(img)

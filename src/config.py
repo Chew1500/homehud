@@ -22,6 +22,7 @@ def load_config() -> dict:
         "display_snapshot_path": os.getenv(
             "HUD_DISPLAY_SNAPSHOT_PATH", str(PROJECT_ROOT / "output" / "display_snapshot.png")
         ),
+        "display_orientation": os.getenv("HUD_DISPLAY_ORIENTATION", "portrait"),
 
         # Audio settings
         "audio_mode": os.getenv("HUD_AUDIO_MODE", "mock"),  # "mock" or "hardware"

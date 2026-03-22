@@ -18,3 +18,11 @@ def get_display(config: dict) -> BaseDisplay:
         return EinkDisplay(config)
     else:
         return MockDisplay(config)
+
+
+def _display_dimensions(config: dict) -> tuple[int, int]:
+    """Return (width, height) for the configured orientation."""
+    orientation = config.get("display_orientation", "portrait")
+    if orientation == "landscape":
+        return (800, 480)
+    return (480, 800)

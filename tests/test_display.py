@@ -81,3 +81,33 @@ def test_render_frame(tmp_path):
     render_frame(display)
 
     assert (tmp_path / "latest.png").exists()
+
+
+def test_mock_display_landscape_size(tmp_path):
+    """MockDisplay with landscape orientation should report 800x480."""
+    config = {
+        "mock_output_dir": str(tmp_path),
+        "display_orientation": "landscape",
+    }
+    display = MockDisplay(config)
+    assert display.size == (800, 480)
+
+
+def test_render_frame_landscape(tmp_path):
+    """render_frame in landscape should produce a valid 800x480 PNG."""
+    config = {
+        "display_mode": "mock",
+        "mock_output_dir": str(tmp_path),
+        "display_orientation": "landscape",
+    }
+    display = MockDisplay(config)
+
+    from display.context import DisplayContext
+    from main import render_frame
+
+    ctx = DisplayContext(orientation="landscape")
+    render_frame(display, ctx=ctx)
+
+    assert (tmp_path / "latest.png").exists()
+    saved = Image.open(tmp_path / "latest.png")
+    assert saved.size == (800, 480)

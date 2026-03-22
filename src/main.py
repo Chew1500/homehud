@@ -233,6 +233,7 @@ def main():
         system_monitor=system_monitor,
         discovery_storage=discovery_storage,
         weather_client=weather_client,
+        orientation=config.get("display_orientation", "portrait"),
     )
 
     try:

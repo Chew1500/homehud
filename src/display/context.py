@@ -24,3 +24,4 @@ class DisplayContext:
     system_monitor: BaseSystemMonitor | None = None
     discovery_storage: DiscoveryStorage | None = None
     weather_client: BaseWeatherClient | None = None
+    orientation: str = "portrait"

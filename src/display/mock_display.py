@@ -18,7 +18,14 @@ class MockDisplay(BaseDisplay):
     """Renders frames to PNG files in an output directory."""
 
     def __init__(self, config: dict):
-        super().__init__(snapshot_path=config.get("display_snapshot_path"))
+        from display import _display_dimensions
+
+        width, height = _display_dimensions(config)
+        super().__init__(
+            width=width,
+            height=height,
+            snapshot_path=config.get("display_snapshot_path"),
+        )
         self._output_dir = Path(config.get("mock_output_dir", "output"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
 
