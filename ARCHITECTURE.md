@@ -159,10 +159,15 @@ See `src/display/` for the reference implementation of this pattern.
 
 ### Config loading
 
-All configuration flows through `src/config.py`:
-1. Add the env var with a default to `load_config()`
+All configuration flows through `src/config.py` via a registry of `ConfigParam` entries:
+
+1. Add a `ConfigParam` to `CONFIG_REGISTRY` in `src/config.py` (key, env var, default, type, group, description)
 2. Add the var name to `.env.example`
 3. Access via the config dict passed to your module — never call `os.getenv()` directly
+
+**Priority order** (highest wins): `data/config.json` > environment variables > defaults.
+
+The local config file (`data/config.json`) is editable from the telemetry dashboard's Config tab. New config params added to `CONFIG_REGISTRY` automatically appear in the dashboard UI — no manual JS updates needed.
 
 ### Factory imports
 
@@ -174,7 +179,7 @@ Heavy or hardware-specific dependencies are imported lazily inside the factory f
 |-----------------------------------|----------------------------------------------------|
 | New hardware abstraction          | Own package with ABC base + mock/real impls         |
 | New built-in voice feature        | `src/features/<feature>.py`                         |
-| New env-based config setting      | `src/config.py` + `.env.example`                    |
+| New config setting                | `ConfigParam` in `src/config.py` + `.env.example`   |
 | Helper used by 2+ packages        | `src/utils/`                                        |
 | Helper used by 1 package only     | Private function in that package                    |
 | New external API integration      | Own package under `src/` if substantial; `utils/` if trivial |

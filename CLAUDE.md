@@ -74,7 +74,8 @@ make test         # pytest tests/ -v
 
 - Follow the abstraction pattern — interfaces that can be mocked for local dev and swapped for real hardware on the Pi. This applies to audio I/O, speech engines, and display backends alike.
 - Keep Pillow as the rendering layer; all UI is composed as PIL Images.
-- Config goes through environment variables loaded in `config.py`.
+- Config goes through the `ConfigParam` registry in `config.py`. To add a new setting, add a `ConfigParam` entry to `CONFIG_REGISTRY` — it will automatically appear in the dashboard Config tab.
+- Priority: `data/config.json` > env vars (`.env`) > defaults. The config file is editable from the dashboard.
 - `HUD_DISPLAY_MODE` (mock or eink) selects the display backend. See `.env.example` for all vars.
 
 ## Dependencies

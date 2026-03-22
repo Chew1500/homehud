@@ -169,6 +169,45 @@ tr:hover td { background: #fafbfc; }
 .config-row .key { color: #555; }
 .config-row .val { font-family: 'SF Mono', Monaco, monospace; font-weight: 500;
   color: #333; max-width: 60%; text-align: right; word-break: break-all; }
+.config-row { align-items: center; }
+.config-row .desc { font-size: 0.75rem; color: #999; margin-top: 0.1rem; }
+.config-row .source-badge {
+  display: inline-block; padding: 0.1rem 0.35rem; border-radius: 3px;
+  font-size: 0.65rem; font-weight: 600; margin-left: 0.5rem; vertical-align: middle;
+}
+.source-default { background: #f0f2f5; color: #888; }
+.source-env { background: #dbeafe; color: #2563eb; }
+.source-file { background: #d1fae5; color: #065f46; }
+.config-input {
+  padding: 0.3rem 0.5rem; border: 1px solid #d1d5db; border-radius: 4px;
+  font-size: 0.85rem; font-family: 'SF Mono', Monaco, monospace;
+  background: #fff; width: 200px; text-align: right;
+}
+.config-input:focus { outline: none; border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+.config-input.dirty { border-color: #f59e0b; background: #fffbeb; }
+.config-toggle { position: relative; display: inline-block;
+  width: 36px; height: 20px; vertical-align: middle; }
+.config-toggle input { opacity: 0; width: 0; height: 0; }
+.config-toggle .slider {
+  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+  background: #ccc; border-radius: 20px; transition: 0.2s;
+}
+.config-toggle .slider::before {
+  content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px;
+  background: #fff; border-radius: 50%; transition: 0.2s;
+}
+.config-toggle input:checked + .slider { background: #3b82f6; }
+.config-toggle input:checked + .slider::before { transform: translateX(16px); }
+.config-toggle.dirty .slider { background: #f59e0b; }
+.config-toggle.dirty input:checked + .slider { background: #f59e0b; }
+.config-save-btn {
+  padding: 0.5rem 1.5rem; background: #3b82f6; color: #fff;
+  border: none; border-radius: 6px; font-size: 0.9rem;
+  cursor: pointer; font-weight: 600;
+}
+.config-save-btn:hover { background: #2563eb; }
+.config-save-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Tab bar */
 .tab-bar {
@@ -301,9 +340,20 @@ tr:hover td { background: #fafbfc; }
 </div>
 
 <div class="tab-panel" id="tab-config">
+  <div id="config-banner" class="error-msg"
+    style="display:none;background:#fef3c7;color:#92400e;
+    margin-bottom:1rem"></div>
   <div class="config-section" id="config-section">
     <div class="loading" id="config-loading">Loading config...</div>
     <div id="config-content"></div>
+    <div id="config-actions" style="display:none;margin-top:1rem;
+      padding-top:0.75rem;border-top:1px solid #eee">
+      <button id="config-save-btn" onclick="saveConfig()"
+        class="config-save-btn">Save Changes</button>
+      <span id="config-save-status"
+        style="margin-left:0.75rem;font-size:0.85rem;
+        color:#888"></span>
+    </div>
   </div>
 </div>
 
@@ -865,38 +915,115 @@ document.getElementById('log-level-filter').addEventListener('change', () => {
   if (loadedTabs.has('tab-logs')) loadLogs();
 });
 
-// --- Config viewer ---
-const CONFIG_GROUPS = {
-  'Display': ['display_mode', 'mock_output_dir', 'mock_show_window', 'display_snapshot_path'],
-  'Audio': ['audio_mode', 'audio_sample_rate', 'audio_channels', 'audio_device',
-    'audio_mock_dir', 'audio_stale_timeout'],
-  'STT': ['stt_mode', 'stt_whisper_model', 'stt_whisper_prompt', 'stt_whisper_hotwords',
-    'stt_mock_response', 'stt_no_speech_threshold', 'stt_confidence_threshold'],
-  'TTS': ['tts_mode', 'tts_kokoro_voice', 'tts_kokoro_speed', 'tts_kokoro_lang',
-    'tts_kokoro_model', 'tts_kokoro_voices', 'tts_elevenlabs_voice', 'tts_elevenlabs_model',
-    'tts_elevenlabs_speed', 'tts_cache_enabled', 'tts_cache_dir', 'tts_mock_duration'],
-  'Wake': ['wake_mode', 'wake_model', 'wake_threshold', 'wake_confirm_frames',
-    'wake_cooldown', 'wake_mock_trigger_after'],
-  'Voice Pipeline': ['voice_enabled', 'voice_record_duration', 'voice_wake_feedback',
-    'voice_startup_announcement', 'voice_deploy_announcement', 'voice_vad_enabled',
-    'vad_silence_threshold', 'vad_silence_duration', 'vad_speech_chunks_required',
-    'vad_min_duration', 'vad_max_duration', 'voice_bargein_enabled',
-    'voice_max_follow_ups', 'voice_max_consecutive_low_confidence'],
-  'LLM': ['llm_mode', 'llm_model', 'llm_max_tokens', 'llm_system_prompt',
-    'llm_intent_model', 'llm_mock_response', 'llm_intent_max_tokens',
-    'llm_max_history', 'llm_history_ttl', 'llm_personality', 'intent_recovery_enabled'],
-  'Features': ['grocery_file', 'reminder_file', 'reminder_check_interval',
-    'media_disambiguation_ttl'],
-  'Solar': ['enphase_mode', 'enphase_host', 'enphase_serial', 'enphase_poll_interval',
-    'solar_db_path', 'solar_latitude', 'solar_longitude'],
-  'Media': ['sonarr_mode', 'sonarr_url', 'radarr_mode', 'radarr_url',
-    'jellyfin_mode', 'jellyfin_url', 'jellyfin_user_id', 'discovery_db_path',
-    'discovery_library_sync_interval', 'discovery_interval', 'discovery_llm_model',
-    'discovery_max_recommendations'],
-  'Telemetry': ['telemetry_enabled', 'telemetry_db_path', 'telemetry_max_size_mb',
-    'telemetry_web_enabled', 'telemetry_web_host', 'telemetry_web_port'],
-  'System': ['refresh_interval', 'log_dir', 'log_level', 'sysmon_mode'],
-};
+// --- Config editor ---
+let configOriginal = {};  // original values keyed by param key
+let configDirty = {};     // changed values keyed by param key
+
+function renderConfigInput(p) {
+  const id = 'cfg-input-' + p.key;
+  if (p.sensitive) {
+    return '<span class="val">********</span>';
+  }
+  if (p.type === 'bool') {
+    const checked = p.value === true ? ' checked' : '';
+    return '<label class="config-toggle" id="toggle-' + p.key + '">'
+      + '<input type="checkbox" id="' + id + '"' + checked
+      + ' onchange="onConfigChange(\\'' + p.key + '\\', this.checked, \\'' + p.type + '\\')">'
+      + '<span class="slider"></span></label>';
+  }
+  const inputType = (p.type === 'int' || p.type === 'float') ? 'number' : 'text';
+  const step = p.type === 'float' ? ' step="any"' : '';
+  const val = p.value != null ? escapeHtml(String(p.value)) : '';
+  return '<input type="' + inputType + '" class="config-input" id="' + id + '"'
+    + ' value="' + val + '"' + step
+    + ' onchange="onConfigChange(\\'' + p.key + '\\', this.value, \\'' + p.type + '\\')"'
+    + ' onkeyup="onConfigChange(\\'' + p.key + '\\', this.value, \\'' + p.type + '\\')">';
+}
+
+function onConfigChange(key, rawValue, type) {
+  let value = rawValue;
+  if (type === 'int') value = rawValue === '' ? '' : parseInt(rawValue, 10);
+  else if (type === 'float') value = rawValue === '' ? '' : parseFloat(rawValue);
+  else if (type === 'bool') value = rawValue;
+  else value = String(rawValue);
+
+  const orig = configOriginal[key];
+  const changed = value !== orig && String(value) !== String(orig);
+  const el = document.getElementById('cfg-input-' + key);
+
+  if (changed) {
+    configDirty[key] = value;
+    if (el) el.classList.add('dirty');
+    const toggle = document.getElementById('toggle-' + key);
+    if (toggle) toggle.classList.add('dirty');
+  } else {
+    delete configDirty[key];
+    if (el) el.classList.remove('dirty');
+    const toggle = document.getElementById('toggle-' + key);
+    if (toggle) toggle.classList.remove('dirty');
+  }
+
+  const btn = document.getElementById('config-save-btn');
+  const actions = document.getElementById('config-actions');
+  const count = Object.keys(configDirty).length;
+  if (count > 0) {
+    actions.style.display = '';
+    btn.textContent = 'Save ' + count + ' Change' + (count > 1 ? 's' : '');
+  } else {
+    actions.style.display = 'none';
+  }
+}
+
+async function saveConfig() {
+  const btn = document.getElementById('config-save-btn');
+  const status = document.getElementById('config-save-status');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  status.textContent = '';
+
+  // Convert values to strings for the config file
+  const payload = {};
+  for (const [k, v] of Object.entries(configDirty)) {
+    payload[k] = typeof v === 'boolean' ? (v ? 'true' : 'false') : String(v);
+  }
+
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      status.textContent = data.error || 'Save failed';
+      status.style.color = '#e74c3c';
+      btn.disabled = false;
+      btn.textContent = 'Save Changes';
+      return;
+    }
+    // Update originals so fields are no longer dirty
+    for (const k of Object.keys(configDirty)) {
+      configOriginal[k] = configDirty[k];
+      const el = document.getElementById('cfg-input-' + k);
+      if (el) el.classList.remove('dirty');
+      const toggle = document.getElementById('toggle-' + k);
+      if (toggle) toggle.classList.remove('dirty');
+    }
+    configDirty = {};
+    btn.textContent = 'Save Changes';
+    btn.disabled = false;
+    document.getElementById('config-actions').style.display = 'none';
+
+    const banner = document.getElementById('config-banner');
+    banner.textContent = 'Changes saved to config file. Restart to apply.';
+    banner.style.display = '';
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+    status.style.color = '#e74c3c';
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+  }
+}
 
 async function loadConfig() {
   const loading = document.getElementById('config-loading');
@@ -908,47 +1035,38 @@ async function loadConfig() {
       return;
     }
     loading.style.display = 'none';
-    const assigned = new Set();
+    configOriginal = {};
+    configDirty = {};
+
     let html = '';
-    for (const [group, keys] of Object.entries(CONFIG_GROUPS)) {
-      const rows = keys.filter(k => k in data);
-      rows.forEach(k => assigned.add(k));
-      if (rows.length === 0) continue;
+    for (const group of data.groups) {
+      const groupParams = data.params.filter(p => p.group === group);
+      if (groupParams.length === 0) continue;
+
       const gid = 'cfg-' + group.toLowerCase().replace(/\\s+/g, '-');
       html += '<div class="config-group" id="' + gid + '">';
       html += '<div class="config-group-header" onclick="toggleConfigGroup(\\'' + gid + '\\')">';
       html += '<h3>' + escapeHtml(group) + '</h3>';
       html += '<span class="toggle">&#9660;</span></div>';
       html += '<div class="config-group-body">';
-      rows.forEach(k => {
-        const v = data[k];
-        const display = v === '' ? '<em style="color:#aaa">empty</em>'
-          : typeof v === 'boolean' ? (v ? 'true' : 'false')
-          : String(v);
-        html += '<div class="config-row"><span class="key">' + escapeHtml(k)
-          + '</span><span class="val">' + (v === '' ? display : escapeHtml(display))
-          + '</span></div>';
+
+      groupParams.forEach(p => {
+        configOriginal[p.key] = p.value;
+        const sourceCls = 'source-' + p.source;
+        html += '<div class="config-row">'
+          + '<div style="flex:1;min-width:0">'
+          + '<span class="key">' + escapeHtml(p.key) + '</span>'
+          + '<span class="source-badge ' + sourceCls + '">' + p.source + '</span>'
+          + '<div class="desc">' + escapeHtml(p.description) + '</div>'
+          + '</div>'
+          + '<div style="flex-shrink:0;margin-left:0.75rem">' + renderConfigInput(p) + '</div>'
+          + '</div>';
       });
-      html += '</div></div>';
-    }
-    // Any remaining keys not in a group
-    const remaining = Object.keys(data).filter(k => !assigned.has(k));
-    if (remaining.length > 0) {
-      const gid = 'cfg-other';
-      html += '<div class="config-group" id="' + gid + '">';
-      html += '<div class="config-group-header" onclick="toggleConfigGroup(\\'' + gid + '\\')">';
-      html += '<h3>Other</h3><span class="toggle">&#9660;</span></div>';
-      html += '<div class="config-group-body">';
-      remaining.forEach(k => {
-        const v = data[k];
-        const display = v === '' ? '<em style="color:#aaa">empty</em>' : String(v);
-        html += '<div class="config-row"><span class="key">' + escapeHtml(k)
-          + '</span><span class="val">' + (v === '' ? display : escapeHtml(display))
-          + '</span></div>';
-      });
+
       html += '</div></div>';
     }
     content.innerHTML = html;
+    document.getElementById('config-actions').style.display = 'none';
   } catch (e) {
     loading.textContent = 'Failed to load config: ' + e.message;
     loading.style.color = '#e74c3c';

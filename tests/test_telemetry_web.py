@@ -272,33 +272,30 @@ def test_display_serves_png(store, tmp_path):
 
 
 def test_config_returns_filtered_settings(store):
-    """GET /api/config should return config with sensitive keys excluded."""
-    sample_config = {
-        "display_mode": "mock",
-        "audio_mode": "hardware",
-        "anthropic_api_key": "sk-secret-123",
-        "elevenlabs_api_key": "el-secret-456",
-        "enphase_token": "token-secret",
-        "sonarr_api_key": "sonarr-secret",
-        "radarr_api_key": "radarr-secret",
-        "jellyfin_api_key": "jellyfin-secret",
-        "enphase_password": "pw-secret",
-        "enphase_email": "email@secret.com",
-    }
+    """GET /api/config should return params with sensitive values masked."""
+    from config import load_config
+
+    config = load_config()
     web = TelemetryWeb(
-        store._db_path, host="127.0.0.1", port=0, config=sample_config,
+        store._db_path, host="127.0.0.1", port=0, config=config,
     )
     web.start()
     try:
         data = _get_json(web, "/api/config")
-        assert data["display_mode"] == "mock"
-        assert data["audio_mode"] == "hardware"
+        assert "params" in data
+        assert "groups" in data
+
+        params_by_key = {p["key"]: p for p in data["params"]}
+        # Non-sensitive values should be present
+        assert params_by_key["display_mode"]["value"] == "mock"
+        # Sensitive values should be masked
         for key in (
             "anthropic_api_key", "elevenlabs_api_key", "enphase_token",
             "sonarr_api_key", "radarr_api_key", "jellyfin_api_key",
             "enphase_password", "enphase_email",
         ):
-            assert key not in data
+            assert params_by_key[key]["value"] == "********"
+            assert params_by_key[key]["sensitive"] is True
     finally:
         web.close()
 

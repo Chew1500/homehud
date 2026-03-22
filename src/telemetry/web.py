@@ -32,16 +32,6 @@ _LOG_LINE_RE = re.compile(
 _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
 
-_SENSITIVE_KEYS = frozenset({
-    "anthropic_api_key",
-    "elevenlabs_api_key",
-    "enphase_token",
-    "enphase_password",
-    "enphase_email",
-    "sonarr_api_key",
-    "radarr_api_key",
-    "jellyfin_api_key",
-})
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -76,6 +66,15 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
+    def do_POST(self):  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+
+        if path == "/api/config":
+            self._handle_config_save()
+        else:
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+
     # --- API handlers ---
 
     def _handle_config(self):
@@ -83,8 +82,41 @@ class _Handler(BaseHTTPRequestHandler):
         if config is None:
             self._send_json({"error": "Config not available"})
             return
-        filtered = {k: v for k, v in config.items() if k not in _SENSITIVE_KEYS}
-        self._send_json(filtered)
+        from config import get_config_metadata
+
+        self._send_json(get_config_metadata(config))
+
+    def _handle_config_save(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        from config import CONFIG_REGISTRY, save_config_file
+
+        valid_keys = {p.key for p in CONFIG_REGISTRY if not p.sensitive}
+        filtered = {k: v for k, v in body.items() if k in valid_keys}
+
+        if not filtered:
+            self._send_json({"error": "No valid parameters"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        try:
+            save_config_file(filtered)
+        except OSError as e:
+            self._send_json(
+                {"error": f"Failed to save: {e}"},
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+
+        self._send_json({
+            "saved": True,
+            "restart_required": True,
+            "keys": list(filtered.keys()),
+        })
 
     def _handle_display(self):
         snapshot_path = getattr(self.server, "display_snapshot_path", None)
