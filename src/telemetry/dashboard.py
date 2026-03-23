@@ -936,8 +936,8 @@ function renderConfigInput(p) {
   const val = p.value != null ? escapeHtml(String(p.value)) : '';
   return '<input type="' + inputType + '" class="config-input" id="' + id + '"'
     + ' value="' + val + '"' + step
-    + ' onchange="onConfigChange(\\'' + p.key + '\\', this.value, \\'' + p.type + '\\')"'
-    + ' onkeyup="onConfigChange(\\'' + p.key + '\\', this.value, \\'' + p.type + '\\')">';
+    + ' oninput="onConfigChange(\\'' + p.key + '\\', this.value, \\'' + p.type + '\\')"'
+    + ' onchange="onConfigChange(\\'' + p.key + '\\', this.value, \\'' + p.type + '\\')">';
 }
 
 function onConfigChange(key, rawValue, type) {
@@ -965,6 +965,7 @@ function onConfigChange(key, rawValue, type) {
 
   const btn = document.getElementById('config-save-btn');
   const actions = document.getElementById('config-actions');
+  if (!btn || !actions) return;
   const count = Object.keys(configDirty).length;
   if (count > 0) {
     actions.style.display = '';
