@@ -67,7 +67,7 @@ def compute_layout(width: int, height: int, orientation: str) -> Layout:
 
     if orientation == "portrait":
         date_bar_h = 44
-        footer_h = 44
+        footer_h = 60
         weather_hero_h = 264
         forecast_h = 172
         solar_h = 160
@@ -80,7 +80,7 @@ def compute_layout(width: int, height: int, orientation: str) -> Layout:
 
     elif orientation == "landscape":
         date_bar_h = 40
-        footer_h = 40
+        footer_h = 56
 
         date_bar = Rect(0, 0, width, date_bar_h)
         footer = Rect(0, height - footer_h, width, footer_h)

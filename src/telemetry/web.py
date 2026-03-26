@@ -22,6 +22,9 @@ log = logging.getLogger("home-hud.telemetry.web")
 _SESSION_RE = re.compile(r"^/api/sessions/([0-9a-f-]+)$")
 # Regex for /api/tts-cache/<hash>/audio
 _TTS_CACHE_RE = re.compile(r"^/api/tts-cache/([0-9a-f]{64})/audio$")
+# Regex for /api/monitor/services/<id> and /api/monitor/services/<id>/history
+_MONITOR_SVC_RE = re.compile(r"^/api/monitor/services/(\d+)$")
+_MONITOR_HIST_RE = re.compile(r"^/api/monitor/services/(\d+)/history$")
 
 # Log line parsing: matches "2024-01-15 10:30:45,123 [INFO] home-hud: message"
 _LOG_LINE_RE = re.compile(
@@ -62,6 +65,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_tts_cache_list()
         elif m := _TTS_CACHE_RE.match(path):
             self._handle_tts_cache_audio(m.group(1))
+        elif path == "/api/monitor/services":
+            self._handle_monitor_list()
+        elif m := _MONITOR_HIST_RE.match(path):
+            self._handle_monitor_history(int(m.group(1)), params)
+        elif m := _MONITOR_SVC_RE.match(path):
+            self._handle_monitor_detail(int(m.group(1)))
         elif m := _SESSION_RE.match(path):
             self._handle_session_detail(m.group(1))
         else:
@@ -73,6 +82,26 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/api/config":
             self._handle_config_save()
+        elif path == "/api/monitor/services":
+            self._handle_monitor_add()
+        else:
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    def do_DELETE(self):  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+
+        if m := _MONITOR_SVC_RE.match(path):
+            self._handle_monitor_remove(int(m.group(1)))
+        else:
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    def do_PATCH(self):  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+
+        if m := _MONITOR_SVC_RE.match(path):
+            self._handle_monitor_toggle(int(m.group(1)))
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -471,6 +500,123 @@ class _Handler(BaseHTTPRequestHandler):
             "filters": {"level": level_filter, "limit": limit},
         })
 
+    # --- Monitor handlers ---
+
+    def _get_monitor_storage(self):
+        """Get the MonitorStorage instance, or None."""
+        return getattr(self.server, "monitor_storage", None)
+
+    def _handle_monitor_list(self):
+        storage = self._get_monitor_storage()
+        if not storage:
+            self._send_json({"services": [], "monitoring_enabled": False})
+            return
+
+        services = storage.get_latest_results()
+        enriched = []
+        for svc in services:
+            summary = storage.get_uptime_summary(svc["id"], days=30)
+            enriched.append({**svc, **summary})
+        self._send_json({"services": enriched, "monitoring_enabled": True})
+
+    def _handle_monitor_detail(self, service_id: int):
+        storage = self._get_monitor_storage()
+        if not storage:
+            self._send_json({"error": "Monitoring not enabled"}, HTTPStatus.NOT_FOUND)
+            return
+
+        svc = storage.get_service(service_id)
+        if not svc:
+            self._send_json({"error": "Service not found"}, HTTPStatus.NOT_FOUND)
+            return
+
+        summary = storage.get_uptime_summary(service_id, days=30)
+        self._send_json({**svc, **summary})
+
+    def _handle_monitor_history(self, service_id: int, params: dict):
+        storage = self._get_monitor_storage()
+        if not storage:
+            self._send_json({"error": "Monitoring not enabled"}, HTTPStatus.NOT_FOUND)
+            return
+
+        days = min(int(params.get("days", [30])[0]), 90)
+        history = storage.get_service_history(service_id, days=days)
+        self._send_json({"service_id": service_id, "days": days, "checks": history})
+
+    def _handle_monitor_add(self):
+        storage = self._get_monitor_storage()
+        if not storage:
+            self._send_json(
+                {"error": "Monitoring not enabled"}, HTTPStatus.BAD_REQUEST
+            )
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        name = body.get("name", "").strip()
+        url = body.get("url", "").strip()
+        check_type = body.get("check_type", "http").strip()
+
+        if not name or not url:
+            self._send_json(
+                {"error": "name and url are required"}, HTTPStatus.BAD_REQUEST
+            )
+            return
+        if check_type not in ("http", "ping"):
+            self._send_json(
+                {"error": "check_type must be 'http' or 'ping'"}, HTTPStatus.BAD_REQUEST
+            )
+            return
+
+        try:
+            service_id = storage.add_service(name, url, check_type)
+        except Exception as exc:
+            self._send_json(
+                {"error": str(exc)}, HTTPStatus.BAD_REQUEST
+            )
+            return
+
+        self._send_json({"id": service_id, "name": name, "url": url})
+
+    def _handle_monitor_remove(self, service_id: int):
+        storage = self._get_monitor_storage()
+        if not storage:
+            self._send_json(
+                {"error": "Monitoring not enabled"}, HTTPStatus.BAD_REQUEST
+            )
+            return
+
+        if storage.remove_service(service_id):
+            self._send_json({"deleted": True, "id": service_id})
+        else:
+            self._send_json({"error": "Service not found"}, HTTPStatus.NOT_FOUND)
+
+    def _handle_monitor_toggle(self, service_id: int):
+        storage = self._get_monitor_storage()
+        if not storage:
+            self._send_json(
+                {"error": "Monitoring not enabled"}, HTTPStatus.BAD_REQUEST
+            )
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        enabled = body.get("enabled", True)
+        if storage.toggle_service(service_id, bool(enabled)):
+            self._send_json({"id": service_id, "enabled": enabled})
+        else:
+            self._send_json({"error": "Service not found"}, HTTPStatus.NOT_FOUND)
+
     # --- Response helpers ---
 
     def _send_json(self, data, status=HTTPStatus.OK):
@@ -584,6 +730,7 @@ class TelemetryWeb:
         log_dir: str | None = None,
         config: dict | None = None,
         tts_cache_dir: str | None = None,
+        monitor_storage: object | None = None,
     ):
         self._db_path = db_path
         self._host = host
@@ -592,6 +739,7 @@ class TelemetryWeb:
         self._log_dir = log_dir
         self._config = config
         self._tts_cache_dir = tts_cache_dir
+        self._monitor_storage = monitor_storage
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -612,6 +760,7 @@ class TelemetryWeb:
         self._server.log_dir = self._log_dir
         self._server.config = self._config
         self._server.tts_cache_dir = self._tts_cache_dir
+        self._server.monitor_storage = self._monitor_storage
 
     def _serve_loop(self) -> None:
         """Run serve_forever with auto-restart on crash."""

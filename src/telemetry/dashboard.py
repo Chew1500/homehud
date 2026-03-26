@@ -225,6 +225,33 @@ tr:hover td { background: #fafbfc; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
+/* Service monitor form */
+.svc-input {
+  padding: 0.4rem 0.6rem; border: 1px solid #ddd;
+  border-radius: 4px; font-size: 0.85rem; display: block;
+}
+.svc-add-btn {
+  padding: 0.4rem 1rem; background: #3b82f6; color: #fff;
+  border: none; border-radius: 4px; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600;
+}
+.svc-sm-btn {
+  background: none; border: 1px solid #ddd; border-radius: 4px;
+  padding: 0.2rem 0.6rem; cursor: pointer; font-size: 0.8rem;
+}
+.svc-act-btn {
+  cursor: pointer; background: none;
+  border: 1px solid #ccc; border-radius: 4px;
+  padding: 0.15rem 0.4rem; font-size: 0.75rem;
+  margin-right: 0.25rem;
+}
+.svc-del-btn {
+  cursor: pointer; background: none;
+  border: 1px solid #e74c3c; color: #e74c3c;
+  border-radius: 4px; padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
+}
+
 /* Loading / error */
 .loading { text-align: center; padding: 2rem; color: #888; }
 .error-msg { text-align: center; padding: 1rem; color: #e74c3c; background: #fee2e2;
@@ -277,6 +304,7 @@ tr:hover td { background: #fafbfc; }
   <button class="tab-btn" onclick="switchTab('tab-logs')">Logs</button>
   <button class="tab-btn" onclick="switchTab('tab-config')">Config</button>
   <button class="tab-btn" onclick="switchTab('tab-voice-cache')">Voice Cache</button>
+  <button class="tab-btn" onclick="switchTab('tab-services')">Services</button>
 </div>
 
 <div class="tab-panel active" id="tab-overview">
@@ -371,6 +399,62 @@ tr:hover td { background: #fafbfc; }
       </thead>
       <tbody id="vc-body"></tbody>
     </table>
+  </div>
+</div>
+
+<div class="tab-panel" id="tab-services">
+  <div id="svc-loading" class="loading">Loading services...</div>
+  <div id="svc-error" class="error-msg" style="display:none"></div>
+  <div id="svc-content" style="display:none">
+    <div class="card" style="margin-bottom:1rem">
+      <h3 class="label" style="margin-bottom:0.75rem">Add Service</h3>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:end">
+        <div>
+          <label class="label">Name</label>
+          <input id="svc-name" type="text" placeholder="My Service"
+            class="svc-input" style="width:160px">
+        </div>
+        <div>
+          <label class="label">URL / Host</label>
+          <input id="svc-url" type="text"
+            placeholder="http://192.168.1.1 or 192.168.1.1"
+            class="svc-input" style="width:260px">
+        </div>
+        <div>
+          <label class="label">Type</label>
+          <select id="svc-type" class="svc-input">
+            <option value="http">HTTP</option>
+            <option value="ping">Ping</option>
+          </select>
+        </div>
+        <button onclick="addService()" class="svc-add-btn">Add</button>
+      </div>
+      <div id="svc-add-error" class="error-msg"
+        style="font-size:0.8rem;margin-top:0.5rem;display:none"></div>
+    </div>
+    <table id="svc-table">
+      <thead>
+        <tr>
+          <th>Status</th><th>Name</th><th>URL</th><th>Type</th>
+          <th>Response</th><th>Uptime (30d)</th>
+          <th>Last Checked</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="svc-body"></tbody>
+    </table>
+    <div id="svc-history-panel" class="card"
+      style="display:none;margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;
+        align-items:center;margin-bottom:0.75rem">
+        <h3 id="svc-history-title" class="label"></h3>
+        <button onclick="closeSvcHistory()"
+          class="svc-sm-btn">Close</button>
+      </div>
+      <canvas id="svc-history-canvas" height="60"
+        style="width:100%;border-radius:4px"></canvas>
+      <div id="svc-history-stats"
+        style="font-size:0.8rem;color:#888;margin-top:0.5rem"></div>
+    </div>
   </div>
 </div>
 
@@ -1142,6 +1226,181 @@ async function loadVoiceCache() {
   }
 }
 
+// --- Services Monitor ---
+let svcRefreshTimer = null;
+
+async function loadServices() {
+  try {
+    const data = await fetchJSON('/api/monitor/services');
+    if (!data.monitoring_enabled) {
+      document.getElementById('svc-loading').style.display = 'none';
+      const err = document.getElementById('svc-error');
+      err.textContent = 'Service monitoring is disabled. '
+        + 'Enable it in Config > Monitor > monitor_enabled.';
+      err.style.display = '';
+      return;
+    }
+
+    const tbody = document.getElementById('svc-body');
+    if (data.services.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="loading">'
+        + 'No services configured. Add one above.</td></tr>';
+    } else {
+      tbody.innerHTML = data.services.map(s => {
+        const isUp = s.is_up === 1;
+        const hasResult = s.checked_at != null;
+        const statusBadge = !hasResult
+          ? '<span style="color:#888">Pending</span>'
+          : isUp
+            ? '<span style="color:#22c55e;font-weight:700">UP</span>'
+            : '<span style="color:#e74c3c;font-weight:700">DOWN</span>';
+        const enabledBadge = s.enabled
+          ? ''
+          : ' <span style="color:#888;font-size:0.75rem">(disabled)</span>';
+        return '<tr>'
+          + '<td>' + statusBadge + '</td>'
+          + '<td>' + escapeHtml(s.name) + enabledBadge + '</td>'
+          + '<td style="font-size:0.8rem">' + escapeHtml(s.url) + '</td>'
+          + '<td>' + escapeHtml(s.check_type) + '</td>'
+          + '<td>' + (s.response_time_ms != null
+            ? s.response_time_ms.toFixed(0) + 'ms' : '-') + '</td>'
+          + '<td>' + (s.uptime_pct != null ? s.uptime_pct + '%' : '-') + '</td>'
+          + '<td>' + fmtTime(s.checked_at) + '</td>'
+          + '<td>'
+          + '<button onclick="showSvcHistory('
+          + s.id + ',\\'' + escapeHtml(s.name) + '\\')"'
+          + ' class="svc-act-btn" title="History"'
+          + '>&#128200;</button>'
+          + '<button onclick="toggleSvc('
+          + s.id + ',' + (s.enabled ? 'false' : 'true')
+          + ')" class="svc-act-btn" title="'
+          + (s.enabled ? 'Disable' : 'Enable') + '">'
+          + (s.enabled ? '&#9724;' : '&#9654;')
+          + '</button>'
+          + '<button onclick="removeSvc(' + s.id
+          + ')" class="svc-del-btn" title="Remove"'
+          + '>&#10005;</button>'
+          + '</td></tr>';
+      }).join('');
+    }
+
+    document.getElementById('svc-loading').style.display = 'none';
+    document.getElementById('svc-content').style.display = '';
+
+    // Auto-refresh every 60s while on this tab
+    if (!svcRefreshTimer) {
+      svcRefreshTimer = setInterval(() => {
+        const panel = document.getElementById('tab-services');
+        if (panel && panel.classList.contains('active')) loadServices();
+      }, 60000);
+    }
+  } catch (e) {
+    document.getElementById('svc-loading').style.display = 'none';
+    const err = document.getElementById('svc-error');
+    err.textContent = 'Failed to load services: ' + e.message;
+    err.style.display = '';
+  }
+}
+
+async function addService() {
+  const name = document.getElementById('svc-name').value.trim();
+  const url = document.getElementById('svc-url').value.trim();
+  const checkType = document.getElementById('svc-type').value;
+  const errEl = document.getElementById('svc-add-error');
+  errEl.style.display = 'none';
+
+  if (!name || !url) {
+    errEl.textContent = 'Name and URL are required.';
+    errEl.style.display = '';
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/monitor/services', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, url, check_type: checkType}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to add service.';
+      errEl.style.display = '';
+      return;
+    }
+    document.getElementById('svc-name').value = '';
+    document.getElementById('svc-url').value = '';
+    loadServices();
+  } catch (e) {
+    errEl.textContent = 'Error: ' + e.message;
+    errEl.style.display = '';
+  }
+}
+
+async function removeSvc(id) {
+  if (!confirm('Remove this service and all its history?')) return;
+  try {
+    await fetch('/api/monitor/services/' + id, {method: 'DELETE'});
+    loadServices();
+  } catch (e) { /* ignore */ }
+}
+
+async function toggleSvc(id, enabled) {
+  try {
+    await fetch('/api/monitor/services/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled}),
+    });
+    loadServices();
+  } catch (e) { /* ignore */ }
+}
+
+async function showSvcHistory(id, name) {
+  document.getElementById('svc-history-title').textContent = name + ' — 30 Day History';
+  document.getElementById('svc-history-panel').style.display = '';
+  document.getElementById('svc-history-stats').textContent = 'Loading...';
+
+  try {
+    const data = await fetchJSON('/api/monitor/services/' + id + '/history?days=30');
+    const canvas = document.getElementById('svc-history-canvas');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = 60 * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, rect.width, 60);
+
+    const checks = data.checks;
+    if (checks.length === 0) {
+      ctx.fillStyle = '#888';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('No check history yet.', 10, 35);
+      document.getElementById('svc-history-stats').textContent = '';
+      return;
+    }
+
+    // Draw bar segments
+    const w = rect.width;
+    const segW = Math.max(1, w / checks.length);
+    checks.forEach((c, i) => {
+      ctx.fillStyle = c.is_up ? '#22c55e' : '#e74c3c';
+      ctx.fillRect(i * segW, 0, Math.ceil(segW), 60);
+    });
+
+    const upCount = checks.filter(c => c.is_up).length;
+    const pct = (upCount / checks.length * 100).toFixed(2);
+    document.getElementById('svc-history-stats').textContent =
+      pct + '% uptime over ' + checks.length + ' checks (' + data.days + ' days)';
+  } catch (e) {
+    document.getElementById('svc-history-stats').textContent = 'Failed to load history.';
+  }
+}
+
+function closeSvcHistory() {
+  document.getElementById('svc-history-panel').style.display = 'none';
+}
+
 // --- Tab navigation ---
 const loadedTabs = new Set(['tab-overview']);
 const TAB_LOADERS = {
@@ -1149,6 +1408,7 @@ const TAB_LOADERS = {
   'tab-logs': () => { loadLogs(); setupLogAutoRefresh(); },
   'tab-config': () => loadConfig(),
   'tab-voice-cache': () => loadVoiceCache(),
+  'tab-services': () => loadServices(),
 };
 
 function switchTab(tabId) {

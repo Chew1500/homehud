@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from enphase.storage import SolarStorage
     from features.grocery import GroceryFeature
     from features.reminder import ReminderFeature
+    from monitor.storage import MonitorStorage
     from sysmon.base import BaseSystemMonitor
     from weather.base import BaseWeatherClient
 
@@ -24,4 +25,5 @@ class DisplayContext:
     system_monitor: BaseSystemMonitor | None = None
     discovery_storage: DiscoveryStorage | None = None
     weather_client: BaseWeatherClient | None = None
+    monitor_storage: MonitorStorage | None = None
     orientation: str = "portrait"

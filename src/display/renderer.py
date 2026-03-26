@@ -638,6 +638,22 @@ def _render_footer(
                 bbox = draw.textbbox((0, 0), text, font=fonts[14])
                 x += (bbox[2] - bbox[0]) + gap_between
 
+    # Service monitor alerts (second line in footer)
+    monitor_storage = ctx.monitor_storage if ctx else None
+    if monitor_storage:
+        try:
+            down = monitor_storage.get_down_services()
+            if down:
+                names = ", ".join(d["name"] for d in down[:5])
+                if len(down) > 5:
+                    names += f" +{len(down) - 5} more"
+                alert_text = f"DOWN: {names}"
+                draw.text(
+                    (r.x + margin, r.y + 32), alert_text, fill=RED, font=fonts[12]
+                )
+        except Exception:
+            pass  # Don't break display if monitor DB is unavailable
+
 
 # ---------------------------------------------------------------------------
 # Main entry point

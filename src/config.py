@@ -241,6 +241,17 @@ CONFIG_REGISTRY: list[ConfigParam] = [
     ConfigParam("solar_longitude", "SOLAR_LONGITUDE", "", "str", "Solar",
                 "Solar location longitude"),
 
+    # --- Monitor ---
+    ConfigParam("monitor_enabled", "HUD_MONITOR_ENABLED", "false", "bool", "Monitor",
+                "Enable service uptime monitoring"),
+    ConfigParam("monitor_poll_interval", "HUD_MONITOR_POLL_INTERVAL", "600", "int",
+                "Monitor", "Service check interval in seconds"),
+    ConfigParam("monitor_check_timeout", "HUD_MONITOR_CHECK_TIMEOUT", "10", "int",
+                "Monitor", "HTTP/ping check timeout in seconds"),
+    ConfigParam("monitor_db_path", "HUD_MONITOR_DB_PATH",
+                str(PROJECT_ROOT / "data" / "monitor.db"), "str", "Monitor",
+                "Path to monitor database"),
+
     # --- Media ---
     ConfigParam("sonarr_mode", "SONARR_MODE", "", "str", "Media",
                 "Sonarr backend: empty (disabled), mock, or live"),

@@ -75,6 +75,18 @@ def main():
     system_monitor = get_system_monitor(config)
     log.info(f"System monitor: {system_monitor.__class__.__name__}")
 
+    # Service monitoring (independent of voice pipeline)
+    from monitor import get_monitor_storage
+
+    monitor_storage = get_monitor_storage(config)
+    monitor_collector = None
+    if monitor_storage:
+        from monitor.collector import ServiceCollector
+
+        monitor_collector = ServiceCollector(monitor_storage, config)
+        monitor_collector.start()
+        log.info("Service monitoring enabled")
+
     # Voice pipeline (optional)
     audio = None
     stt = None
@@ -200,6 +212,7 @@ def main():
                         log_dir=config.get("log_dir"),
                         config=config,
                         tts_cache_dir=config.get("tts_cache_dir"),
+                        monitor_storage=monitor_storage,
                     )
                     telemetry_web.start()
 
@@ -233,6 +246,7 @@ def main():
         system_monitor=system_monitor,
         discovery_storage=discovery_storage,
         weather_client=weather_client,
+        monitor_storage=monitor_storage,
         orientation=config.get("display_orientation", "portrait"),
     )
 
@@ -266,6 +280,10 @@ def main():
             voice_thread.join(timeout=5)
         if library_collector:
             library_collector.close()
+        if monitor_collector:
+            monitor_collector.close()
+        if monitor_storage:
+            monitor_storage.close()
         if solar_collector:
             solar_collector.close()
         if router:
