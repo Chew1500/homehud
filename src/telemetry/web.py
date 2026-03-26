@@ -84,6 +84,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_config_save()
         elif path == "/api/monitor/services":
             self._handle_monitor_add()
+        elif path == "/api/monitor/test":
+            self._handle_monitor_test()
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -101,7 +103,7 @@ class _Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
 
         if m := _MONITOR_SVC_RE.match(path):
-            self._handle_monitor_toggle(int(m.group(1)))
+            self._handle_monitor_update(int(m.group(1)))
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -596,7 +598,7 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "Service not found"}, HTTPStatus.NOT_FOUND)
 
-    def _handle_monitor_toggle(self, service_id: int):
+    def _handle_monitor_update(self, service_id: int):
         storage = self._get_monitor_storage()
         if not storage:
             self._send_json(
@@ -608,14 +610,72 @@ class _Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length))
         except (ValueError, json.JSONDecodeError):
-            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            self._send_json(
+                {"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST
+            )
             return
 
-        enabled = body.get("enabled", True)
-        if storage.toggle_service(service_id, bool(enabled)):
-            self._send_json({"id": service_id, "enabled": enabled})
+        updated = False
+        if "enabled" in body:
+            updated = storage.toggle_service(
+                service_id, bool(body["enabled"])
+            )
+        name = body.get("name", "").strip() or None
+        url = body.get("url", "").strip() or None
+        if name or url:
+            try:
+                updated = storage.update_service(
+                    service_id, name=name, url=url
+                ) or updated
+            except Exception as exc:
+                self._send_json(
+                    {"error": str(exc)}, HTTPStatus.BAD_REQUEST
+                )
+                return
+
+        if updated:
+            self._send_json({"id": service_id, "updated": True})
         else:
-            self._send_json({"error": "Service not found"}, HTTPStatus.NOT_FOUND)
+            self._send_json(
+                {"error": "Service not found"}, HTTPStatus.NOT_FOUND
+            )
+
+    def _handle_monitor_test(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json(
+                {"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST
+            )
+            return
+
+        url = body.get("url", "").strip()
+        check_type = body.get("check_type", "http").strip()
+        if not url:
+            self._send_json(
+                {"error": "url is required"}, HTTPStatus.BAD_REQUEST
+            )
+            return
+
+        from monitor.checker import check_http, check_ping
+
+        timeout = 10
+        config = getattr(self.server, "config", None)
+        if config:
+            timeout = config.get("monitor_check_timeout", 10)
+
+        if check_type == "ping":
+            is_up, ms, code, error = check_ping(url, timeout)
+        else:
+            is_up, ms, code, error = check_http(url, timeout)
+
+        self._send_json({
+            "is_up": is_up,
+            "response_time_ms": ms,
+            "status_code": code,
+            "error": error,
+        })
 
     # --- Response helpers ---
 

@@ -80,10 +80,13 @@ def main():
 
     monitor_storage = get_monitor_storage(config)
     monitor_collector = None
+    display_refresh = threading.Event()
     if monitor_storage:
         from monitor.collector import ServiceCollector
 
-        monitor_collector = ServiceCollector(monitor_storage, config)
+        monitor_collector = ServiceCollector(
+            monitor_storage, config, refresh_event=display_refresh
+        )
         monitor_collector.start()
         log.info("Service monitoring enabled")
 
@@ -273,6 +276,10 @@ def main():
                     except Exception:
                         log.exception("Failed to restart telemetry web server")
                         telemetry_web = None
+                if display_refresh.is_set():
+                    display_refresh.clear()
+                    log.info("Display refresh triggered by monitor")
+                    break
                 time.sleep(1)
     finally:
         running.clear()

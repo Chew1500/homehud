@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 import threading
-import time
 
-import httpx
-
+from monitor.checker import check_http, check_ping
 from monitor.storage import MonitorStorage
 
 log = logging.getLogger("home-hud.monitor.collector")
@@ -17,12 +14,19 @@ log = logging.getLogger("home-hud.monitor.collector")
 class ServiceCollector:
     """Daemon thread that checks monitored services on a configurable interval."""
 
-    def __init__(self, storage: MonitorStorage, config: dict):
+    def __init__(
+        self,
+        storage: MonitorStorage,
+        config: dict,
+        refresh_event: threading.Event | None = None,
+    ):
         self._storage = storage
         self._poll_interval = config.get("monitor_poll_interval", 600)
         self._timeout = config.get("monitor_check_timeout", 10)
         self._stop_event = threading.Event()
+        self._refresh_event = refresh_event
         self._thread: threading.Thread | None = None
+        self._prev_down_ids: set[int] = set()
 
     def start(self) -> threading.Thread:
         """Start the collector daemon thread."""
@@ -51,12 +55,12 @@ class ServiceCollector:
         for svc in services:
             try:
                 if svc["check_type"] == "ping":
-                    is_up, response_ms, status_code, error = self._check_ping(
-                        svc["url"]
+                    is_up, response_ms, status_code, error = check_ping(
+                        svc["url"], self._timeout
                     )
                 else:
-                    is_up, response_ms, status_code, error = self._check_http(
-                        svc["url"]
+                    is_up, response_ms, status_code, error = check_http(
+                        svc["url"], self._timeout
                     )
             except Exception as exc:
                 is_up, response_ms, status_code, error = (
@@ -70,50 +74,23 @@ class ServiceCollector:
         # Prune results older than 90 days
         self._storage.prune_old_results(90)
 
-        down = [s["name"] for s in self._storage.get_down_services()]
-        if down:
-            log.warning("Services DOWN: %s", ", ".join(down))
+        # Detect new outages and trigger display refresh
+        down_services = self._storage.get_down_services()
+        down_ids = {s["id"] for s in down_services}
+        new_outages = down_ids - self._prev_down_ids
+        self._prev_down_ids = down_ids
+
+        if new_outages and self._refresh_event:
+            log.info(
+                "New outage(s) detected — triggering display refresh"
+            )
+            self._refresh_event.set()
+
+        if down_services:
+            names = [s["name"] for s in down_services]
+            log.warning("Services DOWN: %s", ", ".join(names))
         else:
             log.debug("All %d monitored services up", len(services))
-
-    def _check_http(
-        self, url: str
-    ) -> tuple[bool, float | None, int | None, str | None]:
-        """Check an HTTP(S) endpoint. Any response = up."""
-        try:
-            start = time.monotonic()
-            resp = httpx.get(
-                url, timeout=self._timeout, follow_redirects=True
-            )
-            elapsed_ms = (time.monotonic() - start) * 1000
-            return True, round(elapsed_ms, 1), resp.status_code, None
-        except httpx.TimeoutException:
-            return False, None, None, "timeout"
-        except httpx.ConnectError as exc:
-            return False, None, None, f"connect error: {exc}"
-        except httpx.HTTPError as exc:
-            return False, None, None, str(exc)
-
-    def _check_ping(
-        self, host: str
-    ) -> tuple[bool, float | None, int | None, str | None]:
-        """Check a host via ICMP ping. Exit code 0 = up."""
-        try:
-            start = time.monotonic()
-            result = subprocess.run(
-                ["ping", "-c", "1", "-W", str(self._timeout), host],
-                capture_output=True,
-                text=True,
-                timeout=self._timeout + 5,
-            )
-            elapsed_ms = (time.monotonic() - start) * 1000
-            if result.returncode == 0:
-                return True, round(elapsed_ms, 1), None, None
-            return False, None, None, "ping failed"
-        except subprocess.TimeoutExpired:
-            return False, None, None, "ping timeout"
-        except FileNotFoundError:
-            return False, None, None, "ping command not found"
 
     def close(self) -> None:
         """Stop the collector thread."""

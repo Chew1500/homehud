@@ -84,6 +84,33 @@ class MonitorStorage:
             self._conn.commit()
             return cursor.rowcount > 0
 
+    def update_service(
+        self,
+        service_id: int,
+        name: str | None = None,
+        url: str | None = None,
+    ) -> bool:
+        """Update a service's name and/or URL. Returns True if found."""
+        updates = []
+        params: list = []
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if url is not None:
+            updates.append("url = ?")
+            params.append(url)
+        if not updates:
+            return False
+        params.append(service_id)
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE services SET {', '.join(updates)} "
+                "WHERE id = ?",
+                params,
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
     def get_services(self, enabled_only: bool = False) -> list[dict]:
         """Get all services, optionally filtered to enabled only."""
         sql = "SELECT * FROM services"

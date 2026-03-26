@@ -251,6 +251,13 @@ tr:hover td { background: #fafbfc; }
   border-radius: 4px; padding: 0.15rem 0.4rem;
   font-size: 0.75rem;
 }
+.svc-editable { cursor: pointer; }
+.svc-editable:hover { background: #f0f5ff; }
+.svc-edit-input {
+  padding: 0.2rem 0.4rem; border: 1px solid #3b82f6;
+  border-radius: 3px; font-size: 0.85rem;
+  font-family: inherit; width: 100%;
+}
 
 /* Loading / error */
 .loading { text-align: center; padding: 2rem; color: #888; }
@@ -428,7 +435,10 @@ tr:hover td { background: #fafbfc; }
           </select>
         </div>
         <button onclick="addService()" class="svc-add-btn">Add</button>
+        <button onclick="testNewService()" class="svc-sm-btn">Test</button>
       </div>
+      <div id="svc-test-result"
+        style="font-size:0.8rem;margin-top:0.5rem;display:none"></div>
       <div id="svc-add-error" class="error-msg"
         style="font-size:0.8rem;margin-top:0.5rem;display:none"></div>
     </div>
@@ -1257,18 +1267,31 @@ async function loadServices() {
         const enabledBadge = s.enabled
           ? ''
           : ' <span style="color:#888;font-size:0.75rem">(disabled)</span>';
+        const eName = escapeHtml(s.name);
+        const eUrl = escapeHtml(s.url);
         return '<tr>'
           + '<td>' + statusBadge + '</td>'
-          + '<td>' + escapeHtml(s.name) + enabledBadge + '</td>'
-          + '<td style="font-size:0.8rem">' + escapeHtml(s.url) + '</td>'
+          + '<td class="svc-editable" ondblclick='
+          + '"editSvcCell(this,' + s.id + ',\\'name\\')">'
+          + eName + enabledBadge + '</td>'
+          + '<td class="svc-editable" style="font-size:0.8rem"'
+          + ' ondblclick="editSvcCell(this,'
+          + s.id + ',\\'url\\')">' + eUrl + '</td>'
           + '<td>' + escapeHtml(s.check_type) + '</td>'
           + '<td>' + (s.response_time_ms != null
-            ? s.response_time_ms.toFixed(0) + 'ms' : '-') + '</td>'
-          + '<td>' + (s.uptime_pct != null ? s.uptime_pct + '%' : '-') + '</td>'
+            ? s.response_time_ms.toFixed(0) + 'ms'
+            : '-') + '</td>'
+          + '<td>' + (s.uptime_pct != null
+            ? s.uptime_pct + '%' : '-') + '</td>'
           + '<td>' + fmtTime(s.checked_at) + '</td>'
           + '<td>'
+          + '<button onclick="testExistingSvc(\\''
+          + eUrl + '\\',\\''
+          + escapeHtml(s.check_type) + '\\')"'
+          + ' class="svc-act-btn" title="Test"'
+          + '>&#9889;</button>'
           + '<button onclick="showSvcHistory('
-          + s.id + ',\\'' + escapeHtml(s.name) + '\\')"'
+          + s.id + ',\\'' + eName + '\\')"'
           + ' class="svc-act-btn" title="History"'
           + '>&#128200;</button>'
           + '<button onclick="toggleSvc('
@@ -1334,6 +1357,103 @@ async function addService() {
     errEl.textContent = 'Error: ' + e.message;
     errEl.style.display = '';
   }
+}
+
+async function testNewService() {
+  const url = document.getElementById('svc-url').value.trim();
+  const checkType = document.getElementById('svc-type').value;
+  const el = document.getElementById('svc-test-result');
+  el.style.display = 'none';
+  if (!url) {
+    el.textContent = 'Enter a URL first.';
+    el.style.color = '#e74c3c';
+    el.style.display = '';
+    return;
+  }
+  el.textContent = 'Testing...';
+  el.style.color = '#888';
+  el.style.display = '';
+  try {
+    const res = await fetch('/api/monitor/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url, check_type: checkType}),
+    });
+    const d = await res.json();
+    if (d.is_up) {
+      el.style.color = '#22c55e';
+      el.textContent = 'Reachable'
+        + (d.response_time_ms != null
+          ? ' — ' + d.response_time_ms.toFixed(0) + 'ms'
+          : '')
+        + (d.status_code ? ' (HTTP ' + d.status_code + ')' : '');
+    } else {
+      el.style.color = '#e74c3c';
+      el.textContent = 'Unreachable — '
+        + (d.error || 'unknown error');
+    }
+  } catch (e) {
+    el.style.color = '#e74c3c';
+    el.textContent = 'Test failed: ' + e.message;
+  }
+}
+
+async function testExistingSvc(url, checkType) {
+  alert(await testSvcInline(url, checkType));
+}
+
+async function testSvcInline(url, checkType) {
+  try {
+    const res = await fetch('/api/monitor/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url, check_type: checkType}),
+    });
+    const d = await res.json();
+    if (d.is_up) {
+      return 'UP'
+        + (d.response_time_ms != null
+          ? ' — ' + d.response_time_ms.toFixed(0) + 'ms'
+          : '')
+        + (d.status_code ? ' (HTTP ' + d.status_code + ')' : '');
+    }
+    return 'DOWN — ' + (d.error || 'unknown error');
+  } catch (e) {
+    return 'Test failed: ' + e.message;
+  }
+}
+
+function editSvcCell(td, id, field) {
+  if (td.querySelector('input')) return;
+  const orig = td.textContent.replace(/\\(disabled\\)/, '').trim();
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = orig;
+  input.className = 'svc-edit-input';
+  td.textContent = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+
+  async function save() {
+    const val = input.value.trim();
+    if (!val || val === orig) { loadServices(); return; }
+    const body = {};
+    body[field] = val;
+    try {
+      await fetch('/api/monitor/services/' + id, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+    } catch (e) { /* ignore */ }
+    loadServices();
+  }
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    if (e.key === 'Escape') loadServices();
+  });
 }
 
 async function removeSvc(id) {
