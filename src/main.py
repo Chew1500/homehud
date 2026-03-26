@@ -250,6 +250,15 @@ def main():
                         "Voice pipeline thread died — exiting for systemd restart"
                     )
                     sys.exit(1)
+                if telemetry_web and not telemetry_web.is_alive:
+                    log.warning(
+                        "Telemetry web server died — restarting"
+                    )
+                    try:
+                        telemetry_web.start()
+                    except Exception:
+                        log.exception("Failed to restart telemetry web server")
+                        telemetry_web = None
                 time.sleep(1)
     finally:
         running.clear()

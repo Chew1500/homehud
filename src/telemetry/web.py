@@ -8,6 +8,7 @@ import re
 import sqlite3
 import struct
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -596,19 +597,50 @@ class TelemetryWeb:
 
     def start(self) -> threading.Thread:
         """Start the web server in a daemon thread."""
-        self._server = HTTPServer((self._host, self._port), _Handler)
-        self._server.db_path = self._db_path  # attach for handler access
-        self._server.display_snapshot_path = self._display_snapshot_path
-        self._server.log_dir = self._log_dir
-        self._server.config = self._config
-        self._server.tts_cache_dir = self._tts_cache_dir
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._setup_server()
+        self._shutting_down = False
+        self._thread = threading.Thread(target=self._serve_loop, daemon=True)
         self._thread.start()
         log.info("Telemetry dashboard at http://%s:%d", self._host, self._port)
         return self._thread
 
+    def _setup_server(self) -> None:
+        """Create and configure the HTTP server instance."""
+        self._server = HTTPServer((self._host, self._port), _Handler)
+        self._server.db_path = self._db_path
+        self._server.display_snapshot_path = self._display_snapshot_path
+        self._server.log_dir = self._log_dir
+        self._server.config = self._config
+        self._server.tts_cache_dir = self._tts_cache_dir
+
+    def _serve_loop(self) -> None:
+        """Run serve_forever with auto-restart on crash."""
+        while not self._shutting_down:
+            try:
+                self._server.serve_forever()
+            except Exception:
+                if self._shutting_down:
+                    return
+                log.exception("Telemetry web server crashed — restarting in 5s")
+                try:
+                    self._server.server_close()
+                except Exception:
+                    pass
+                time.sleep(5)
+                try:
+                    self._setup_server()
+                except Exception:
+                    log.exception("Telemetry web server failed to rebind — giving up")
+                    return
+
+    @property
+    def is_alive(self) -> bool:
+        """Return True if the server thread is still running."""
+        return self._thread is not None and self._thread.is_alive()
+
     def close(self) -> None:
         """Shut down the server."""
+        self._shutting_down = True
         if self._server:
             self._server.shutdown()
             if self._thread:
