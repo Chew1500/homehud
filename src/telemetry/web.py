@@ -622,10 +622,12 @@ class _Handler(BaseHTTPRequestHandler):
             )
         name = body.get("name", "").strip() or None
         url = body.get("url", "").strip() or None
-        if name or url:
+        check_type = body.get("check_type", "").strip() or None
+        if name or url or check_type:
             try:
                 updated = storage.update_service(
-                    service_id, name=name, url=url
+                    service_id, name=name, url=url,
+                    check_type=check_type,
                 ) or updated
             except Exception as exc:
                 self._send_json(

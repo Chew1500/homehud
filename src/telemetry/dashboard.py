@@ -1277,7 +1277,10 @@ async function loadServices() {
           + '<td class="svc-editable" style="font-size:0.8rem"'
           + ' ondblclick="editSvcCell(this,'
           + s.id + ',\\'url\\')">' + eUrl + '</td>'
-          + '<td>' + escapeHtml(s.check_type) + '</td>'
+          + '<td class="svc-editable" ondblclick='
+          + '"editSvcType(this,' + s.id + ',\\''
+          + escapeHtml(s.check_type) + '\\')">'
+          + escapeHtml(s.check_type) + '</td>'
           + '<td>' + (s.response_time_ms != null
             ? s.response_time_ms.toFixed(0) + 'ms'
             : '-') + '</td>'
@@ -1452,6 +1455,39 @@ function editSvcCell(td, id, field) {
   input.addEventListener('blur', save);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); save(); }
+    if (e.key === 'Escape') loadServices();
+  });
+}
+
+function editSvcType(td, id, current) {
+  if (td.querySelector('select')) return;
+  const sel = document.createElement('select');
+  sel.className = 'svc-edit-input';
+  ['http', 'ping'].forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = v.toUpperCase();
+    if (v === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  td.textContent = '';
+  td.appendChild(sel);
+  sel.focus();
+
+  async function save() {
+    const val = sel.value;
+    if (val === current) { loadServices(); return; }
+    try {
+      await fetch('/api/monitor/services/' + id, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({check_type: val}),
+      });
+    } catch (e) { /* ignore */ }
+    loadServices();
+  }
+  sel.addEventListener('blur', save);
+  sel.addEventListener('change', save);
+  sel.addEventListener('keydown', e => {
     if (e.key === 'Escape') loadServices();
   });
 }

@@ -89,8 +89,9 @@ class MonitorStorage:
         service_id: int,
         name: str | None = None,
         url: str | None = None,
+        check_type: str | None = None,
     ) -> bool:
-        """Update a service's name and/or URL. Returns True if found."""
+        """Update a service's name, URL, and/or check type. Returns True if found."""
         updates = []
         params: list = []
         if name is not None:
@@ -99,6 +100,11 @@ class MonitorStorage:
         if url is not None:
             updates.append("url = ?")
             params.append(url)
+        if check_type is not None:
+            if check_type not in ("http", "ping"):
+                raise ValueError("check_type must be 'http' or 'ping'")
+            updates.append("check_type = ?")
+            params.append(check_type)
         if not updates:
             return False
         params.append(service_id)
