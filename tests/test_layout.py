@@ -33,7 +33,7 @@ def test_portrait_layout_matches_original_constants():
     assert layout.weather_hero == Rect(0, 48, 480, 264)
     assert layout.forecast == Rect(0, 320, 480, 172)
     assert layout.solar == Rect(0, 504, 480, 160)
-    assert layout.footer == Rect(0, 740, 480, 60)
+    assert layout.footer == Rect(0, 756, 480, 44)
 
 
 def test_landscape_layout_dimensions():

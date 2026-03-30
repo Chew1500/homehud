@@ -638,21 +638,37 @@ def _render_footer(
                 bbox = draw.textbbox((0, 0), text, font=fonts[14])
                 x += (bbox[2] - bbox[0]) + gap_between
 
-    # Service monitor alerts (second line in footer)
+
+
+def _render_monitor_alert(
+    draw: ImageDraw.ImageDraw,
+    fonts: dict,
+    ctx: DisplayContext | None,
+    layout: Layout,
+) -> None:
+    """Render service-down alert in the gap between solar and footer."""
     monitor_storage = ctx.monitor_storage if ctx else None
-    if monitor_storage:
-        try:
-            down = monitor_storage.get_down_services()
-            if down:
-                names = ", ".join(d["name"] for d in down[:5])
-                if len(down) > 5:
-                    names += f" +{len(down) - 5} more"
-                alert_text = f"DOWN: {names}"
-                draw.text(
-                    (r.x + margin, r.y + 32), alert_text, fill=RED, font=fonts[12]
-                )
-        except Exception:
-            pass  # Don't break display if monitor DB is unavailable
+    if not monitor_storage:
+        return
+    try:
+        down = monitor_storage.get_down_services()
+        if not down:
+            return
+        names = ", ".join(d["name"] for d in down[:5])
+        if len(down) > 5:
+            names += f" +{len(down) - 5} more"
+        alert_text = f"DOWN: {names}"
+
+        # Render in the gap between solar bottom and footer top
+        gap_y = layout.solar.y2
+        gap_h = layout.footer.y - gap_y
+        text_y = gap_y + (gap_h - 14) // 2  # vertically center 12pt text
+        draw.text(
+            (layout.margin, text_y),
+            alert_text, fill=RED, font=fonts[12],
+        )
+    except Exception:
+        pass  # Don't break display if monitor DB is unavailable
 
 
 # ---------------------------------------------------------------------------
@@ -681,6 +697,7 @@ def render_frame(display: BaseDisplay, ctx: DisplayContext | None = None) -> Non
     _render_weather_hero(draw, fonts, weather_data, layout)
     _render_forecast(draw, fonts, weather_data, layout)
     _render_solar(draw, fonts, solar_storage, layout)
+    _render_monitor_alert(draw, fonts, ctx, layout)
     _render_footer(draw, fonts, ctx, layout)
 
     display.show(img)
