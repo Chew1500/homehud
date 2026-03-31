@@ -70,13 +70,15 @@ CONFIG_REGISTRY: list[ConfigParam] = [
 
     # --- STT ---
     ConfigParam("stt_mode", "HUD_STT_MODE", "mock", "str", "STT",
-                "STT backend: mock or whisper"),
+                "STT backend: mock, whisper, or elevenlabs"),
     ConfigParam("stt_whisper_model", "HUD_STT_WHISPER_MODEL", "base.en", "str", "STT",
                 "Whisper model size"),
     ConfigParam("stt_whisper_prompt", "HUD_STT_WHISPER_PROMPT", "", "str", "STT",
                 "Initial prompt for Whisper"),
     ConfigParam("stt_whisper_hotwords", "HUD_STT_WHISPER_HOTWORDS", "", "str", "STT",
                 "Hotwords for Whisper"),
+    ConfigParam("stt_elevenlabs_model", "HUD_STT_ELEVENLABS_MODEL", "scribe_v1",
+                "str", "STT", "ElevenLabs STT model ID"),
     ConfigParam("stt_mock_response", "HUD_STT_MOCK_RESPONSE", "hello world", "str",
                 "STT", "Mock STT response text"),
     ConfigParam("stt_no_speech_threshold", "HUD_STT_NO_SPEECH_THRESHOLD", "0.6",

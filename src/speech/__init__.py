@@ -18,6 +18,9 @@ def get_stt(config: dict) -> BaseSTT:
     if mode == "whisper":
         from speech.whisper_stt import WhisperSTT
         return WhisperSTT(config)
+    elif mode == "elevenlabs":
+        from speech.elevenlabs_stt import ElevenLabsSTT
+        return ElevenLabsSTT(config)
     else:
         return MockSTT(config)
 

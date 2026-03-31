@@ -190,7 +190,7 @@ def main():
                 grocery_feature,
                 reminder_feature,
                 SolarFeature(config, solar_storage, llm),
-                MediaFeature(config, sonarr=sonarr_client, radarr=radarr_client),
+                MediaFeature(config, sonarr=sonarr_client, radarr=radarr_client, llm=llm),
                 discovery_feature,
                 NetworkFeature(config),
             ]

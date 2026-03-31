@@ -7,6 +7,7 @@ import re
 import time
 
 from features.base import BaseFeature
+from llm.base import BaseLLM
 from media.base import BaseRadarrClient, BaseSonarrClient
 
 log = logging.getLogger("home-hud.features.media")
@@ -125,10 +126,12 @@ class MediaFeature(BaseFeature):
         config: dict,
         sonarr: BaseSonarrClient | None = None,
         radarr: BaseRadarrClient | None = None,
+        llm: BaseLLM | None = None,
     ):
         super().__init__(config)
         self._sonarr = sonarr
         self._radarr = radarr
+        self._llm = llm
         self._ttl = config.get("media_disambiguation_ttl", 60)
 
         # Disambiguation state
@@ -479,11 +482,89 @@ class MediaFeature(BaseFeature):
 
     # -- Disambiguation --
 
+    def _llm_pick_best(
+        self, results: list[dict], search_term: str
+    ) -> list[dict] | None:
+        """Use LLM to rank search results by likely user intent.
+
+        Returns a narrowed list of the most likely matches, or None
+        if the LLM is unavailable or fails (triggering mechanical fallback).
+        """
+        if not self._llm or not hasattr(self._llm, "_client"):
+            return None
+
+        lines = [
+            f"{i + 1}. {r['title']} ({r['year']}) - {r['media_type']}"
+            for i, r in enumerate(results)
+        ]
+        prompt = (
+            f'The user asked to track "{search_term}". '
+            f"Which result number is most likely what they want?\n"
+            + "\n".join(lines)
+            + "\n"
+            'Reply with ONLY the number (e.g. "1"). '
+            'If genuinely ambiguous, reply with comma-separated numbers (e.g. "1,3").'
+        )
+
+        try:
+            message = self._llm._client.messages.create(
+                model=self._llm._intent_model,
+                max_tokens=20,
+                system="You pick the best media search result. Reply with only the number(s).",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = message.content[0].text.strip()
+            indices = [
+                int(x.strip()) - 1
+                for x in text.split(",")
+                if x.strip().isdigit()
+            ]
+            picked = [results[i] for i in indices if 0 <= i < len(results)]
+            if picked:
+                log.info(
+                    "LLM disambiguation picked %d of %d results for %r",
+                    len(picked), len(results), search_term,
+                )
+                return picked
+            return None
+        except Exception:
+            log.exception("LLM disambiguation failed, falling back to mechanical sort")
+            return None
+
     def _start_disambiguation(
         self, results: list[dict], search_term: str = ""
     ) -> str:
         """Begin disambiguation flow with tagged search results."""
-        # Sort by title relevance (desc), then year (desc) for ties
+        # Try LLM ranking first when multiple results exist
+        if len(results) > 1:
+            llm_ranked = self._llm_pick_best(results, search_term)
+        else:
+            llm_ranked = None
+
+        if llm_ranked:
+            # LLM narrowed the results
+            if len(llm_ranked) == 1:
+                pick = llm_ranked[0]
+                if self._is_result_tracked(pick):
+                    self._pending = None
+                    return (
+                        f"You're already tracking {pick['title']} "
+                        f"from {pick['year']}."
+                    )
+                # Single confident pick — go straight to confirm
+                self._pending = {
+                    "results": llm_ranked,
+                    "index": 0,
+                    "phase": "confirming",
+                    "search_term": search_term,
+                    "timestamp": time.time(),
+                }
+                return self._describe_current()
+
+            # LLM returned 2-3 — use those as the narrowed set
+            results = llm_ranked
+
+        # Mechanical fallback: sort by title relevance (desc), then year (desc)
         results.sort(
             key=lambda r: (_title_relevance(r["title"], search_term), r["year"]),
             reverse=True,

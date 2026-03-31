@@ -680,3 +680,137 @@ def test_refinement_preserves_relevance_sort():
     # After type filter (all are movies anyway) and re-sort by relevance:
     # Batman (1.0) should be first
     assert feat._pending["results"][0]["title"] == "Batman"
+
+
+# -- LLM-assisted disambiguation --
+
+
+def _pulp_fiction_results():
+    """Build the Pulp Fiction search results from the real Radarr response."""
+    return [
+        {"tmdbId": 278, "title": "Pulp Fiction", "year": 1994, "media_type": "movie",
+         "overview": "Jules and Vincent, two hit men..."},
+        {"tmdbId": 9845, "title": "Pulp Fiction: The Golden Age of Storytelling",
+         "year": 2009, "media_type": "movie", "overview": "Profiles writers."},
+        {"tmdbId": 9846, "title": "Pulp Fiction Art: Cheap Thrills & Painted Nightmares",
+         "year": 2005, "media_type": "movie", "overview": "A guilty pleasure."},
+        {"tmdbId": 9847, "title": "Pulp Fiction: The Facts", "year": 2002,
+         "media_type": "movie", "overview": "Behind the scenes."},
+        {"tmdbId": 9848, "title": "Pulp Fiction: Behind The Scenes Montages",
+         "year": 0, "media_type": "movie", "overview": ""},
+        {"tmdbId": 9849, "title": "Stealing Pulp Fiction", "year": 2025,
+         "media_type": "movie", "overview": ""},
+        {"tmdbId": 9850, "title": "Stealing Pulp Fiction", "year": 2020,
+         "media_type": "movie", "overview": ""},
+    ]
+
+
+def _make_mock_llm(response_text):
+    """Create a mock LLM object with _client and _intent_model for disambiguation."""
+    from unittest.mock import MagicMock
+
+    mock_llm = MagicMock()
+    mock_llm._intent_model = "claude-haiku-4-5-20251001"
+
+    mock_message = MagicMock()
+    mock_message.content = [MagicMock(text=response_text)]
+    mock_llm._client.messages.create.return_value = mock_message
+
+    return mock_llm
+
+
+def _make_feature_with_llm(llm=None, sonarr=True, radarr=True, ttl=60):
+    """Create a MediaFeature with mock clients and optional LLM."""
+    config = {"media_disambiguation_ttl": ttl}
+    s = MockSonarrClient(config) if sonarr else None
+    r = MockRadarrClient(config) if radarr else None
+    return MediaFeature(config, sonarr=s, radarr=r, llm=llm)
+
+
+def test_llm_picks_single_best_result():
+    """LLM picks one result — should go straight to confirming with just that result."""
+    llm = _make_mock_llm("1")
+    feat = _make_feature_with_llm(llm=llm)
+    results = _pulp_fiction_results()
+
+    response = feat._start_disambiguation(results, search_term="Pulp Fiction")
+
+    assert feat._pending is not None
+    assert feat._pending["phase"] == "confirming"
+    assert len(feat._pending["results"]) == 1
+    assert feat._pending["results"][0]["title"] == "Pulp Fiction"
+    assert "Should I add this one?" in response
+
+
+def test_llm_pick_already_tracked():
+    """LLM picks a result that's already tracked — should say so and stop."""
+    llm = _make_mock_llm("1")
+    feat = _make_feature_with_llm(llm=llm)
+
+    # Mark Pulp Fiction (1994) as tracked
+    feat._radarr.add_movie(278, "Pulp Fiction")
+
+    results = _pulp_fiction_results()
+    response = feat._start_disambiguation(results, search_term="Pulp Fiction")
+
+    assert "already tracking" in response.lower()
+    assert "Pulp Fiction" in response
+    assert "1994" in response
+    # Should NOT start cycling through alternatives
+    assert feat._pending is None
+
+
+def test_llm_returns_multiple():
+    """LLM returns 2-3 results — those should enter the confirming phase."""
+    llm = _make_mock_llm("1,6")
+    feat = _make_feature_with_llm(llm=llm)
+    results = _pulp_fiction_results()
+
+    feat._start_disambiguation(results, search_term="Pulp Fiction")
+
+    assert feat._pending is not None
+    # The 2 LLM picks should be used (after mechanical sort)
+    assert len(feat._pending["results"]) == 2
+
+
+def test_llm_failure_falls_back_to_mechanical():
+    """If LLM call fails, should fall back to mechanical title relevance sorting."""
+    from unittest.mock import MagicMock
+
+    llm = MagicMock()
+    llm._intent_model = "claude-haiku-4-5-20251001"
+    llm._client.messages.create.side_effect = Exception("API error")
+
+    feat = _make_feature_with_llm(llm=llm)
+    results = _pulp_fiction_results()
+
+    response = feat._start_disambiguation(results, search_term="Pulp Fiction")
+
+    # Should still work via mechanical fallback
+    assert feat._pending is not None
+    assert "Pulp Fiction" in response
+
+
+def test_no_llm_uses_mechanical_sort():
+    """Without LLM, disambiguation should use existing mechanical behavior."""
+    feat = _make_feature_with_llm(llm=None)
+    results = _pulp_fiction_results()
+
+    response = feat._start_disambiguation(results, search_term="Pulp Fiction")
+
+    # Mechanical sort: Pulp Fiction (1994) has relevance 1.0, so confirming phase
+    assert feat._pending is not None
+    assert feat._pending["phase"] == "confirming"
+    assert "Should I add this one?" in response
+
+
+def test_llm_not_called_for_single_result():
+    """LLM should not be invoked when there's only one search result."""
+    llm = _make_mock_llm("1")
+    feat = _make_feature_with_llm(llm=llm)
+    results = [_pulp_fiction_results()[0]]  # Single result
+
+    feat._start_disambiguation(results, search_term="Pulp Fiction")
+
+    # LLM should not have been called
+    llm._client.messages.create.assert_not_called()
