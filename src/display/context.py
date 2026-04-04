@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from discovery.storage import DiscoveryStorage
     from enphase.storage import SolarStorage
+    from features.garden import GardenFeature
     from features.grocery import GroceryFeature
     from features.reminder import ReminderFeature
     from monitor.storage import MonitorStorage
@@ -26,4 +27,5 @@ class DisplayContext:
     discovery_storage: DiscoveryStorage | None = None
     weather_client: BaseWeatherClient | None = None
     monitor_storage: MonitorStorage | None = None
+    garden_feature: GardenFeature | None = None
     orientation: str = "portrait"

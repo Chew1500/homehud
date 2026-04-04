@@ -646,29 +646,51 @@ def _render_monitor_alert(
     ctx: DisplayContext | None,
     layout: Layout,
 ) -> None:
-    """Render service-down alert in the gap between solar and footer."""
+    """Render service-down alert or garden watering indicator in the gap."""
+    # Service-down alerts take priority
     monitor_storage = ctx.monitor_storage if ctx else None
-    if not monitor_storage:
-        return
-    try:
-        down = monitor_storage.get_down_services()
-        if not down:
-            return
-        names = ", ".join(d["name"] for d in down[:5])
-        if len(down) > 5:
-            names += f" +{len(down) - 5} more"
-        alert_text = f"DOWN: {names}"
+    if monitor_storage:
+        try:
+            down = monitor_storage.get_down_services()
+            if down:
+                names = ", ".join(d["name"] for d in down[:5])
+                if len(down) > 5:
+                    names += f" +{len(down) - 5} more"
+                alert_text = f"DOWN: {names}"
 
-        # Render in the gap between solar bottom and footer top
-        gap_y = layout.solar.y2
-        gap_h = layout.footer.y - gap_y
-        text_y = gap_y + (gap_h - 14) // 2  # vertically center 12pt text
-        draw.text(
-            (layout.margin, text_y),
-            alert_text, fill=RED, font=fonts[12],
-        )
-    except Exception:
-        pass  # Don't break display if monitor DB is unavailable
+                gap_y = layout.solar.y2
+                gap_h = layout.footer.y - gap_y
+                text_y = gap_y + (gap_h - 14) // 2
+                draw.text(
+                    (layout.margin, text_y),
+                    alert_text, fill=RED, font=fonts[12],
+                )
+                return
+        except Exception:
+            pass  # Don't break display if monitor DB is unavailable
+
+    # Fall back to garden watering indicator
+    garden = ctx.garden_feature if ctx else None
+    if garden:
+        try:
+            statuses = garden.get_status()
+            needs_water = [
+                s for s in statuses
+                if s.urgency in ("water_today", "urgent")
+            ]
+            if needs_water:
+                labels = ", ".join(s.label for s in needs_water)
+                alert_text = f"WATER: {labels}"
+
+                gap_y = layout.solar.y2
+                gap_h = layout.footer.y - gap_y
+                text_y = gap_y + (gap_h - 14) // 2
+                draw.text(
+                    (layout.margin, text_y),
+                    alert_text, fill=RED, font=fonts[12],
+                )
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

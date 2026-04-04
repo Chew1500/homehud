@@ -109,6 +109,9 @@ def main():
     telemetry_web = None
     grocery_feature = None
     reminder_feature = None
+    garden_feature = None
+    notification_manager = None
+    presence_tracker = None
 
     if config.get("voice_enabled", True):
         try:
@@ -184,6 +187,24 @@ def main():
                 config, discovery_storage=discovery_storage,
                 sonarr=sonarr_client, radarr=radarr_client,
             )
+
+            # Notification system (reusable for garden, future features)
+            from notifications.manager import NotificationManager
+            from notifications.presence import PresenceTracker
+
+            notification_manager = NotificationManager(config)
+            presence_tracker = PresenceTracker(config)
+
+            # Garden watering advisory (opt-in)
+            if config.get("garden_enabled", False):
+                from features.garden import GardenFeature
+
+                garden_feature = GardenFeature(
+                    config,
+                    weather_client=weather_client,
+                    notification_manager=notification_manager,
+                )
+
             features = [
                 repeat_feature,
                 VolumeFeature(config, audio=audio),
@@ -194,6 +215,8 @@ def main():
                 discovery_feature,
                 NetworkFeature(config),
             ]
+            if garden_feature:
+                features.insert(-1, garden_feature)  # before last (Network)
             capabilities_feature = CapabilitiesFeature(config, features)
             features.append(capabilities_feature)
             # Telemetry
@@ -225,6 +248,8 @@ def main():
                 repeat_feature=repeat_feature,
                 wake_prompts=wake_prompts,
                 telemetry_store=telemetry_store,
+                notification_manager=notification_manager,
+                presence_tracker=presence_tracker,
             )
             log.info("Voice pipeline enabled.")
 
@@ -250,6 +275,7 @@ def main():
         discovery_storage=discovery_storage,
         weather_client=weather_client,
         monitor_storage=monitor_storage,
+        garden_feature=garden_feature,
         orientation=config.get("display_orientation", "portrait"),
     )
 
@@ -293,6 +319,8 @@ def main():
             monitor_storage.close()
         if solar_collector:
             solar_collector.close()
+        if garden_feature:
+            garden_feature.close()
         if router:
             router.close()  # cascades to features + LLM
         if telemetry_web:

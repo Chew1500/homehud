@@ -46,9 +46,11 @@ class OpenMeteoWeatherClient(BaseWeatherClient):
                     ),
                     "daily": (
                         "weather_code,temperature_2m_max,"
-                        "temperature_2m_min,precipitation_probability_max"
+                        "temperature_2m_min,precipitation_probability_max,"
+                        "precipitation_sum,et0_fao_evapotranspiration"
                     ),
                     "forecast_days": 4,
+                    "past_days": 7,
                     "temperature_unit": "fahrenheit",
                     "wind_speed_unit": "mph",
                     "timezone": "auto",
@@ -75,21 +77,43 @@ class OpenMeteoWeatherClient(BaseWeatherClient):
         maxes = daily.get("temperature_2m_max", [])
         mins = daily.get("temperature_2m_min", [])
         precip = daily.get("precipitation_probability_max", [])
+        precip_sum = daily.get("precipitation_sum", [])
+        et0 = daily.get("et0_fao_evapotranspiration", [])
 
-        # Skip today (index 0), take next 3 days
+        today = date.today()
+        history = []
         forecast = []
-        for i in range(1, min(4, len(dates))):
-            forecast.append(
-                DayForecast(
-                    date=date.fromisoformat(dates[i]),
-                    weather_code=codes[i] if i < len(codes) else 0,
-                    temp_max_f=maxes[i] if i < len(maxes) else 0.0,
-                    temp_min_f=mins[i] if i < len(mins) else 0.0,
-                    precipitation_probability=int(precip[i]) if i < len(precip) else 0,
-                )
+        for i in range(len(dates)):
+            d = date.fromisoformat(dates[i])
+            day = DayForecast(
+                date=d,
+                weather_code=codes[i] if i < len(codes) else 0,
+                temp_max_f=maxes[i] if i < len(maxes) else 0.0,
+                temp_min_f=mins[i] if i < len(mins) else 0.0,
+                precipitation_probability=int(precip[i]) if i < len(precip) else 0,
+                precipitation_mm=(
+                    float(precip_sum[i])
+                    if i < len(precip_sum) and precip_sum[i] is not None
+                    else 0.0
+                ),
+                et0_mm=float(et0[i]) if i < len(et0) and et0[i] is not None else 0.0,
             )
+            if d < today:
+                history.append(day)
+            elif d > today:
+                forecast.append(day)
+            # Skip today for forecast (existing behavior), but include in history
+            # so garden balance can use today's data
+            else:
+                history.append(day)
 
-        result = WeatherData(current=current, forecast=forecast, fetched_at=datetime.now())
+        # Keep only 3 forecast days (existing behavior)
+        forecast = forecast[:3]
+
+        result = WeatherData(
+            current=current, forecast=forecast, history=history,
+            fetched_at=datetime.now(),
+        )
         self._cache = result
         self._cache_time = now
         log.info("Weather data refreshed from Open-Meteo")

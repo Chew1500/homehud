@@ -243,6 +243,33 @@ CONFIG_REGISTRY: list[ConfigParam] = [
     ConfigParam("solar_longitude", "SOLAR_LONGITUDE", "", "str", "Solar",
                 "Solar location longitude"),
 
+    # --- Garden ---
+    ConfigParam("garden_enabled", "HUD_GARDEN_ENABLED", "false", "bool", "Garden",
+                "Enable garden watering advisory"),
+    ConfigParam("garden_check_interval", "HUD_GARDEN_CHECK_INTERVAL", "3600", "int",
+                "Garden", "Seconds between garden watering checks"),
+    ConfigParam("garden_watering_file", "HUD_GARDEN_WATERING_FILE",
+                str(PROJECT_ROOT / "data" / "watering.json"), "str", "Garden",
+                "Path to watering log JSON file"),
+    ConfigParam("garden_zones", "HUD_GARDEN_ZONES",
+                "lawn,vegetable_garden,young_trees,established_trees", "str", "Garden",
+                "Comma-separated list of garden zones to track"),
+    ConfigParam("garden_default_water_inches", "HUD_GARDEN_DEFAULT_WATER_INCHES", "0.5",
+                "float", "Garden", "Default watering amount when not specified (inches)"),
+
+    # --- Notifications ---
+    ConfigParam("notification_cooldown_seconds", "HUD_NOTIFICATION_COOLDOWN_SECONDS",
+                "3600", "int", "Notifications",
+                "Default cooldown between repeat notifications (seconds)"),
+    ConfigParam("notification_quiet_start", "HUD_NOTIFICATION_QUIET_START", "22:00",
+                "str", "Notifications", "Start of quiet hours (no proactive alerts)"),
+    ConfigParam("notification_quiet_end", "HUD_NOTIFICATION_QUIET_END", "07:00", "str",
+                "Notifications", "End of quiet hours"),
+    ConfigParam("presence_rms_threshold", "HUD_PRESENCE_RMS_THRESHOLD", "200", "int",
+                "Notifications", "RMS threshold for room presence detection"),
+    ConfigParam("presence_window_seconds", "HUD_PRESENCE_WINDOW_SECONDS", "300", "int",
+                "Notifications", "Seconds of activity history for presence detection"),
+
     # --- Monitor ---
     ConfigParam("monitor_enabled", "HUD_MONITOR_ENABLED", "false", "bool", "Monitor",
                 "Enable service uptime monitoring"),

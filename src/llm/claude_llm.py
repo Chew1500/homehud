@@ -83,6 +83,11 @@ _INTENT_SYSTEM_PROMPT = (
     'direction: "up" or "down"; magnitude: "small", "medium", or "large"\n'
     'Example triggers: "speak up a bit", "louder", "turn it down", '
     '"volume to 50%", "what\'s the volume", "too loud", "too quiet"\n\n'
+    "### garden\n"
+    "Actions: status(), zone_status(zone), log_watering(zone), history()\n"
+    'zone: "lawn", "vegetable_garden", "young_trees", "established_trees"\n'
+    'Example triggers: "do I need to water", "garden status", "I watered the lawn", '
+    '"how are the trees", "watering history"\n\n'
     "### network\n"
     "Actions: query()\n"
     'Example triggers: "what\'s my IP", "what\'s my IP address", "network info"\n\n'

@@ -27,6 +27,8 @@ class DayForecast:
     temp_max_f: float
     temp_min_f: float
     precipitation_probability: int
+    precipitation_mm: float = 0.0
+    et0_mm: float = 0.0
 
 
 @dataclass
@@ -35,6 +37,7 @@ class WeatherData:
 
     current: CurrentWeather
     forecast: list[DayForecast] = field(default_factory=list)
+    history: list[DayForecast] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=datetime.now)
 
 

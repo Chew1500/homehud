@@ -9,6 +9,7 @@ import types
 
 from audio.base import AudioStreamStaleError, BaseAudio
 from intent.router import IntentRouter
+from notifications.presence import rms as compute_rms
 from speech.base import BaseSTT, TranscriptionResult
 from speech.base_tts import BaseTTS
 from telemetry.models import LLMCallInfo, Session
@@ -29,6 +30,8 @@ def start_voice_pipeline(
     repeat_feature=None,
     wake_prompts=None,
     telemetry_store=None,
+    notification_manager=None,
+    presence_tracker=None,
 ) -> threading.Thread:
     """Start the voice pipeline in a daemon thread.
 
@@ -415,6 +418,29 @@ def start_voice_pipeline(
                     consecutive_errors = 0
                     if not running.is_set():
                         break
+
+                    # Presence tracking + proactive notification delivery
+                    if presence_tracker is not None and notification_manager is not None:
+                        energy = compute_rms(chunk)
+                        presence_tracker.update(energy)
+
+                        if (
+                            notification_manager.pending_count() > 0
+                            and presence_tracker.is_present()
+                            and not audio.is_playing()
+                        ):
+                            notif = notification_manager.peek()
+                            if notif:
+                                notification_manager.deliver(notif.id)
+                                try:
+                                    speech = tts.synthesize(notif.message)
+                                    audio.play(speech)
+                                except Exception:
+                                    log.exception(
+                                        "Notification playback failed (non-fatal)"
+                                    )
+                                wake.reset()
+
                     if wake.detect(chunk):
                         wake_detected = True
                         break  # stream's finally block frees the mic device
