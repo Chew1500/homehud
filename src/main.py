@@ -239,6 +239,8 @@ def main():
                         config=config,
                         tts_cache_dir=config.get("tts_cache_dir"),
                         monitor_storage=monitor_storage,
+                        garden_feature=garden_feature,
+                        weather_client=weather_client,
                     )
                     telemetry_web.start()
 

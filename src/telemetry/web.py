@@ -65,6 +65,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_tts_cache_list()
         elif m := _TTS_CACHE_RE.match(path):
             self._handle_tts_cache_audio(m.group(1))
+        elif path == "/api/garden":
+            self._handle_garden()
         elif path == "/api/monitor/services":
             self._handle_monitor_list()
         elif m := _MONITOR_HIST_RE.match(path):
@@ -502,6 +504,83 @@ class _Handler(BaseHTTPRequestHandler):
             "filters": {"level": level_filter, "limit": limit},
         })
 
+    # --- Garden handler ---
+
+    def _handle_garden(self):
+        """Return garden watering balance breakdown."""
+        garden = getattr(self.server, "garden_feature", None)
+        if not garden:
+            self._send_json({"enabled": False, "zones": []})
+            return
+
+        weather_client = getattr(self.server, "weather_client", None)
+        weather = weather_client.get_weather() if weather_client else None
+
+        zones = []
+        try:
+            statuses = garden.get_status()
+            for s in statuses:
+                zones.append({
+                    "zone": s.zone,
+                    "label": s.label,
+                    "deficit_inches": s.deficit_inches,
+                    "threshold_inches": s.threshold_inches,
+                    "urgency": s.urgency,
+                    "forecast_rain_inches": s.forecast_rain_inches,
+                    "days_since_rain": s.days_since_rain,
+                    "days_since_watered": s.days_since_watered,
+                    "pct_of_threshold": round(
+                        s.deficit_inches / s.threshold_inches * 100, 1,
+                    ) if s.threshold_inches else 0,
+                })
+        except Exception:
+            log.exception("Garden status fetch failed")
+
+        # Include weather history for the balance breakdown
+        history = []
+        if weather and weather.history:
+            for d in weather.history:
+                history.append({
+                    "date": d.date.isoformat(),
+                    "precipitation_mm": round(d.precipitation_mm, 1),
+                    "et0_mm": round(d.et0_mm, 1),
+                    "temp_max_f": round(d.temp_max_f, 1),
+                    "weather_code": d.weather_code,
+                })
+
+        forecast = []
+        if weather and weather.forecast:
+            for d in weather.forecast:
+                forecast.append({
+                    "date": d.date.isoformat(),
+                    "precipitation_mm": round(d.precipitation_mm, 1),
+                    "precipitation_probability": d.precipitation_probability,
+                    "et0_mm": round(d.et0_mm, 1),
+                    "temp_max_f": round(d.temp_max_f, 1),
+                    "weather_code": d.weather_code,
+                })
+
+        # Watering log
+        watering_events = []
+        try:
+            events = garden._watering_log.get_events(days=14)
+            for e in events:
+                watering_events.append({
+                    "zone": e.get("zone", "unknown"),
+                    "timestamp": e.get("timestamp", ""),
+                    "amount_inches": e.get("amount_inches", 0),
+                })
+        except Exception:
+            pass
+
+        self._send_json({
+            "enabled": True,
+            "zones": zones,
+            "history": history,
+            "forecast": forecast,
+            "watering_events": watering_events,
+        })
+
     # --- Monitor handlers ---
 
     def _get_monitor_storage(self):
@@ -793,6 +872,8 @@ class TelemetryWeb:
         config: dict | None = None,
         tts_cache_dir: str | None = None,
         monitor_storage: object | None = None,
+        garden_feature: object | None = None,
+        weather_client: object | None = None,
     ):
         self._db_path = db_path
         self._host = host
@@ -802,6 +883,8 @@ class TelemetryWeb:
         self._config = config
         self._tts_cache_dir = tts_cache_dir
         self._monitor_storage = monitor_storage
+        self._garden_feature = garden_feature
+        self._weather_client = weather_client
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -823,6 +906,8 @@ class TelemetryWeb:
         self._server.config = self._config
         self._server.tts_cache_dir = self._tts_cache_dir
         self._server.monitor_storage = self._monitor_storage
+        self._server.garden_feature = self._garden_feature
+        self._server.weather_client = self._weather_client
 
     def _serve_loop(self) -> None:
         """Run serve_forever with auto-restart on crash."""

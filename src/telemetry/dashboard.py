@@ -259,6 +259,48 @@ tr:hover td { background: #fafbfc; }
   font-family: inherit; width: 100%;
 }
 
+/* Garden */
+.garden-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+.garden-table th, .garden-table td {
+  padding: 0.4rem 0.75rem; text-align: right; border-bottom: 1px solid #eee;
+  font-size: 0.85rem;
+}
+.garden-table th { text-align: right; color: #888; font-size: 0.75rem;
+  text-transform: uppercase; }
+.garden-table th:first-child, .garden-table td:first-child { text-align: left; }
+.garden-table tfoot td { font-weight: 700; border-top: 2px solid #333; }
+.garden-zone {
+  display: flex; align-items: center; gap: 1rem; padding: 0.75rem;
+  border-radius: 8px; margin-bottom: 0.5rem; background: #f8f9fa;
+}
+.garden-zone .zone-name { font-weight: 600; min-width: 140px; }
+.garden-zone .zone-bar {
+  flex: 1; height: 24px; background: #e5e7eb; border-radius: 4px;
+  overflow: hidden; position: relative;
+}
+.garden-zone .zone-fill {
+  height: 100%; border-radius: 4px; transition: width 0.3s;
+}
+.garden-zone .zone-label {
+  font-size: 0.8rem; color: #555; min-width: 180px; text-align: right;
+}
+.urgency-ok .zone-fill { background: #22c55e; }
+.urgency-monitor .zone-fill { background: #f59e0b; }
+.urgency-water_today .zone-fill { background: #ef4444; }
+.urgency-urgent .zone-fill { background: #dc2626; }
+.garden-badge {
+  display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
+  font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+  min-width: 80px; text-align: center;
+}
+.badge-ok { background: #dcfce7; color: #166534; }
+.badge-monitor { background: #fef3c7; color: #92400e; }
+.badge-water_today { background: #fee2e2; color: #991b1b; }
+.badge-urgent { background: #fca5a5; color: #7f1d1d; }
+.garden-net-pos { color: #22c55e; }
+.garden-net-neg { color: #ef4444; }
+.garden-watering-empty { color: #888; font-style: italic; padding: 0.5rem 0; }
+
 /* Loading / error */
 .loading { text-align: center; padding: 2rem; color: #888; }
 .error-msg { text-align: center; padding: 1rem; color: #e74c3c; background: #fee2e2;
@@ -312,6 +354,7 @@ tr:hover td { background: #fafbfc; }
   <button class="tab-btn" onclick="switchTab('tab-config')">Config</button>
   <button class="tab-btn" onclick="switchTab('tab-voice-cache')">Voice Cache</button>
   <button class="tab-btn" onclick="switchTab('tab-services')">Services</button>
+  <button class="tab-btn" onclick="switchTab('tab-garden')">Garden</button>
 </div>
 
 <div class="tab-panel active" id="tab-overview">
@@ -464,6 +507,47 @@ tr:hover td { background: #fafbfc; }
         style="width:100%;border-radius:4px"></canvas>
       <div id="svc-history-stats"
         style="font-size:0.8rem;color:#888;margin-top:0.5rem"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-panel" id="tab-garden">
+  <div id="garden-loading" class="loading">Loading garden data...</div>
+  <div id="garden-error" class="error-msg" style="display:none"></div>
+  <div id="garden-content" style="display:none">
+    <div id="garden-disabled" style="display:none">
+      <p style="color:#888">Garden watering advisory is not enabled.
+      Set <code>garden_enabled = true</code> in Config to activate.</p>
+    </div>
+    <div id="garden-active" style="display:none">
+      <h2>Zone Status</h2>
+      <div id="garden-zones"></div>
+
+      <h2 style="margin-top:1.5rem">Water Balance (7-day history)</h2>
+      <table class="garden-table" id="garden-history-table">
+        <thead>
+          <tr>
+            <th>Date</th><th>Rain (mm)</th><th>ET&#8320; (mm)</th>
+            <th>Net (mm)</th><th>Temp (&deg;F)</th>
+          </tr>
+        </thead>
+        <tbody id="garden-history-body"></tbody>
+        <tfoot id="garden-history-foot"></tfoot>
+      </table>
+
+      <h2 style="margin-top:1.5rem">Forecast</h2>
+      <table class="garden-table" id="garden-forecast-table">
+        <thead>
+          <tr>
+            <th>Date</th><th>Rain (mm)</th><th>Prob</th>
+            <th>ET&#8320; (mm)</th><th>Temp (&deg;F)</th>
+          </tr>
+        </thead>
+        <tbody id="garden-forecast-body"></tbody>
+      </table>
+
+      <h2 style="margin-top:1.5rem">Watering Log (14 days)</h2>
+      <div id="garden-watering-log"></div>
     </div>
   </div>
 </div>
@@ -1557,6 +1641,129 @@ function closeSvcHistory() {
   document.getElementById('svc-history-panel').style.display = 'none';
 }
 
+// --- Garden ---
+
+async function loadGarden() {
+  const loading = document.getElementById('garden-loading');
+  const error = document.getElementById('garden-error');
+  const content = document.getElementById('garden-content');
+
+  try {
+    loading.style.display = '';
+    error.style.display = 'none';
+
+    const data = await fetchJSON('/api/garden');
+
+    if (!data.enabled) {
+      document.getElementById('garden-disabled').style.display = '';
+      document.getElementById('garden-active').style.display = 'none';
+      loading.style.display = 'none';
+      content.style.display = '';
+      return;
+    }
+
+    document.getElementById('garden-disabled').style.display = 'none';
+    document.getElementById('garden-active').style.display = '';
+
+    // Zone status bars
+    const zonesEl = document.getElementById('garden-zones');
+    if (data.zones.length === 0) {
+      zonesEl.innerHTML = '<p style="color:#888">No zone data available.</p>';
+    } else {
+      zonesEl.innerHTML = data.zones.map(z => {
+        const pct = Math.min(z.pct_of_threshold, 200);
+        const barPct = Math.min(pct, 100);
+        const badgeCls = 'badge-' + z.urgency;
+        const urgencyLabel = z.urgency.replace('_', ' ');
+        let detail = `Deficit: ${z.deficit_inches.toFixed(2)}" / `
+          + `${z.threshold_inches.toFixed(2)}" threshold`;
+        if (z.days_since_rain !== null)
+          detail += ` \u2022 Rain: ${z.days_since_rain}d ago`;
+        if (z.days_since_watered !== null)
+          detail += ` \u2022 Watered: ${z.days_since_watered}d ago`;
+        return `<div class="garden-zone urgency-${z.urgency}">
+          <span class="zone-name">${z.label}</span>
+          <div class="zone-bar">
+            <div class="zone-fill" style="width:${barPct}%"></div>
+          </div>
+          <span class="garden-badge ${badgeCls}">${urgencyLabel}</span>
+          <span class="zone-label">${detail}</span>
+        </div>`;
+      }).join('');
+    }
+
+    // Forecast rain summary
+    if (data.zones.length > 0) {
+      const fr = data.zones[0].forecast_rain_inches;
+      if (fr > 0) {
+        zonesEl.innerHTML += `<p style="font-size:0.85rem;color:#555;margin-top:0.5rem">`
+          + `Expected rain (3-day forecast): ${fr.toFixed(2)}"</p>`;
+      }
+    }
+
+    // History table
+    const histBody = document.getElementById('garden-history-body');
+    const histFoot = document.getElementById('garden-history-foot');
+    let totalRain = 0, totalEt = 0;
+    histBody.innerHTML = (data.history || []).map(d => {
+      const net = d.precipitation_mm - d.et0_mm;
+      totalRain += d.precipitation_mm;
+      totalEt += d.et0_mm;
+      const netCls = net >= 0 ? 'garden-net-pos' : 'garden-net-neg';
+      return `<tr>
+        <td>${d.date}</td>
+        <td>${d.precipitation_mm.toFixed(1)}</td>
+        <td>${d.et0_mm.toFixed(1)}</td>
+        <td class="${netCls}">${net >= 0 ? '+' : ''}${net.toFixed(1)}</td>
+        <td>${d.temp_max_f.toFixed(0)}</td>
+      </tr>`;
+    }).join('');
+    const totalNet = totalRain - totalEt;
+    const totalNetCls = totalNet >= 0 ? 'garden-net-pos' : 'garden-net-neg';
+    histFoot.innerHTML = `<tr>
+      <td>Total</td>
+      <td>${totalRain.toFixed(1)}</td>
+      <td>${totalEt.toFixed(1)}</td>
+      <td class="${totalNetCls}">${totalNet >= 0 ? '+' : ''}${totalNet.toFixed(1)}</td>
+      <td></td>
+    </tr>`;
+
+    // Forecast table
+    const fcBody = document.getElementById('garden-forecast-body');
+    fcBody.innerHTML = (data.forecast || []).map(d => {
+      return `<tr>
+        <td>${d.date}</td>
+        <td>${d.precipitation_mm.toFixed(1)}</td>
+        <td>${d.precipitation_probability}%</td>
+        <td>${d.et0_mm.toFixed(1)}</td>
+        <td>${d.temp_max_f.toFixed(0)}</td>
+      </tr>`;
+    }).join('');
+
+    // Watering log
+    const logEl = document.getElementById('garden-watering-log');
+    if (!data.watering_events || data.watering_events.length === 0) {
+      logEl.innerHTML = '<p class="garden-watering-empty">No watering events recorded.</p>';
+    } else {
+      logEl.innerHTML = '<table class="garden-table"><thead><tr>'
+        + '<th>Date</th><th>Zone</th><th>Amount</th></tr></thead><tbody>'
+        + data.watering_events.map(e => {
+          const ts = e.timestamp.slice(0, 16).replace('T', ' ');
+          return `<tr><td>${ts}</td><td>${e.zone}</td>`
+            + `<td>${e.amount_inches.toFixed(2)}"</td></tr>`;
+        }).join('')
+        + '</tbody></table>';
+    }
+
+    loading.style.display = 'none';
+    content.style.display = '';
+  } catch (e) {
+    error.textContent = 'Error: ' + e.message;
+    error.style.display = '';
+    loading.style.display = 'none';
+  }
+}
+
 // --- Tab navigation ---
 const loadedTabs = new Set(['tab-overview']);
 const TAB_LOADERS = {
@@ -1565,6 +1772,7 @@ const TAB_LOADERS = {
   'tab-config': () => loadConfig(),
   'tab-voice-cache': () => loadVoiceCache(),
   'tab-services': () => loadServices(),
+  'tab-garden': () => loadGarden(),
 };
 
 function switchTab(tabId) {
