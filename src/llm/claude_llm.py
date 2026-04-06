@@ -59,6 +59,8 @@ _INTENT_SYSTEM_PROMPT = (
     "### reminder\n"
     "Actions: set(task, time), list(), cancel(task), clear()\n"
     'The "time" parameter should be a natural language time expression.\n'
+    'IMPORTANT: Always use digits for numbers in the "time" parameter '
+    '(e.g., "in 15 minutes" not "in fifteen minutes", "at 3pm" not "at three pm").\n'
     'Example triggers: "remind me to call mom in 20 minutes", "remind me at 3pm to..."\n\n'
     "### media\n"
     "Actions: track(title, media_type), list(media_type), check(title),\n"

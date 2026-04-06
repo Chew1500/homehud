@@ -22,6 +22,44 @@ _ANY_REMINDER = re.compile(r"\b(?:remind|reminders?)\b", re.IGNORECASE)
 _TIME = r"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?"
 _RELATIVE = r"(?:in\s+)?(\d+|an?|half(?:\s+an?)?)\s+(seconds?|minutes?|hours?|days?)"
 
+# --- Word-number conversion ---
+
+_WORD_TO_NUM = {
+    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+    "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13",
+    "fourteen": "14", "fifteen": "15", "sixteen": "16", "seventeen": "17",
+    "eighteen": "18", "nineteen": "19", "twenty": "20",
+    "thirty": "30", "forty": "40", "fifty": "50",
+}
+
+# Pre-compile patterns: longest words first to avoid partial matches
+_WORD_NUM_PATTERNS = [
+    (re.compile(rf"\b{word}\b", re.IGNORECASE), digit)
+    for word, digit in sorted(_WORD_TO_NUM.items(), key=lambda x: -len(x[0]))
+]
+
+_A_COUPLE = re.compile(r"\ba\s+couple\b", re.IGNORECASE)
+_NOON = re.compile(r"\bnoon\b", re.IGNORECASE)
+_MIDNIGHT = re.compile(r"\bmidnight\b", re.IGNORECASE)
+
+
+def _words_to_digits(expr: str) -> str:
+    """Convert English number words to digits in a time expression.
+
+    Handles 'zero' through 'twenty', 'thirty', 'forty', 'fifty',
+    plus 'a couple' → '2', 'noon' → '12pm', 'midnight' → '12am'.
+    Does NOT convert 'a'/'an' — those are handled by existing regex.
+    """
+    # Multi-word phrases first
+    expr = _A_COUPLE.sub("2", expr)
+    expr = _NOON.sub("12pm", expr)
+    expr = _MIDNIGHT.sub("12am", expr)
+    # Single word numbers
+    for pattern, digit in _WORD_NUM_PATTERNS:
+        expr = pattern.sub(digit, expr)
+    return expr
+
 # --- Action patterns (checked in order) ---
 
 # 1. Prefix: "at 3pm [tomorrow] remind me to TASK"
@@ -110,6 +148,9 @@ def _normalize(text: str) -> str:
     # Strip trailing punctuation, then restore broken a.m./p.m.
     text = _TRAILING_PUNCT.sub("", text).strip()
     text = _BROKEN_AMPM.sub(r"\1.", text)
+
+    # Convert word numbers to digits before pattern matching
+    text = _words_to_digits(text)
 
     # Strip conversational prefixes
     text = _CONVERSATIONAL_PREFIX.sub("", text).strip()
@@ -203,6 +244,7 @@ class ReminderFeature(BaseFeature):
             return None
 
         expr = expr.strip().lower()
+        expr = _words_to_digits(expr)
 
         # "tomorrow at TIME" or "tomorrow TIME"
         m = re.match(

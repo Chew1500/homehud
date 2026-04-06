@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from features.reminder import ReminderFeature, _normalize
+from features.reminder import ReminderFeature, _normalize, _words_to_digits
 
 
 def _make_feature(tmp_path, on_due=None, check_interval=15):
@@ -647,3 +647,136 @@ def test_e2e_trailing_punctuation_at_time(tmp_path):
     assert "call mom" in result
     items = json.loads(rf.read_text())
     assert len(items) == 1
+
+
+# -- _words_to_digits() --
+
+
+def test_words_to_digits_fifteen():
+    assert _words_to_digits("in fifteen minutes") == "in 15 minutes"
+
+
+def test_words_to_digits_three():
+    assert _words_to_digits("in three hours") == "in 3 hours"
+
+
+def test_words_to_digits_twenty():
+    assert _words_to_digits("in twenty minutes") == "in 20 minutes"
+
+
+def test_words_to_digits_a_couple():
+    assert _words_to_digits("in a couple minutes") == "in 2 minutes"
+
+
+def test_words_to_digits_noon():
+    assert _words_to_digits("at noon") == "at 12pm"
+
+
+def test_words_to_digits_midnight():
+    assert _words_to_digits("at midnight") == "at 12am"
+
+
+def test_words_to_digits_passthrough():
+    assert _words_to_digits("in 5 minutes") == "in 5 minutes"
+
+
+def test_words_to_digits_preserves_a_an():
+    assert _words_to_digits("in a minute") == "in a minute"
+    assert _words_to_digits("in an hour") == "in an hour"
+
+
+# -- Word-number integration via handle() --
+
+
+def test_set_relative_word_fifteen_minutes(tmp_path):
+    feat, rf = _make_feature(tmp_path)
+    now = datetime(2026, 2, 24, 14, 0, 0)
+    with patch("features.reminder.datetime") as mock_dt:
+        mock_dt.now.return_value = now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        result = feat.handle("remind me to check the oven in fifteen minutes")
+    assert "check the oven" in result
+    items = json.loads(rf.read_text())
+    due = datetime.fromisoformat(items[0]["due"])
+    assert due == datetime(2026, 2, 24, 14, 15, 0)
+
+
+def test_set_relative_word_three_hours(tmp_path):
+    feat, rf = _make_feature(tmp_path)
+    now = datetime(2026, 2, 24, 14, 0, 0)
+    with patch("features.reminder.datetime") as mock_dt:
+        mock_dt.now.return_value = now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        result = feat.handle("remind me to stretch in three hours")
+    assert "stretch" in result
+    items = json.loads(rf.read_text())
+    due = datetime.fromisoformat(items[0]["due"])
+    assert due == datetime(2026, 2, 24, 17, 0, 0)
+
+
+def test_set_relative_first_word_twenty_minutes(tmp_path):
+    feat, rf = _make_feature(tmp_path)
+    now = datetime(2026, 2, 24, 14, 0, 0)
+    with patch("features.reminder.datetime") as mock_dt:
+        mock_dt.now.return_value = now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        result = feat.handle("remind me in twenty minutes to take out the trash")
+    assert "take out the trash" in result
+    items = json.loads(rf.read_text())
+    due = datetime.fromisoformat(items[0]["due"])
+    assert due == datetime(2026, 2, 24, 14, 20, 0)
+
+
+# -- Word-number integration via execute() (LLM path) --
+
+
+def test_execute_word_number_time(tmp_path):
+    feat, rf = _make_feature(tmp_path)
+    now = datetime(2026, 2, 24, 14, 0, 0)
+    with patch("features.reminder.datetime") as mock_dt:
+        mock_dt.now.return_value = now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        result = feat.execute("set", {"task": "check oven", "time": "in fifteen minutes"})
+    assert "I'll remind you" in result
+    items = json.loads(rf.read_text())
+    due = datetime.fromisoformat(items[0]["due"])
+    assert due == datetime(2026, 2, 24, 14, 15, 0)
+
+
+def test_execute_noon(tmp_path):
+    feat, rf = _make_feature(tmp_path)
+    now = datetime(2026, 2, 24, 10, 0, 0)
+    with patch("features.reminder.datetime") as mock_dt:
+        mock_dt.now.return_value = now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        result = feat.execute("set", {"task": "lunch", "time": "at noon"})
+    assert "I'll remind you" in result
+    items = json.loads(rf.read_text())
+    due = datetime.fromisoformat(items[0]["due"])
+    assert due.hour == 12 and due.minute == 0
+
+
+def test_execute_midnight(tmp_path):
+    feat, rf = _make_feature(tmp_path)
+    now = datetime(2026, 2, 24, 22, 0, 0)
+    with patch("features.reminder.datetime") as mock_dt:
+        mock_dt.now.return_value = now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        result = feat.execute("set", {"task": "sleep", "time": "at midnight"})
+    assert "I'll remind you" in result
+    items = json.loads(rf.read_text())
+    due = datetime.fromisoformat(items[0]["due"])
+    assert due.hour == 0 and due.minute == 0
+
+
+def test_execute_a_couple_minutes(tmp_path):
+    feat, rf = _make_feature(tmp_path)
+    now = datetime(2026, 2, 24, 14, 0, 0)
+    with patch("features.reminder.datetime") as mock_dt:
+        mock_dt.now.return_value = now
+        mock_dt.fromisoformat = datetime.fromisoformat
+        result = feat.execute("set", {"task": "check", "time": "in a couple minutes"})
+    assert "I'll remind you" in result
+    items = json.loads(rf.read_text())
+    due = datetime.fromisoformat(items[0]["due"])
+    assert due == datetime(2026, 2, 24, 14, 2, 0)
