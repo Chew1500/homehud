@@ -10,7 +10,7 @@ import struct
 import threading
 import time
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -41,6 +41,10 @@ _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 class _Handler(BaseHTTPRequestHandler):
     """Request handler — routes to dashboard or JSON API endpoints."""
 
+    def setup(self):
+        self.request.settimeout(60)
+        super().setup()
+
     def log_message(self, format, *args):  # noqa: A002
         log.debug(format, *args)
 
@@ -49,7 +53,9 @@ class _Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         params = parse_qs(parsed.query)
 
-        if path == "/":
+        if path == "/api/health":
+            self._send_json({"ok": True})
+        elif path == "/":
             self._send_html(DASHBOARD_HTML)
         elif path == "/api/stats":
             self._handle_stats()
@@ -803,7 +809,7 @@ def _pcm_to_wav(pcm: bytes, sample_rate: int = 16000, channels: int = 1, bits: i
 
 def _ro_connect(db_path: str) -> sqlite3.Connection:
     """Open a read-only SQLite connection."""
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -899,7 +905,8 @@ class TelemetryWeb:
 
     def _setup_server(self) -> None:
         """Create and configure the HTTP server instance."""
-        self._server = HTTPServer((self._host, self._port), _Handler)
+        self._server = ThreadingHTTPServer((self._host, self._port), _Handler)
+        self._server.daemon_threads = True
         self._server.db_path = self._db_path
         self._server.display_snapshot_path = self._display_snapshot_path
         self._server.log_dir = self._log_dir
@@ -933,6 +940,17 @@ class TelemetryWeb:
     def is_alive(self) -> bool:
         """Return True if the server thread is still running."""
         return self._thread is not None and self._thread.is_alive()
+
+    def check_health(self, timeout: float = 5) -> bool:
+        """Actively probe /api/health to verify the server is responsive."""
+        import urllib.request
+
+        try:
+            url = f"http://127.0.0.1:{self._port}/api/health"
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
 
     def close(self) -> None:
         """Shut down the server."""

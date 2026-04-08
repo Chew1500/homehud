@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import date, datetime
 
@@ -28,12 +29,22 @@ class OpenMeteoWeatherClient(BaseWeatherClient):
         self._client = httpx.Client(timeout=10.0)
         self._cache: WeatherData | None = None
         self._cache_time: float = 0.0
+        self._lock = threading.Lock()
 
     def get_weather(self) -> WeatherData | None:
         now = time.monotonic()
         if self._cache and (now - self._cache_time) < self._ttl:
             return self._cache
 
+        with self._lock:
+            # Re-check after acquiring lock (another thread may have refreshed)
+            now = time.monotonic()
+            if self._cache and (now - self._cache_time) < self._ttl:
+                return self._cache
+
+            return self._fetch_weather(now)
+
+    def _fetch_weather(self, now: float) -> WeatherData | None:
         try:
             resp = self._client.get(
                 "https://api.open-meteo.com/v1/forecast",

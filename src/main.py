@@ -281,6 +281,7 @@ def main():
         orientation=config.get("display_orientation", "portrait"),
     )
 
+    _health_check_counter = 0
     try:
         while running.is_set():
             render_frame(display, ctx=display_ctx)
@@ -304,6 +305,21 @@ def main():
                     except Exception:
                         log.exception("Failed to restart telemetry web server")
                         telemetry_web = None
+                elif (
+                    telemetry_web
+                    and _health_check_counter % 30 == 0
+                    and not telemetry_web.check_health(timeout=5)
+                ):
+                    log.warning(
+                        "Telemetry web server unresponsive — restarting"
+                    )
+                    try:
+                        telemetry_web.close()
+                        telemetry_web.start()
+                    except Exception:
+                        log.exception("Failed to restart telemetry web server")
+                        telemetry_web = None
+                _health_check_counter += 1
                 if display_refresh.is_set():
                     display_refresh.clear()
                     log.info("Display refresh triggered by monitor")

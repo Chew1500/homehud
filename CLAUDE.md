@@ -58,6 +58,7 @@ make test         # pytest tests/ -v
 - Service: `home-hud.service` (systemd)
 - CI/CD: Push to `main` → lint/test on GitHub cloud → deploy via self-hosted runner on Pi
 - Logs: `sudo journalctl -u home-hud -f`
+- SSH: `ssh dchew@homehud.local` — passwordless key auth, useful for troubleshooting the Pi directly
 
 ## Telemetry Dashboard
 
