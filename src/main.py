@@ -116,20 +116,20 @@ def main():
     if config.get("voice_enabled", True):
         try:
             from audio import get_audio
+            from cooking.storage import RecipeStorage
             from discovery.collector import LibraryCollector
             from discovery.engine import DiscoveryEngine
             from discovery.storage import DiscoveryStorage
             from enphase import get_enphase_client
             from enphase.collector import SolarCollector
             from enphase.storage import SolarStorage
-            from cooking.storage import RecipeStorage
             from features.capabilities import CapabilitiesFeature
             from features.cooking_session import CookingSessionFeature
-            from features.recipe import RecipeFeature
             from features.discovery import DiscoveryFeature
             from features.grocery import GroceryFeature
             from features.media import MediaFeature
             from features.network import NetworkFeature
+            from features.recipe import RecipeFeature
             from features.reminder import ReminderFeature
             from features.repeat import RepeatFeature
             from features.solar import SolarFeature
