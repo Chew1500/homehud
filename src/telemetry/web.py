@@ -12,7 +12,7 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from telemetry.dashboard import DASHBOARD_HTML
 
@@ -417,8 +417,10 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "audio/wav")
         self.send_header("Content-Length", str(len(wav_bytes)))
-        self.send_header("X-Transcription", metadata.get("transcription", ""))
-        self.send_header("X-Response-Text", metadata.get("response_text", ""))
+        self.send_header("X-Transcription",
+                         quote(metadata.get("transcription", ""), safe=""))
+        self.send_header("X-Response-Text",
+                         quote(metadata.get("response_text", ""), safe=""))
         self.send_header("Access-Control-Expose-Headers",
                          "X-Transcription, X-Response-Text")
         self.end_headers()
