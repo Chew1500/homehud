@@ -1,15 +1,15 @@
 """Outer HTML shell: head, tab bar, common JS utilities, tab navigation."""
 
 TAB_BAR = """\
-<div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('tab-overview')">Overview</button>
-  <button class="tab-btn" onclick="switchTab('tab-sessions')">Sessions</button>
-  <button class="tab-btn" onclick="switchTab('tab-logs')">Logs</button>
-  <button class="tab-btn" onclick="switchTab('tab-config')">Config</button>
-  <button class="tab-btn" onclick="switchTab('tab-voice-cache')">Voice Cache</button>
-  <button class="tab-btn" onclick="switchTab('tab-services')">Services</button>
-  <button class="tab-btn" onclick="switchTab('tab-garden')">Garden</button>
-  <button class="tab-btn" onclick="switchTab('tab-voice')">Voice</button>
+<div class="tab-bar" id="tab-bar">
+  <button class="tab-btn active" data-tab="tab-overview">Overview</button>
+  <button class="tab-btn" data-tab="tab-sessions">Sessions</button>
+  <button class="tab-btn" data-tab="tab-logs">Logs</button>
+  <button class="tab-btn" data-tab="tab-config">Config</button>
+  <button class="tab-btn" data-tab="tab-voice-cache">Voice Cache</button>
+  <button class="tab-btn" data-tab="tab-services">Services</button>
+  <button class="tab-btn" data-tab="tab-garden">Garden</button>
+  <button class="tab-btn" data-tab="tab-voice">Voice</button>
 </div>
 """
 
@@ -188,6 +188,11 @@ function renderPhaseBreakdown(ex) {
 
 TAB_NAV_JS = """\
 // --- Tab navigation ---
+document.getElementById('tab-bar').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (btn && btn.dataset.tab) switchTab(btn.dataset.tab);
+});
+
 const loadedTabs = new Set(['tab-overview']);
 const TAB_LOADERS = {
   'tab-sessions': () => loadSessions(0),
@@ -205,7 +210,7 @@ function switchTab(tabId) {
 
   const panel = document.getElementById(tabId);
   if (panel) panel.classList.add('active');
-  const btn = document.querySelector(`.tab-btn[onclick*="${tabId}"]`);
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
   if (btn) btn.classList.add('active');
 
   // Lazy-load on first activation

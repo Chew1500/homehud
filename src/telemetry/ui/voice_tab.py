@@ -34,6 +34,7 @@ TAB_HTML = """\
     <div class="voice-hint" id="voice-hint">
       Hold the button to record, release to send.
       <br>Or tap once to start, tap again to stop.
+      <br><span style="color:#bbb">Microphone requires HTTPS or localhost.</span>
     </div>
   </div>
 </div>
@@ -102,7 +103,18 @@ async function startRecording() {
     updateVoiceUI('listening');
   } catch (err) {
     console.error('Mic access error:', err);
-    updateVoiceUI('idle', 'Microphone access denied');
+    const isInsecure = location.protocol !== 'https:'
+      && location.hostname !== 'localhost'
+      && location.hostname !== '127.0.0.1';
+    if (isInsecure) {
+      updateVoiceUI('idle',
+        'Microphone requires HTTPS. Set up Tailscale for remote access, '
+        + 'or use localhost.');
+    } else if (err.name === 'NotAllowedError') {
+      updateVoiceUI('idle', 'Microphone permission denied. Check browser settings.');
+    } else {
+      updateVoiceUI('idle', 'Microphone error: ' + err.message);
+    }
   }
 }
 

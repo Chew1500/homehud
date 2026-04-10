@@ -49,16 +49,13 @@ jobs:
           if ! command -v tailscale &>/dev/null; then
             curl -fsSL https://tailscale.com/install.sh | sudo sh
           fi
-          # Join tailnet if not already connected (requires TAILSCALE_AUTH_KEY secret)
-          if ! tailscale status --json 2>/dev/null | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('BackendState')=='Running' else 1)" 2>/dev/null; then
-            if [ -n "${TAILSCALE_AUTH_KEY:-}" ]; then
-              sudo tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --hostname=homehud
-            else
-              echo "TAILSCALE_AUTH_KEY not set, skipping tailscale up"
-            fi
+          # Check connection status (initial setup done manually via SSH:
+          #   sudo tailscale up --hostname=homehud)
+          if tailscale status --json 2>/dev/null | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('BackendState')=='Running' else 1)" 2>/dev/null; then
+            echo "Tailscale connected"
+          else
+            echo "Tailscale not connected — run 'sudo tailscale up --hostname=homehud' on the Pi to set up"
           fi
-        env:
-          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
       - name: Ensure Python 3.11 venv
         run: |
