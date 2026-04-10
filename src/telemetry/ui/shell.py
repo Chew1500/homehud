@@ -2,14 +2,14 @@
 
 TAB_BAR = """\
 <div class="tab-bar" id="tab-bar">
-  <button class="tab-btn active" data-tab="tab-overview">Overview</button>
+  <button class="tab-btn" data-tab="tab-overview">Overview</button>
   <button class="tab-btn" data-tab="tab-sessions">Sessions</button>
   <button class="tab-btn" data-tab="tab-logs">Logs</button>
   <button class="tab-btn" data-tab="tab-config">Config</button>
   <button class="tab-btn" data-tab="tab-voice-cache">Voice Cache</button>
   <button class="tab-btn" data-tab="tab-services">Services</button>
   <button class="tab-btn" data-tab="tab-garden">Garden</button>
-  <button class="tab-btn" data-tab="tab-voice">Voice</button>
+  <button class="tab-btn active" data-tab="tab-voice">Voice</button>
 </div>
 """
 
@@ -193,7 +193,7 @@ document.getElementById('tab-bar').addEventListener('click', (e) => {
   if (btn && btn.dataset.tab) switchTab(btn.dataset.tab);
 });
 
-const loadedTabs = new Set(['tab-overview']);
+const loadedTabs = new Set(['tab-voice']);
 const TAB_LOADERS = {
   'tab-sessions': () => loadSessions(0),
   'tab-logs': () => { loadLogs(); setupLogAutoRefresh(); },
@@ -308,25 +308,55 @@ window.fetch = function(url, opts) {
   return _origFetch.call(this, url, opts);
 };
 
+// Admin-only tabs (hidden for regular users)
+const ADMIN_TABS = [
+  'tab-overview', 'tab-sessions', 'tab-logs',
+  'tab-config', 'tab-voice-cache', 'tab-services'
+];
+
+function applyTabVisibility(isAdmin) {
+  ADMIN_TABS.forEach(tabId => {
+    const btn = document.querySelector(
+      `.tab-btn[data-tab="${tabId}"]`
+    );
+    if (btn) btn.style.display = isAdmin ? '' : 'none';
+  });
+}
+
 // Initial load
 (async function init() {
-  // Check if auth is required by testing /api/auth/status without token
-  const testRes = await _origFetch('/api/auth/status').catch(() => null);
-  const authRequired = testRes && testRes.status === 401;
+  // Check auth status (also tells us admin role)
+  const token = localStorage.getItem('hud_auth_token');
+  const headers = token
+    ? { 'Authorization': 'Bearer ' + token } : {};
+  const statusRes = await _origFetch('/api/auth/status', {
+    headers
+  }).catch(() => null);
 
-  if (authRequired) {
-    const authed = await checkAuth();
-    if (!authed) { showLoginScreen(); return; }
+  if (statusRes && statusRes.status === 401) {
+    showLoginScreen();
+    return;
   }
+
   showMainScreen();
-  loadStats();
-  loadDisplay();
-  setInterval(loadDisplay, 30000);
+
+  let isAdmin = true; // default when auth disabled
+  if (statusRes && statusRes.ok) {
+    const statusData = await statusRes.json();
+    isAdmin = statusData.admin !== false;
+  }
+  applyTabVisibility(isAdmin);
+
+  // Voice tab is always the default
+  loadVoice();
 
   const initTab = location.hash.slice(1);
-  if (initTab && initTab !== 'tab-overview'
+  if (initTab && initTab !== 'tab-voice'
       && document.getElementById(initTab)) {
-    switchTab(initTab);
+    // Only allow switching to admin tabs if admin
+    if (!ADMIN_TABS.includes(initTab) || isAdmin) {
+      switchTab(initTab);
+    }
   }
 })();
 """

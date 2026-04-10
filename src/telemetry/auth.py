@@ -99,9 +99,11 @@ class AuthManager:
             user_id, expires_at = entry
             if time.time() > expires_at:
                 return None
-            # Register the user
+            # Register the user (first user becomes admin)
+            is_first = len(self._users) == 0
             self._users[user_id] = {
                 "source": "pairing",
+                "admin": is_first,
                 "created_at": time.time(),
             }
             self._save_users()
@@ -110,11 +112,19 @@ class AuthManager:
 
     # --- Token management ---
 
+    def is_admin(self, user_id: str) -> bool:
+        """Check if a user has admin privileges."""
+        if user_id in ("localhost", "anonymous"):
+            return True
+        user = self._users.get(user_id)
+        return bool(user and user.get("admin"))
+
     def create_token(self, user_id: str, source: str = "pairing") -> str:
         """Create an HMAC-signed token for the given user."""
         payload = json.dumps({
             "uid": user_id,
             "src": source,
+            "adm": self.is_admin(user_id),
             "iat": int(time.time()),
         }, separators=(",", ":"))
         payload_b64 = base64.urlsafe_b64encode(
@@ -184,18 +194,20 @@ class AuthManager:
             ts_user_id = str(data.get("UserProfile", {}).get("ID", ip))
             stable_id = f"ts-{ts_user_id}"
 
-            # Auto-register if new
+            # Auto-register if new (first user becomes admin)
             with self._lock:
                 if stable_id not in self._users:
+                    is_first = len(self._users) == 0
                     self._users[stable_id] = {
                         "name": login_name,
                         "source": "tailscale",
+                        "admin": is_first,
                         "created_at": time.time(),
                     }
                     self._save_users()
                     log.info(
-                        "Auto-registered Tailscale user: %s (%s)",
-                        login_name, stable_id,
+                        "Auto-registered Tailscale user: %s (%s, admin=%s)",
+                        login_name, stable_id, is_first,
                     )
 
             return stable_id

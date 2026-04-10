@@ -33,8 +33,9 @@ if ! command -v tailscale &>/dev/null; then
     exit 1
 fi
 
-# Create cert directory
+# Create cert directory (owned by hud so the service can read certs)
 mkdir -p "$CERT_DIR"
+chown hud:hud "$CERT_DIR"
 chmod 750 "$CERT_DIR"
 
 # Get the full domain name

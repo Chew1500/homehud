@@ -94,6 +94,24 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
         return None
 
+    def _is_admin(self, user_id: str) -> bool:
+        """Check if a user has admin privileges."""
+        if user_id in ("localhost", "anonymous"):
+            return True
+        auth_mgr = getattr(self.server, "auth_manager", None)
+        if auth_mgr is None:
+            return True  # no auth = everyone is admin
+        return auth_mgr.is_admin(user_id)
+
+    def _require_admin(self, user_id: str) -> bool:
+        """Check admin access; sends 403 if not. Returns True if allowed."""
+        if self._is_admin(user_id):
+            return True
+        self._send_json(
+            {"error": "Admin access required"}, HTTPStatus.FORBIDDEN,
+        )
+        return False
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
@@ -118,31 +136,46 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/icons/512.png":
             self._send_icon(512)
         elif path == "/api/stats":
-            self._handle_stats()
+            if self._require_admin(user_id):
+                self._handle_stats()
         elif path == "/api/config":
-            self._handle_config()
+            if self._require_admin(user_id):
+                self._handle_config()
         elif path == "/api/display":
-            self._handle_display()
+            if self._require_admin(user_id):
+                self._handle_display()
         elif path == "/api/logs":
-            self._handle_logs(params)
+            if self._require_admin(user_id):
+                self._handle_logs(params)
         elif path == "/api/sessions":
-            self._handle_sessions(params)
+            if self._require_admin(user_id):
+                self._handle_sessions(params)
         elif path == "/api/tts-cache":
-            self._handle_tts_cache_list()
+            if self._require_admin(user_id):
+                self._handle_tts_cache_list()
         elif m := _TTS_CACHE_RE.match(path):
-            self._handle_tts_cache_audio(m.group(1))
+            if self._require_admin(user_id):
+                self._handle_tts_cache_audio(m.group(1))
         elif path == "/api/garden":
             self._handle_garden()
         elif path == "/api/monitor/services":
-            self._handle_monitor_list()
+            if self._require_admin(user_id):
+                self._handle_monitor_list()
         elif m := _MONITOR_HIST_RE.match(path):
-            self._handle_monitor_history(int(m.group(1)), params)
+            if self._require_admin(user_id):
+                self._handle_monitor_history(int(m.group(1)), params)
         elif m := _MONITOR_SVC_RE.match(path):
-            self._handle_monitor_detail(int(m.group(1)))
+            if self._require_admin(user_id):
+                self._handle_monitor_detail(int(m.group(1)))
         elif m := _SESSION_RE.match(path):
-            self._handle_session_detail(m.group(1))
+            if self._require_admin(user_id):
+                self._handle_session_detail(m.group(1))
         elif path == "/api/auth/status":
-            self._send_json({"authenticated": True, "user_id": user_id})
+            self._send_json({
+                "authenticated": True,
+                "user_id": user_id,
+                "admin": self._is_admin(user_id),
+            })
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -155,13 +188,15 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/config":
-            self._handle_config_save()
+            if self._require_admin(user_id):
+                self._handle_config_save()
         elif path == "/api/voice":
             self._handle_voice()
         elif path == "/api/auth/pair":
             self._handle_auth_pair()
         elif path == "/api/auth/generate-code":
-            self._handle_auth_generate_code()
+            if self._require_admin(user_id):
+                self._handle_auth_generate_code()
         elif path == "/api/monitor/services":
             self._handle_monitor_add()
         elif path == "/api/monitor/test":

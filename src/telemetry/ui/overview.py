@@ -1,7 +1,7 @@
 """Overview tab: summary cards, phase performance, display preview."""
 
 TAB_HTML = """\
-<div class="tab-panel active" id="tab-overview">
+<div class="tab-panel" id="tab-overview">
   <div id="stats-loading" class="loading">Loading stats...</div>
   <div id="stats-error" class="error-msg" style="display:none"></div>
 

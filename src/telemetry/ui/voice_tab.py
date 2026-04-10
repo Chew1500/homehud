@@ -1,7 +1,7 @@
 """Voice tab: browser-based voice interface for talking to Home HUD."""
 
 TAB_HTML = """\
-<div class="tab-panel" id="tab-voice">
+<div class="tab-panel active" id="tab-voice">
   <div class="voice-container">
     <div class="voice-status" id="voice-status">Tap to talk</div>
 
