@@ -60,7 +60,9 @@ def build_dashboard_html() -> str:
         + "</style>\n</head>\n<body>\n"
         # Login screen (hidden by default, shown by JS when auth required)
         '<div id="hud-login" style="display:none">\n'
-        '  <div style="max-width:360px;margin:4rem auto;text-align:center">\n'
+        '  <div style="max-width:360px;margin:0 auto;text-align:center;'
+        'min-height:100vh;min-height:100dvh;display:flex;'
+        'flex-direction:column;justify-content:center;padding:2rem 1rem">\n'
         '    <h1>Home HUD</h1>\n'
         '    <p style="color:#888;margin:1rem 0 2rem">'
         'Enter pairing code to connect</p>\n'
@@ -98,8 +100,9 @@ def build_dashboard_html() -> str:
         '</div>\n\n'
         # Main content wrapper
         '<div id="hud-main">\n'
-        '<h1>Home HUD Telemetry</h1>\n'
-        '<p class="subtitle">Voice pipeline performance and usage data</p>\n\n'
+        '<div class="hud-header" id="hud-header">\n'
+        '  <h1>Home HUD</h1>\n'
+        '</div>\n\n'
         + TAB_BAR
         + "\n"
         + tabs_html

@@ -10,7 +10,7 @@ TAB_HTML = """\
       <button class="voice-btn" id="voice-btn"
         ontouchstart="voiceBtnDown(event)" ontouchend="voiceBtnUp(event)"
         onmousedown="voiceBtnDown(event)" onmouseup="voiceBtnUp(event)">
-        <svg viewBox="0 0 24 24" width="48" height="48"
+        <svg viewBox="0 0 24 24" width="52" height="52"
           fill="currentColor">
           <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3
             S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>

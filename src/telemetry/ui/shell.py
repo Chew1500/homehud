@@ -232,6 +232,10 @@ function switchTab(tabId) {
 
   // Update URL hash without triggering hashchange handler
   history.replaceState(null, '', '#' + tabId);
+
+  // Hide header on Voice tab (it's self-explanatory)
+  const hdr = document.getElementById('hud-header');
+  if (hdr) hdr.style.display = tabId === 'tab-voice' ? 'none' : '';
 }
 
 window.addEventListener('hashchange', () => {
@@ -321,6 +325,9 @@ function applyTabVisibility(isAdmin) {
     );
     if (btn) btn.style.display = isAdmin ? '' : 'none';
   });
+  // Center tab bar when few tabs visible
+  const bar = document.getElementById('tab-bar');
+  if (bar && !isAdmin) bar.classList.add('tab-bar-centered');
 }
 
 // Initial load
@@ -347,8 +354,10 @@ function applyTabVisibility(isAdmin) {
   }
   applyTabVisibility(isAdmin);
 
-  // Voice tab is always the default
+  // Voice tab is always the default — hide header
   loadVoice();
+  const hdr = document.getElementById('hud-header');
+  if (hdr) hdr.style.display = 'none';
 
   const initTab = location.hash.slice(1);
   if (initTab && initTab !== 'tab-voice'

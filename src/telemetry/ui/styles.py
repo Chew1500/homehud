@@ -6,10 +6,16 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #f5f7fa; color: #333; line-height: 1.5;
   padding: 1rem; max-width: 1200px; margin: 0 auto;
+  min-height: 100vh; min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  padding-top: calc(1rem + env(safe-area-inset-top, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
 h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; color: #555; }
 .subtitle { color: #888; font-size: 0.85rem; margin-bottom: 1rem; }
+.hud-header { transition: opacity 0.2s; }
 
 /* Summary cards */
 .cards {
@@ -205,18 +211,26 @@ tr:hover td { background: #fafbfc; }
 /* Tab bar */
 .tab-bar {
   display: flex; gap: 0; border-bottom: 2px solid #e0e3e8;
-  margin-bottom: 1rem; position: sticky; top: 0; background: #f5f7fa;
-  z-index: 10; padding-top: 0.25rem;
+  margin-bottom: 1rem; position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  background: #f5f7fa; z-index: 10; padding-top: 0.25rem;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.tab-bar::-webkit-scrollbar { display: none; }
 .tab-btn {
   padding: 0.5rem 1.25rem; border: none; background: none; cursor: pointer;
-  font-size: 0.9rem; color: #888; font-weight: 500; border-bottom: 2px solid transparent;
+  font-size: 0.9rem; color: #888; font-weight: 500;
+  border-bottom: 2px solid transparent;
   margin-bottom: -2px; transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0; white-space: nowrap;
+  min-height: 44px; display: flex; align-items: center;
 }
 .tab-btn:hover { color: #555; }
 .tab-btn.active { color: #3b82f6; border-bottom-color: #3b82f6; font-weight: 700; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
+.tab-bar-centered { justify-content: center; }
 
 /* Service monitor form */
 .svc-input {
@@ -330,36 +344,39 @@ tr:hover td { background: #fafbfc; }
 /* Voice tab */
 .voice-container {
   display: flex; flex-direction: column; align-items: center;
-  padding: 2rem 1rem; max-width: 400px; margin: 0 auto;
+  justify-content: center;
+  padding: 1.5rem 1rem 2rem; max-width: 400px; margin: 0 auto;
+  min-height: calc(100vh - 120px);
+  min-height: calc(100dvh - 120px);
 }
 .voice-status {
-  font-size: 1.1rem; color: #555; margin-bottom: 1.5rem;
+  font-size: 1.2rem; color: #555; margin-bottom: 2rem;
   font-weight: 500; text-align: center; min-height: 1.5em;
 }
 .voice-btn-wrap {
-  position: relative; width: 120px; height: 120px;
-  margin-bottom: 2rem;
+  position: relative; width: 140px; height: 140px;
+  margin-bottom: 2.5rem;
 }
 .voice-level-ring {
-  position: absolute; inset: -8px; border-radius: 50%;
+  position: absolute; inset: -12px; border-radius: 50%;
   background: rgba(59, 130, 246, 0.15);
   transform: scale(1); opacity: 0;
   transition: transform 0.05s, opacity 0.1s;
   pointer-events: none;
 }
 .voice-btn {
-  width: 120px; height: 120px; border-radius: 50%;
+  width: 140px; height: 140px; border-radius: 50%;
   border: none; cursor: pointer;
   background: #3b82f6; color: #fff;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 15px rgba(59,130,246,0.3);
+  box-shadow: 0 6px 20px rgba(59,130,246,0.3);
   transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
   -webkit-tap-highlight-color: transparent;
   touch-action: none; user-select: none;
 }
 .voice-btn:active, .voice-btn.voice-listening {
   background: #ef4444; transform: scale(0.95);
-  box-shadow: 0 4px 15px rgba(239,68,68,0.3);
+  box-shadow: 0 6px 20px rgba(239,68,68,0.3);
 }
 .voice-btn.voice-processing {
   background: #f59e0b; cursor: wait;
@@ -370,31 +387,70 @@ tr:hover td { background: #fafbfc; }
   animation: voice-pulse 1.5s infinite;
 }
 @keyframes voice-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(0.97); }
 }
 .voice-transcript, .voice-response {
-  width: 100%; background: #fff; border-radius: 8px; padding: 0.75rem 1rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 0.75rem;
+  width: 100%; background: #fff; border-radius: 12px;
+  padding: 0.85rem 1.1rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 0.75rem;
 }
 .voice-label {
   font-size: 0.7rem; color: #888; text-transform: uppercase;
-  font-weight: 600; margin-bottom: 0.25rem;
+  font-weight: 600; margin-bottom: 0.25rem; letter-spacing: 0.03em;
 }
 .voice-text {
-  font-size: 0.9rem; color: #333; line-height: 1.4;
+  font-size: 0.95rem; color: #333; line-height: 1.5;
   word-break: break-word;
 }
 .voice-hint {
-  font-size: 0.8rem; color: #aaa; text-align: center;
-  margin-top: 0.5rem; line-height: 1.5;
+  font-size: 0.75rem; color: #bbb; text-align: center;
+  margin-top: 1rem; line-height: 1.5;
 }
 
 /* Responsive */
 @media (max-width: 600px) {
-  body { padding: 0.5rem; }
+  body {
+    padding: 0.5rem;
+    padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .hud-header h1 { font-size: 1.2rem; }
   .cards { grid-template-columns: repeat(2, 1fr); }
   td, th { padding: 0.35rem 0.5rem; font-size: 0.8rem; }
-  .tab-btn { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+  .tab-btn { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+
+  /* Voice tab — larger button on mobile */
+  .voice-container {
+    min-height: calc(100vh - 80px);
+    min-height: calc(100dvh - 80px);
+    padding: 1rem 1rem 1.5rem;
+  }
+  .voice-btn-wrap { width: 160px; height: 160px; }
+  .voice-btn { width: 160px; height: 160px; }
+  .voice-btn svg { width: 56px; height: 56px; }
+  .voice-status { font-size: 1.3rem; margin-bottom: 2.5rem; }
+  .voice-hint { display: none; }
+  .voice-text { font-size: 1rem; }
+
+  /* Garden — stack zones vertically */
+  .garden-zone {
+    flex-direction: column; align-items: stretch;
+    gap: 0.5rem; padding: 0.75rem;
+  }
+  .garden-zone .zone-name { min-width: auto; }
+  .garden-zone .zone-label {
+    min-width: auto; text-align: left;
+    font-size: 0.75rem;
+  }
+  .garden-zone .zone-bar { height: 20px; }
+  .garden-table { display: block; overflow-x: auto; }
+}
+
+/* PWA standalone mode — extra top padding for status bar */
+@media (display-mode: standalone) {
+  body {
+    padding-top: calc(1rem + env(safe-area-inset-top, 0px));
+  }
 }
 """
