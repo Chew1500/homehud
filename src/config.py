@@ -330,6 +330,27 @@ CONFIG_REGISTRY: list[ConfigParam] = [
     ConfigParam("telemetry_web_port", "HUD_TELEMETRY_WEB_PORT", "8080", "int",
                 "Telemetry", "Web dashboard port"),
 
+    # --- Web / PWA ---
+    ConfigParam("web_voice_enabled", "HUD_WEB_VOICE_ENABLED", "true", "bool",
+                "Web", "Enable browser voice endpoint (POST /api/voice)"),
+    ConfigParam("pwa_name", "HUD_PWA_NAME", "Home HUD", "str",
+                "Web", "PWA display name (shown on home screen)"),
+    ConfigParam("pwa_short_name", "HUD_PWA_SHORT_NAME", "HUD", "str",
+                "Web", "PWA short name"),
+    ConfigParam("pwa_theme_color", "HUD_PWA_THEME_COLOR", "#3b82f6", "str",
+                "Web", "PWA theme color"),
+    ConfigParam("web_auth_enabled", "HUD_WEB_AUTH_ENABLED", "false", "bool",
+                "Web", "Enable authentication for the dashboard"),
+    ConfigParam("web_auth_secret", "HUD_WEB_AUTH_SECRET", "", "str",
+                "Web", "HMAC secret for auth tokens (auto-generated if empty)",
+                sensitive=True),
+    ConfigParam("web_tls_cert", "HUD_WEB_TLS_CERT", "", "str",
+                "Web", "Path to TLS certificate file (for HTTPS)"),
+    ConfigParam("web_tls_key", "HUD_WEB_TLS_KEY", "", "str",
+                "Web", "Path to TLS private key file"),
+    ConfigParam("web_tailscale_hostname", "HUD_WEB_TAILSCALE_HOSTNAME", "", "str",
+                "Web", "Tailscale hostname for cert provisioning"),
+
     # --- System ---
     ConfigParam("log_dir", "HUD_LOG_DIR", str(PROJECT_ROOT / "logs"), "str", "System",
                 "Log file directory"),

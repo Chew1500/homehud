@@ -38,6 +38,14 @@ _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
 
 
+# Paths that never require authentication
+_AUTH_EXEMPT = frozenset({
+    "/api/health", "/manifest.json", "/sw.js",
+    "/audio-processor.js", "/",
+})
+_AUTH_EXEMPT_PREFIXES = ("/api/auth/", "/icons/")
+
+
 class _Handler(BaseHTTPRequestHandler):
     """Request handler — routes to dashboard or JSON API endpoints."""
 
@@ -48,15 +56,67 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002
         log.debug(format, *args)
 
+    def _authenticate(self, path: str) -> str | None:
+        """Check authentication. Returns user_id or None (sends 401).
+
+        Returns "anonymous" and skips auth when auth is disabled or the
+        path is exempt.
+        """
+        auth_mgr = getattr(self.server, "auth_manager", None)
+        if auth_mgr is None:
+            return "anonymous"
+
+        # Exempt paths
+        if path in _AUTH_EXEMPT or any(
+            path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES
+        ):
+            return "anonymous"
+
+        # Localhost bypass
+        client_ip = self.client_address[0]
+        if client_ip in ("127.0.0.1", "::1"):
+            return "localhost"
+
+        # Tailscale identity check (100.x.x.x range)
+        if client_ip.startswith("100."):
+            ts_user = auth_mgr.check_tailscale_identity(client_ip)
+            if ts_user:
+                return ts_user
+
+        # Bearer token
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            payload = auth_mgr.verify_token(token)
+            if payload and auth_mgr.is_registered(payload.get("uid", "")):
+                return payload["uid"]
+
+        self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+        return None
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         params = parse_qs(parsed.query)
 
+        user_id = self._authenticate(path)
+        if user_id is None:
+            return
+
         if path == "/api/health":
             self._send_json({"ok": True})
         elif path == "/":
             self._send_html(DASHBOARD_HTML)
+        elif path == "/audio-processor.js":
+            self._send_js()
+        elif path == "/manifest.json":
+            self._send_manifest()
+        elif path == "/sw.js":
+            self._send_service_worker()
+        elif path == "/icons/192.png":
+            self._send_icon(192)
+        elif path == "/icons/512.png":
+            self._send_icon(512)
         elif path == "/api/stats":
             self._handle_stats()
         elif path == "/api/config":
@@ -81,6 +141,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_monitor_detail(int(m.group(1)))
         elif m := _SESSION_RE.match(path):
             self._handle_session_detail(m.group(1))
+        elif path == "/api/auth/status":
+            self._send_json({"authenticated": True, "user_id": user_id})
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -88,8 +150,18 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
 
+        user_id = self._authenticate(path)
+        if user_id is None:
+            return
+
         if path == "/api/config":
             self._handle_config_save()
+        elif path == "/api/voice":
+            self._handle_voice()
+        elif path == "/api/auth/pair":
+            self._handle_auth_pair()
+        elif path == "/api/auth/generate-code":
+            self._handle_auth_generate_code()
         elif path == "/api/monitor/services":
             self._handle_monitor_add()
         elif path == "/api/monitor/test":
@@ -101,6 +173,10 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
 
+        user_id = self._authenticate(path)
+        if user_id is None:
+            return
+
         if m := _MONITOR_SVC_RE.match(path):
             self._handle_monitor_remove(int(m.group(1)))
         else:
@@ -109,6 +185,10 @@ class _Handler(BaseHTTPRequestHandler):
     def do_PATCH(self):  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
+
+        user_id = self._authenticate(path)
+        if user_id is None:
+            return
 
         if m := _MONITOR_SVC_RE.match(path):
             self._handle_monitor_update(int(m.group(1)))
@@ -157,6 +237,124 @@ class _Handler(BaseHTTPRequestHandler):
             "restart_required": True,
             "keys": list(filtered.keys()),
         })
+
+    def _handle_auth_pair(self):
+        """POST /api/auth/pair — submit pairing code, get auth token."""
+        auth_mgr = getattr(self.server, "auth_manager", None)
+        if auth_mgr is None:
+            self._send_json(
+                {"error": "Auth not enabled"}, HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        code = str(body.get("code", "")).strip()
+        if not code:
+            self._send_json(
+                {"error": "Missing 'code' field"}, HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        user_id = auth_mgr.verify_pairing_code(code)
+        if user_id is None:
+            self._send_json(
+                {"error": "Invalid or expired code"}, HTTPStatus.UNAUTHORIZED,
+            )
+            return
+
+        token = auth_mgr.create_token(user_id, source="pairing")
+        self._send_json({"token": token, "user_id": user_id})
+
+    def _handle_auth_generate_code(self):
+        """POST /api/auth/generate-code — generate a new pairing code.
+
+        Only accessible from localhost or authenticated users.
+        """
+        auth_mgr = getattr(self.server, "auth_manager", None)
+        if auth_mgr is None:
+            self._send_json(
+                {"error": "Auth not enabled"}, HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+
+        # Only allow from localhost or authenticated users
+        client_ip = self.client_address[0]
+        if client_ip not in ("127.0.0.1", "::1"):
+            auth_header = self.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                self._send_json(
+                    {"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED,
+                )
+                return
+            payload = auth_mgr.verify_token(auth_header[7:])
+            if not payload:
+                self._send_json(
+                    {"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED,
+                )
+                return
+
+        code = auth_mgr.generate_pairing_code()
+        self._send_json({"code": code, "expires_in": 300})
+
+    def _handle_voice(self):
+        """POST /api/voice — accept PCM/WAV audio, return WAV response."""
+        handler = getattr(self.server, "voice_handler", None)
+        if handler is None:
+            self._send_json(
+                {"error": "Voice not available"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+
+        # Read request body
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            self._send_json({"error": "Missing Content-Length"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        max_size = 1_048_576  # 1 MB (~30s of 16kHz mono int16)
+        if length <= 0 or length > max_size:
+            self._send_json(
+                {"error": f"Content-Length must be 1–{max_size} bytes"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        body = self.rfile.read(length)
+        content_type = (self.headers.get("Content-Type") or "").lower()
+
+        # Strip WAV header if the client sent audio/wav
+        if content_type.startswith("audio/wav") or content_type.startswith("audio/x-wav"):
+            if len(body) > 44 and body[:4] == b"RIFF":
+                body = body[44:]
+
+        try:
+            wav_bytes, metadata = handler.handle_voice_request(body)
+        except Exception:
+            log.exception("Voice handler error")
+            self._send_json(
+                {"error": "Voice processing failed"},
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+
+        # Return WAV audio with metadata in headers
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(wav_bytes)))
+        self.send_header("X-Transcription", metadata.get("transcription", ""))
+        self.send_header("X-Response-Text", metadata.get("response_text", ""))
+        self.send_header("Access-Control-Expose-Headers",
+                         "X-Transcription, X-Response-Text")
+        self.end_headers()
+        self.wfile.write(wav_bytes)
 
     def _handle_display(self):
         snapshot_path = getattr(self.server, "display_snapshot_path", None)
@@ -782,6 +980,49 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_js(self):
+        from telemetry.ui.audio_worklet import AUDIO_PROCESSOR_JS
+
+        body = AUDIO_PROCESSOR_JS.encode()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/javascript")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_manifest(self):
+        from telemetry.pwa import get_manifest
+
+        config = getattr(self.server, "config", None) or {}
+        body = get_manifest(config).encode()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/manifest+json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_service_worker(self):
+        from telemetry.pwa import SERVICE_WORKER_JS
+
+        body = SERVICE_WORKER_JS.encode()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/javascript")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_icon(self, size: int):
+        from telemetry.pwa import generate_icon
+
+        config = getattr(self.server, "config", None) or {}
+        body = generate_icon(size, config.get("pwa_theme_color", "#3b82f6"))
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(body)
+
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int = 16000, channels: int = 1, bits: int = 16) -> bytes:
     """Prepend a 44-byte WAV header to raw PCM data (int16 LE)."""
@@ -880,6 +1121,10 @@ class TelemetryWeb:
         monitor_storage: object | None = None,
         garden_feature: object | None = None,
         weather_client: object | None = None,
+        voice_handler: object | None = None,
+        auth_manager: object | None = None,
+        tls_cert: str | None = None,
+        tls_key: str | None = None,
     ):
         self._db_path = db_path
         self._host = host
@@ -891,8 +1136,18 @@ class TelemetryWeb:
         self._monitor_storage = monitor_storage
         self._garden_feature = garden_feature
         self._weather_client = weather_client
+        self._voice_handler = voice_handler
+        self._auth_manager = auth_manager
+        self._tls_cert = tls_cert
+        self._tls_key = tls_key
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
+
+    def set_voice_handler(self, handler: object) -> None:
+        """Attach a voice handler after construction (for late binding)."""
+        self._voice_handler = handler
+        if self._server is not None:
+            self._server.voice_handler = handler
 
     def start(self) -> threading.Thread:
         """Start the web server in a daemon thread."""
@@ -915,6 +1170,27 @@ class TelemetryWeb:
         self._server.monitor_storage = self._monitor_storage
         self._server.garden_feature = self._garden_feature
         self._server.weather_client = self._weather_client
+        self._server.voice_handler = self._voice_handler
+        self._server.auth_manager = self._auth_manager
+
+        # Optional TLS
+        if self._tls_cert and self._tls_key:
+            import ssl
+
+            cert_path = Path(self._tls_cert)
+            key_path = Path(self._tls_key)
+            if cert_path.exists() and key_path.exists():
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ctx.load_cert_chain(str(cert_path), str(key_path))
+                self._server.socket = ctx.wrap_socket(
+                    self._server.socket, server_side=True,
+                )
+                log.info("TLS enabled with cert %s", cert_path)
+            else:
+                log.warning(
+                    "TLS cert/key not found (%s / %s) — running HTTP",
+                    cert_path, key_path,
+                )
 
     def _serve_loop(self) -> None:
         """Run serve_forever with auto-restart on crash."""

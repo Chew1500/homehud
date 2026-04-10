@@ -32,6 +32,7 @@ def start_voice_pipeline(
     telemetry_store=None,
     notification_manager=None,
     presence_tracker=None,
+    voice_lock: threading.Lock | None = None,
 ) -> threading.Thread:
     """Start the voice pipeline in a daemon thread.
 
@@ -65,6 +66,10 @@ def start_voice_pipeline(
     # Prevents speaker-to-mic feedback from triggering a false wake word
     # immediately after playback starts. At 80ms/chunk, 15 chunks = 1.2s.
     BARGEIN_DEBOUNCE_CHUNKS = 15
+
+    # Shared lock with browser voice handler (if present) to serialise
+    # access to the IntentRouter which has conversation state.
+    _voice_lock = voice_lock
 
     def _handle_command(session=None, is_follow_up=False):
         """Record, transcribe, route, and respond to a single command.
@@ -155,6 +160,9 @@ def start_voice_pipeline(
                     pass
             return False
         try:
+            # Acquire shared lock to serialise with browser voice handler
+            if _voice_lock is not None:
+                _voice_lock.acquire()
             # --- Routing phase ---
             if exchange is not None:
                 try:
@@ -403,6 +411,12 @@ def start_voice_pipeline(
                 try:
                     exchange.error = "Routing error"
                 except Exception:
+                    pass
+        finally:
+            if _voice_lock is not None and _voice_lock.locked():
+                try:
+                    _voice_lock.release()
+                except RuntimeError:
                     pass
         return False
 

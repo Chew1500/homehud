@@ -230,6 +230,16 @@ def main():
                 if config.get("telemetry_web_enabled", True):
                     from telemetry.web import TelemetryWeb
 
+                    # Auth manager (opt-in via config)
+                    auth_manager = None
+                    if config.get("web_auth_enabled", False):
+                        from telemetry.auth import AuthManager
+
+                        auth_manager = AuthManager(
+                            secret=config.get("web_auth_secret") or None,
+                            data_dir=config.get("data_dir", "data"),
+                        )
+
                     telemetry_web = TelemetryWeb(
                         config["telemetry_db_path"],
                         host=config.get("telemetry_web_host", "0.0.0.0"),
@@ -241,10 +251,29 @@ def main():
                         monitor_storage=monitor_storage,
                         garden_feature=garden_feature,
                         weather_client=weather_client,
+                        auth_manager=auth_manager,
+                        tls_cert=config.get("web_tls_cert") or None,
+                        tls_key=config.get("web_tls_key") or None,
                     )
                     telemetry_web.start()
 
             router = get_router(config, features, llm)
+
+            # Browser voice handler — shares STT/router/TTS with hw pipeline
+            voice_lock = None
+            if config.get("web_voice_enabled", True) and telemetry_web is not None:
+                import threading as _threading
+
+                from telemetry.voice_handler import BrowserVoiceHandler
+
+                voice_lock = _threading.Lock()
+                browser_voice = BrowserVoiceHandler(
+                    stt=stt, router=router, tts=tts,
+                    telemetry_store=telemetry_store,
+                    voice_lock=voice_lock,
+                )
+                telemetry_web.set_voice_handler(browser_voice)
+
             voice_thread = start_voice_pipeline(
                 audio, stt, wake, router, tts, config, running,
                 repeat_feature=repeat_feature,
@@ -252,6 +281,7 @@ def main():
                 telemetry_store=telemetry_store,
                 notification_manager=notification_manager,
                 presence_tracker=presence_tracker,
+                voice_lock=voice_lock,
             )
             log.info("Voice pipeline enabled.")
 

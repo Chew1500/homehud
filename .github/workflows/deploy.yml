@@ -44,6 +44,22 @@ jobs:
             python3-lgpio
           sudo ldconfig
 
+      - name: Ensure Tailscale installed
+        run: |
+          if ! command -v tailscale &>/dev/null; then
+            curl -fsSL https://tailscale.com/install.sh | sudo sh
+          fi
+          # Join tailnet if not already connected (requires TAILSCALE_AUTH_KEY secret)
+          if ! tailscale status --json 2>/dev/null | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('BackendState')=='Running' else 1)" 2>/dev/null; then
+            if [ -n "${TAILSCALE_AUTH_KEY:-}" ]; then
+              sudo tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --hostname=homehud
+            else
+              echo "TAILSCALE_AUTH_KEY not set, skipping tailscale up"
+            fi
+          fi
+        env:
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
       - name: Ensure Python 3.11 venv
         run: |
           # Find Python 3.11 — check versioned command, then system python3
