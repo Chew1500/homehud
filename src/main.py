@@ -122,7 +122,10 @@ def main():
             from enphase import get_enphase_client
             from enphase.collector import SolarCollector
             from enphase.storage import SolarStorage
+            from cooking.storage import RecipeStorage
             from features.capabilities import CapabilitiesFeature
+            from features.cooking_session import CookingSessionFeature
+            from features.recipe import RecipeFeature
             from features.discovery import DiscoveryFeature
             from features.grocery import GroceryFeature
             from features.media import MediaFeature
@@ -182,6 +185,15 @@ def main():
                 library_collector.start()
 
             grocery_feature = GroceryFeature(config)
+            recipe_storage = RecipeStorage(
+                Path(config.get("recipe_file", "data/recipes.json"))
+            )
+            cooking_session = CookingSessionFeature(config, llm=llm)
+            recipe_feature = RecipeFeature(
+                config, llm=llm, recipe_storage=recipe_storage,
+                grocery_feature=grocery_feature,
+                cooking_session=cooking_session,
+            )
             reminder_feature = ReminderFeature(config, on_due=on_reminder_due)
             discovery_feature = DiscoveryFeature(
                 config, discovery_storage=discovery_storage,
@@ -208,6 +220,8 @@ def main():
             features = [
                 repeat_feature,
                 VolumeFeature(config, audio=audio),
+                cooking_session,
+                recipe_feature,
                 grocery_feature,
                 reminder_feature,
                 SolarFeature(config, solar_storage, llm),
@@ -254,6 +268,8 @@ def main():
                         auth_manager=auth_manager,
                         tls_cert=config.get("web_tls_cert") or None,
                         tls_key=config.get("web_tls_key") or None,
+                        recipe_storage=recipe_storage,
+                        llm=llm,
                     )
                     telemetry_web.start()
 

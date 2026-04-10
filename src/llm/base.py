@@ -108,6 +108,21 @@ class BaseLLM(ABC):
         """
         ...
 
+    def parse_recipe_image(
+        self, image_b64: str, media_type: str = "image/jpeg"
+    ) -> dict | None:
+        """Extract a structured recipe from an image using vision.
+
+        Args:
+            image_b64: Base64-encoded image data.
+            media_type: MIME type (e.g. "image/jpeg", "image/png").
+
+        Returns:
+            Dict with recipe fields (name, ingredients, directions, etc.)
+            or None on failure.
+        """
+        return None
+
     def close(self) -> None:
         """Clean up resources. Override if needed."""
         pass

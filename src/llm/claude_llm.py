@@ -93,6 +93,21 @@ _INTENT_SYSTEM_PROMPT = (
     "### network\n"
     "Actions: query()\n"
     'Example triggers: "what\'s my IP", "what\'s my IP address", "network info"\n\n'
+    "### recipes\n"
+    "Actions: list(), search(query), detail(recipe_name), delete(recipe_name),\n"
+    "         recommend(preference), refine_recommendation(feedback),\n"
+    "         add_ingredients_to_grocery(recipe_name), start_cooking(recipe_name)\n"
+    'Example triggers: "show my recipes", "find a spicy recipe",\n'
+    '  "recommend something healthy", "what should I cook",\n'
+    '  "add ingredients for tikka masala to grocery list",\n'
+    '  "let\'s cook the pasta recipe"\n\n'
+    "### cooking_session\n"
+    "Actions: next_step(), previous_step(), repeat_step(), current_step(),\n"
+    "         ask_question(question), stop_cooking(), what_step()\n"
+    "Only active during a cooking session (started via recipes:start_cooking).\n"
+    'Example triggers: "next step", "go back", "repeat that", "where was I",\n'
+    '  "how many tablespoons in a cup", "can I substitute butter for oil",\n'
+    '  "I\'m done cooking"\n\n'
     "### capabilities\n"
     "Actions: list(), describe(feature)\n"
     'Example triggers: "what can you do", "tell me about reminders"\n\n'
@@ -385,6 +400,129 @@ class ClaudeLLM(BaseLLM):
             }
             log.exception("Claude streaming API error")
             yield "Sorry, I wasn't able to process that. Please try again."
+
+    def parse_recipe_image(
+        self, image_b64: str, media_type: str = "image/jpeg"
+    ) -> dict | None:
+        """Extract structured recipe data from an image via Claude vision."""
+        self._last_call_info = None
+        t0 = time.monotonic()
+        try:
+            system = (
+                "You are a recipe extraction assistant. Extract the recipe from "
+                "the provided image into structured data. Use the extract_recipe "
+                "tool to return your result. Extract ALL information visible: "
+                "recipe name, every ingredient with quantity and unit, every "
+                "direction step in order, prep time, cook time, servings, and "
+                "descriptive tags (cuisine, dietary, protein, meal type). "
+                "If a field is not visible, omit it or use a reasonable default."
+            )
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_b64,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Extract the recipe from this image. "
+                                "Include all ingredients with quantities and "
+                                "all directions as numbered steps."
+                            ),
+                        },
+                    ],
+                }
+            ]
+
+            extract_tool = {
+                "name": "extract_recipe",
+                "description": "Return structured recipe data extracted from an image.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "prep_time_min": {"type": "integer"},
+                        "cook_time_min": {"type": "integer"},
+                        "servings": {"type": "integer"},
+                        "ingredients": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "quantity": {"type": "string"},
+                                    "unit": {"type": "string"},
+                                },
+                                "required": ["name"],
+                            },
+                        },
+                        "directions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "raw_text": {"type": "string"},
+                    },
+                    "required": ["name", "ingredients", "directions"],
+                },
+            }
+
+            message = self._client.messages.create(
+                model=self._model,
+                max_tokens=2048,
+                system=system,
+                messages=messages,
+                tools=[extract_tool],
+                tool_choice={"type": "tool", "name": "extract_recipe"},
+            )
+
+            result = None
+            for block in message.content:
+                if block.type == "tool_use" and block.name == "extract_recipe":
+                    result = block.input
+
+            self._last_call_info = {
+                "call_type": "parse_recipe_image",
+                "model": self._model,
+                "system_prompt": system,
+                "user_message": "(image upload)",
+                "response_text": json.dumps(result) if result else None,
+                "input_tokens": message.usage.input_tokens,
+                "output_tokens": message.usage.output_tokens,
+                "stop_reason": message.stop_reason,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+            }
+
+            if result:
+                result["source"] = "image_upload"
+                log.info("Parsed recipe from image: %s", result.get("name"))
+            return result
+
+        except Exception as exc:
+            self._last_call_info = {
+                "call_type": "parse_recipe_image",
+                "model": self._model,
+                "system_prompt": "(recipe extraction)",
+                "user_message": "(image upload)",
+                "response_text": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "stop_reason": None,
+                "duration_ms": int((time.monotonic() - t0) * 1000),
+                "error": str(exc),
+            }
+            log.exception("Recipe image parsing error")
+            return None
 
     def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
         """Detect misheard command via a focused, stateless API call."""

@@ -35,3 +35,26 @@ class MockLLM(BaseLLM):
     def classify_intent(self, text: str, feature_descriptions: list[str]) -> str | None:
         """Mock always returns None — no intent recovery in local dev."""
         return None
+
+    def parse_recipe_image(
+        self, image_b64: str, media_type: str = "image/jpeg"
+    ) -> dict | None:
+        """Return a canned recipe for local dev testing."""
+        return {
+            "name": "Mock Recipe",
+            "source": "image_upload",
+            "tags": ["mock", "testing"],
+            "prep_time_min": 10,
+            "cook_time_min": 20,
+            "servings": 4,
+            "ingredients": [
+                {"name": "ingredient one", "quantity": "1", "unit": "cup"},
+                {"name": "ingredient two", "quantity": "2", "unit": "tbsp"},
+            ],
+            "directions": [
+                "Step one: prepare ingredients.",
+                "Step two: cook everything together.",
+                "Step three: serve and enjoy.",
+            ],
+            "raw_text": "Mock extracted text from image.",
+        }

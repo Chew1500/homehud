@@ -8,6 +8,8 @@ from telemetry.ui.logs import TAB_HTML as LOGS_HTML
 from telemetry.ui.logs import TAB_JS as LOGS_JS
 from telemetry.ui.overview import TAB_HTML as OVERVIEW_HTML
 from telemetry.ui.overview import TAB_JS as OVERVIEW_JS
+from telemetry.ui.recipes import TAB_HTML as RECIPES_HTML
+from telemetry.ui.recipes import TAB_JS as RECIPES_JS
 from telemetry.ui.services import TAB_HTML as SERVICES_HTML
 from telemetry.ui.services import TAB_JS as SERVICES_JS
 from telemetry.ui.sessions import TAB_HTML as SESSIONS_HTML
@@ -30,6 +32,7 @@ def build_dashboard_html() -> str:
         + VC_HTML
         + SERVICES_HTML
         + GARDEN_HTML
+        + RECIPES_HTML
         + VOICE_HTML
     )
     tabs_js = (
@@ -40,6 +43,7 @@ def build_dashboard_html() -> str:
         + VC_JS
         + SERVICES_JS
         + GARDEN_JS
+        + RECIPES_JS
         + VOICE_JS
     )
 

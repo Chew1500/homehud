@@ -25,6 +25,8 @@ _TTS_CACHE_RE = re.compile(r"^/api/tts-cache/([0-9a-f]{64})/audio$")
 # Regex for /api/monitor/services/<id> and /api/monitor/services/<id>/history
 _MONITOR_SVC_RE = re.compile(r"^/api/monitor/services/(\d+)$")
 _MONITOR_HIST_RE = re.compile(r"^/api/monitor/services/(\d+)/history$")
+# Regex for /api/recipes/<id>
+_RECIPE_RE = re.compile(r"^/api/recipes/([0-9a-f-]+)$")
 
 # Log line parsing: matches "2024-01-15 10:30:45,123 [INFO] home-hud: message"
 _LOG_LINE_RE = re.compile(
@@ -186,6 +188,10 @@ class _Handler(BaseHTTPRequestHandler):
         elif m := _SESSION_RE.match(path):
             if self._require_admin(user_id):
                 self._handle_session_detail(m.group(1))
+        elif path == "/api/recipes":
+            self._handle_recipes_list()
+        elif m := _RECIPE_RE.match(path):
+            self._handle_recipe_detail(m.group(1))
         elif path == "/api/auth/status":
             # Use _identify_user for best-effort identity (even on
             # exempt paths where _authenticate returns "anonymous")
@@ -220,6 +226,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_monitor_add()
         elif path == "/api/monitor/test":
             self._handle_monitor_test()
+        elif path == "/api/recipes/upload-image":
+            self._handle_recipe_upload_image()
+        elif path == "/api/recipes":
+            self._handle_recipe_create()
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -233,6 +243,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         if m := _MONITOR_SVC_RE.match(path):
             self._handle_monitor_remove(int(m.group(1)))
+        elif m := _RECIPE_RE.match(path):
+            self._handle_recipe_delete(m.group(1))
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -246,6 +258,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         if m := _MONITOR_SVC_RE.match(path):
             self._handle_monitor_update(int(m.group(1)))
+        elif m := _RECIPE_RE.match(path):
+            self._handle_recipe_update(m.group(1))
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -1078,6 +1092,120 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+    # --- Recipe API handlers ---
+
+    def _handle_recipes_list(self):
+        """GET /api/recipes — list all recipes."""
+        storage = getattr(self.server, "recipe_storage", None)
+        if storage is None:
+            self._send_json({"error": "Recipe storage not available"},
+                            HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self._send_json(storage.get_all())
+
+    def _handle_recipe_detail(self, recipe_id: str):
+        """GET /api/recipes/<id> — single recipe detail."""
+        storage = getattr(self.server, "recipe_storage", None)
+        if storage is None:
+            self._send_json({"error": "Recipe storage not available"},
+                            HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        recipe = storage.get_by_id(recipe_id)
+        if recipe is None:
+            self._send_json({"error": "Recipe not found"}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(recipe)
+
+    def _handle_recipe_create(self):
+        """POST /api/recipes — create a recipe from JSON body."""
+        storage = getattr(self.server, "recipe_storage", None)
+        if storage is None:
+            self._send_json({"error": "Recipe storage not available"},
+                            HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+        name = body.get("name", "").strip()
+        if not name:
+            self._send_json({"error": "Recipe name is required"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        if "source" not in body:
+            body["source"] = "manual"
+        recipe_id = storage.add(body)
+        self._send_json({"id": recipe_id, "recipe": storage.get_by_id(recipe_id)})
+
+    def _handle_recipe_upload_image(self):
+        """POST /api/recipes/upload-image — parse recipe from a photo."""
+        storage = getattr(self.server, "recipe_storage", None)
+        llm = getattr(self.server, "llm", None)
+        if storage is None or llm is None:
+            self._send_json(
+                {"error": "Recipe storage or LLM not available"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > 10_485_760:  # 10 MB limit
+                self._send_json({"error": "Image too large (max 10MB)"},
+                                HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+                return
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+        image_b64 = body.get("image", "")
+        if not image_b64:
+            self._send_json({"error": "No image data provided"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        media_type = body.get("media_type", "image/jpeg")
+        recipe_data = llm.parse_recipe_image(image_b64, media_type)
+        if recipe_data is None:
+            self._send_json(
+                {"error": "Failed to parse recipe from image"},
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+            )
+            return
+        # Return parsed data for user review (not saved yet)
+        self._send_json({"recipe": recipe_data, "saved": False})
+
+    def _handle_recipe_update(self, recipe_id: str):
+        """PATCH /api/recipes/<id> — update recipe fields."""
+        storage = getattr(self.server, "recipe_storage", None)
+        if storage is None:
+            self._send_json({"error": "Recipe storage not available"},
+                            HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+        if not storage.update(recipe_id, body):
+            self._send_json({"error": "Recipe not found"}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json({"ok": True, "recipe": storage.get_by_id(recipe_id)})
+
+    def _handle_recipe_delete(self, recipe_id: str):
+        """DELETE /api/recipes/<id> — remove a recipe."""
+        storage = getattr(self.server, "recipe_storage", None)
+        if storage is None:
+            self._send_json({"error": "Recipe storage not available"},
+                            HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        if not storage.delete(recipe_id):
+            self._send_json({"error": "Recipe not found"}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json({"ok": True})
+
+
 def _pcm_to_wav(pcm: bytes, sample_rate: int = 16000, channels: int = 1, bits: int = 16) -> bytes:
     """Prepend a 44-byte WAV header to raw PCM data (int16 LE)."""
     data_size = len(pcm)
@@ -1179,6 +1307,8 @@ class TelemetryWeb:
         auth_manager: object | None = None,
         tls_cert: str | None = None,
         tls_key: str | None = None,
+        recipe_storage: object | None = None,
+        llm: object | None = None,
     ):
         self._db_path = db_path
         self._host = host
@@ -1194,6 +1324,8 @@ class TelemetryWeb:
         self._auth_manager = auth_manager
         self._tls_cert = tls_cert
         self._tls_key = tls_key
+        self._recipe_storage = recipe_storage
+        self._llm = llm
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -1226,6 +1358,8 @@ class TelemetryWeb:
         self._server.weather_client = self._weather_client
         self._server.voice_handler = self._voice_handler
         self._server.auth_manager = self._auth_manager
+        self._server.recipe_storage = self._recipe_storage
+        self._server.llm = self._llm
 
         # Optional TLS
         if self._tls_cert and self._tls_key:
