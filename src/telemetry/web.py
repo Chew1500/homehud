@@ -56,6 +56,35 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002
         log.debug(format, *args)
 
+    def _identify_user(self) -> str:
+        """Best-effort user identification (never rejects).
+
+        Tries Tailscale identity, then Bearer token, then falls back
+        to "anonymous".  Used by endpoints that want to know who the
+        caller is without enforcing auth.
+        """
+        auth_mgr = getattr(self.server, "auth_manager", None)
+        if auth_mgr is None:
+            return "anonymous"
+
+        client_ip = self.client_address[0]
+        if client_ip in ("127.0.0.1", "::1"):
+            return "localhost"
+
+        if client_ip.startswith("100."):
+            ts_user = auth_mgr.check_tailscale_identity(client_ip)
+            if ts_user:
+                return ts_user
+
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            payload = auth_mgr.verify_token(token)
+            if payload and auth_mgr.is_registered(payload.get("uid", "")):
+                return payload["uid"]
+
+        return "anonymous"
+
     def _authenticate(self, path: str) -> str | None:
         """Check authentication. Returns user_id or None (sends 401).
 
@@ -66,33 +95,20 @@ class _Handler(BaseHTTPRequestHandler):
         if auth_mgr is None:
             return "anonymous"
 
-        # Exempt paths
+        # Exempt paths (no auth required)
         if path in _AUTH_EXEMPT or any(
             path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES
         ):
             return "anonymous"
 
-        # Localhost bypass
-        client_ip = self.client_address[0]
-        if client_ip in ("127.0.0.1", "::1"):
-            return "localhost"
-
-        # Tailscale identity check (100.x.x.x range)
-        if client_ip.startswith("100."):
-            ts_user = auth_mgr.check_tailscale_identity(client_ip)
-            if ts_user:
-                return ts_user
-
-        # Bearer token
-        auth_header = self.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            payload = auth_mgr.verify_token(token)
-            if payload and auth_mgr.is_registered(payload.get("uid", "")):
-                return payload["uid"]
-
-        self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
-        return None
+        # Full identity check with 401 on failure
+        user_id = self._identify_user()
+        if user_id == "anonymous":
+            self._send_json(
+                {"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED,
+            )
+            return None
+        return user_id
 
     def _is_admin(self, user_id: str) -> bool:
         """Check if a user has admin privileges."""
@@ -171,10 +187,13 @@ class _Handler(BaseHTTPRequestHandler):
             if self._require_admin(user_id):
                 self._handle_session_detail(m.group(1))
         elif path == "/api/auth/status":
+            # Use _identify_user for best-effort identity (even on
+            # exempt paths where _authenticate returns "anonymous")
+            real_id = self._identify_user()
             self._send_json({
-                "authenticated": True,
-                "user_id": user_id,
-                "admin": self._is_admin(user_id),
+                "authenticated": real_id != "anonymous",
+                "user_id": real_id,
+                "admin": self._is_admin(real_id),
             })
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
