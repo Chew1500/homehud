@@ -118,8 +118,21 @@ if [ ! -f "$APP_DIR/models/voices-v1.0.bin" ]; then
 fi
 echo "  Kokoro ONNX model ready"
 
+# --- System resilience (watchdog + persistent journal) ---
+echo "[6/7] Setting up hardware watchdog and persistent journal..."
+bash "$APP_DIR/scripts/setup-watchdog.sh"
+
+# Tailscale watchdog cron (every 5 minutes)
+CRON_CMD="*/5 * * * * $APP_DIR/scripts/tailscale-watchdog.sh"
+if ! crontab -l 2>/dev/null | grep -qF "tailscale-watchdog.sh"; then
+    (crontab -l 2>/dev/null; echo "$CRON_CMD") | crontab -
+    echo "  Installed Tailscale watchdog cron job"
+else
+    echo "  Tailscale watchdog cron already installed"
+fi
+
 # --- Install systemd service ---
-echo "[6/6] Installing systemd service..."
+echo "[7/7] Installing systemd service..."
 sudo cp "$APP_DIR/systemd/home-hud.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable home-hud.service

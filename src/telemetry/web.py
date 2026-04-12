@@ -1414,9 +1414,19 @@ class TelemetryWeb:
         import urllib.request
 
         try:
-            url = f"http://127.0.0.1:{self._port}/api/health"
-            with urllib.request.urlopen(url, timeout=timeout) as resp:
-                return resp.status == 200
+            if self._tls_cert and self._tls_key:
+                import ssl
+
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                url = f"https://127.0.0.1:{self._port}/api/health"
+                with urllib.request.urlopen(url, timeout=timeout, context=ctx) as resp:
+                    return resp.status == 200
+            else:
+                url = f"http://127.0.0.1:{self._port}/api/health"
+                with urllib.request.urlopen(url, timeout=timeout) as resp:
+                    return resp.status == 200
         except Exception:
             return False
 
