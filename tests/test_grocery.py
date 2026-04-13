@@ -16,6 +16,14 @@ def _make_feature(tmp_path):
     return GroceryFeature(config), grocery_file
 
 
+def _names(grocery_file):
+    """Return just the item names from the on-disk state."""
+    data = json.loads(grocery_file.read_text())
+    if isinstance(data, list):
+        return list(data)
+    return [i["name"] for i in data.get("items", [])]
+
+
 # -- matches() --
 
 
@@ -62,7 +70,7 @@ def test_add_basic(tmp_path):
     result = feat.handle("add milk to the grocery list")
     assert "Added milk" in result
     assert "1 item" in result
-    assert json.loads(gf.read_text()) == ["milk"]
+    assert _names(gf) == ["milk"]
 
 
 def test_add_duplicate(tmp_path):
@@ -70,7 +78,7 @@ def test_add_duplicate(tmp_path):
     feat.handle("add milk to the grocery list")
     result = feat.handle("add milk to the grocery list")
     assert "already on" in result
-    assert json.loads(gf.read_text()) == ["milk"]
+    assert _names(gf) == ["milk"]
 
 
 def test_add_duplicate_case_insensitive(tmp_path):
@@ -84,7 +92,7 @@ def test_add_multi_word(tmp_path):
     feat, gf = _make_feature(tmp_path)
     result = feat.handle("add almond milk to the grocery list")
     assert "Added almond milk" in result
-    assert json.loads(gf.read_text()) == ["almond milk"]
+    assert _names(gf) == ["almond milk"]
 
 
 def test_add_persistence(tmp_path):
@@ -107,7 +115,7 @@ def test_remove_basic(tmp_path):
     result = feat.handle("remove milk from the grocery list")
     assert "Removed milk" in result
     assert "0 items" in result
-    assert json.loads(gf.read_text()) == []
+    assert _names(gf) == []
 
 
 def test_remove_nonexistent(tmp_path):
@@ -161,7 +169,7 @@ def test_clear(tmp_path):
     feat.handle("add eggs to the grocery list")
     result = feat.handle("clear the grocery list")
     assert "cleared" in result
-    assert json.loads(gf.read_text()) == []
+    assert _names(gf) == []
 
 
 # -- edge cases --

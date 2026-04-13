@@ -4,6 +4,8 @@ from telemetry.ui.config_tab import TAB_HTML as CONFIG_HTML
 from telemetry.ui.config_tab import TAB_JS as CONFIG_JS
 from telemetry.ui.garden import TAB_HTML as GARDEN_HTML
 from telemetry.ui.garden import TAB_JS as GARDEN_JS
+from telemetry.ui.grocery import TAB_HTML as GROCERY_HTML
+from telemetry.ui.grocery import TAB_JS as GROCERY_JS
 from telemetry.ui.logs import TAB_HTML as LOGS_HTML
 from telemetry.ui.logs import TAB_JS as LOGS_JS
 from telemetry.ui.overview import TAB_HTML as OVERVIEW_HTML
@@ -33,6 +35,7 @@ def build_dashboard_html() -> str:
         + SERVICES_HTML
         + GARDEN_HTML
         + RECIPES_HTML
+        + GROCERY_HTML
         + VOICE_HTML
     )
     tabs_js = (
@@ -44,6 +47,7 @@ def build_dashboard_html() -> str:
         + SERVICES_JS
         + GARDEN_JS
         + RECIPES_JS
+        + GROCERY_JS
         + VOICE_JS
     )
 

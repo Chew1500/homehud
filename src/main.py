@@ -254,6 +254,13 @@ def main():
                             data_dir=config.get("data_dir", "data"),
                         )
 
+                    from utils.grocery_category_cache import GroceryCategoryCache
+
+                    grocery_category_cache = GroceryCategoryCache(
+                        config.get("grocery_category_cache_file",
+                                   "data/grocery_category_cache.json"),
+                    )
+
                     telemetry_web = TelemetryWeb(
                         config["telemetry_db_path"],
                         host=config.get("telemetry_web_host", "0.0.0.0"),
@@ -270,6 +277,8 @@ def main():
                         tls_key=config.get("web_tls_key") or None,
                         recipe_storage=recipe_storage,
                         llm=llm,
+                        grocery_feature=grocery_feature,
+                        grocery_category_cache=grocery_category_cache,
                     )
                     telemetry_web.start()
 

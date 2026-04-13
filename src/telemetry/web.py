@@ -27,6 +27,8 @@ _MONITOR_SVC_RE = re.compile(r"^/api/monitor/services/(\d+)$")
 _MONITOR_HIST_RE = re.compile(r"^/api/monitor/services/(\d+)/history$")
 # Regex for /api/recipes/<id>
 _RECIPE_RE = re.compile(r"^/api/recipes/([0-9a-f-]+)$")
+# Regex for /api/grocery/<id>
+_GROCERY_RE = re.compile(r"^/api/grocery/([0-9a-f]+)$")
 
 # Log line parsing: matches "2024-01-15 10:30:45,123 [INFO] home-hud: message"
 _LOG_LINE_RE = re.compile(
@@ -192,6 +194,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_recipes_list()
         elif m := _RECIPE_RE.match(path):
             self._handle_recipe_detail(m.group(1))
+        elif path == "/api/grocery":
+            self._handle_grocery_get()
         elif path == "/api/auth/status":
             # Use _identify_user for best-effort identity (even on
             # exempt paths where _authenticate returns "anonymous")
@@ -230,6 +234,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_recipe_upload_image()
         elif path == "/api/recipes":
             self._handle_recipe_create()
+        elif path == "/api/grocery":
+            self._handle_grocery_add()
+        elif path == "/api/grocery/reorder":
+            self._handle_grocery_reorder()
+        elif path == "/api/grocery/category-order":
+            self._handle_grocery_category_order()
+        elif path == "/api/grocery/clear-checked":
+            self._handle_grocery_clear_checked()
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -245,6 +257,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_monitor_remove(int(m.group(1)))
         elif m := _RECIPE_RE.match(path):
             self._handle_recipe_delete(m.group(1))
+        elif m := _GROCERY_RE.match(path):
+            self._handle_grocery_delete(m.group(1))
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -260,6 +274,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_monitor_update(int(m.group(1)))
         elif m := _RECIPE_RE.match(path):
             self._handle_recipe_update(m.group(1))
+        elif m := _GROCERY_RE.match(path):
+            self._handle_grocery_update(m.group(1))
         else:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
@@ -1209,6 +1225,153 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_json({"ok": True})
 
+    # --- Grocery API handlers ---
+
+    def _grocery_feature(self):
+        grocery = getattr(self.server, "grocery_feature", None)
+        if grocery is None:
+            self._send_json({"error": "Grocery feature not available"},
+                            HTTPStatus.SERVICE_UNAVAILABLE)
+        return grocery
+
+    def _read_json_body(self) -> dict | None:
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0:
+                return {}
+            return json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return None
+
+    def _categorize_pending(self, grocery) -> None:
+        """Fill in categories for uncategorized items, using cache + LLM."""
+        pending = grocery.uncategorized_names()
+        if not pending:
+            return
+
+        cache = getattr(self.server, "grocery_category_cache", None)
+        llm = getattr(self.server, "llm", None)
+
+        cached: dict[str, str] = {}
+        misses = pending
+        if cache is not None:
+            cached, misses = cache.lookup_many(pending)
+
+        fresh: dict[str, str] = {}
+        if misses and llm is not None and hasattr(llm, "categorize_grocery_items"):
+            from features.grocery import DEFAULT_CATEGORIES
+            try:
+                fresh = llm.categorize_grocery_items(misses, DEFAULT_CATEGORIES)
+            except Exception:
+                log.exception("Grocery LLM categorization failed")
+                fresh = {}
+            if fresh and cache is not None:
+                cache.put_many(fresh)
+
+        merged = {**cached, **fresh}
+        if merged:
+            grocery.apply_categories(merged)
+
+    def _handle_grocery_get(self):
+        """GET /api/grocery — full list state, categorizing as needed."""
+        grocery = self._grocery_feature()
+        if grocery is None:
+            return
+        try:
+            self._categorize_pending(grocery)
+            self._send_json(grocery.get_state())
+        except Exception:
+            log.exception("Grocery get failed")
+            self._send_json({"error": "Internal error"},
+                            HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _handle_grocery_add(self):
+        """POST /api/grocery — add a new item."""
+        grocery = self._grocery_feature()
+        if grocery is None:
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        name = (body.get("name") or "").strip()
+        if not name:
+            self._send_json({"error": "Name required"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        # Try the cache first for instant categorization
+        category = None
+        cache = getattr(self.server, "grocery_category_cache", None)
+        if cache is not None:
+            category = cache.get(name)
+
+        item = grocery.add_item(name, category)
+        if item is None:
+            self._send_json({"error": "Item already on list"},
+                            HTTPStatus.CONFLICT)
+            return
+        self._send_json({"ok": True, "item": item})
+
+    def _handle_grocery_update(self, item_id: str):
+        """PATCH /api/grocery/<id> — update item fields."""
+        grocery = self._grocery_feature()
+        if grocery is None:
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        item = grocery.update_item(item_id, body)
+        if item is None:
+            self._send_json({"error": "Item not found"}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json({"ok": True, "item": item})
+
+    def _handle_grocery_delete(self, item_id: str):
+        grocery = self._grocery_feature()
+        if grocery is None:
+            return
+        if not grocery.delete_item(item_id):
+            self._send_json({"error": "Item not found"}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json({"ok": True})
+
+    def _handle_grocery_reorder(self):
+        grocery = self._grocery_feature()
+        if grocery is None:
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        ids = body.get("ids")
+        if not isinstance(ids, list):
+            self._send_json({"error": "ids must be a list"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        grocery.reorder_items([str(i) for i in ids])
+        self._send_json({"ok": True})
+
+    def _handle_grocery_category_order(self):
+        grocery = self._grocery_feature()
+        if grocery is None:
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        order = body.get("order")
+        if not isinstance(order, list):
+            self._send_json({"error": "order must be a list"},
+                            HTTPStatus.BAD_REQUEST)
+            return
+        new_order = grocery.set_category_order([str(c) for c in order])
+        self._send_json({"ok": True, "category_order": new_order})
+
+    def _handle_grocery_clear_checked(self):
+        grocery = self._grocery_feature()
+        if grocery is None:
+            return
+        removed = grocery.clear_checked()
+        self._send_json({"ok": True, "removed": removed})
+
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int = 16000, channels: int = 1, bits: int = 16) -> bytes:
     """Prepend a 44-byte WAV header to raw PCM data (int16 LE)."""
@@ -1313,6 +1476,8 @@ class TelemetryWeb:
         tls_key: str | None = None,
         recipe_storage: object | None = None,
         llm: object | None = None,
+        grocery_feature: object | None = None,
+        grocery_category_cache: object | None = None,
     ):
         self._db_path = db_path
         self._host = host
@@ -1330,6 +1495,8 @@ class TelemetryWeb:
         self._tls_key = tls_key
         self._recipe_storage = recipe_storage
         self._llm = llm
+        self._grocery_feature = grocery_feature
+        self._grocery_category_cache = grocery_category_cache
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -1364,6 +1531,8 @@ class TelemetryWeb:
         self._server.auth_manager = self._auth_manager
         self._server.recipe_storage = self._recipe_storage
         self._server.llm = self._llm
+        self._server.grocery_feature = self._grocery_feature
+        self._server.grocery_category_cache = self._grocery_category_cache
 
         # Optional TLS
         if self._tls_cert and self._tls_key:

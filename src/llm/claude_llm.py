@@ -570,3 +570,58 @@ class ClaudeLLM(BaseLLM):
             }
             log.exception("Intent classification error")
             return None
+
+    def categorize_grocery_items(
+        self, items: list[str], categories: list[str],
+    ) -> dict[str, str]:
+        """Classify each grocery item into one of the allowed categories.
+
+        Returns a dict mapping item name → category. Items that cannot be
+        classified are omitted. Uses a single one-shot API call via the
+        cheaper intent model.
+        """
+        if not items:
+            return {}
+        allowed = [c for c in categories if c]
+        if not allowed:
+            return {}
+
+        t0 = time.monotonic()
+        system = (
+            "You are a grocery store categorizer. Given a list of items, "
+            "classify each one into exactly one of these categories:\n"
+            + "\n".join(f"- {c}" for c in allowed)
+            + "\n\nRespond with ONLY a JSON object mapping each item "
+            'exactly as given to one category name from the list above. '
+            "Example: {\"milk\": \"Dairy\", \"apples\": \"Produce\"}. "
+            "No prose, no code fences, no explanation."
+        )
+        user = "Categorize these items:\n" + "\n".join(f"- {i}" for i in items)
+        try:
+            message = self._client.messages.create(
+                model=self._intent_model,
+                max_tokens=600,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = message.content[0].text.strip()
+            # Strip optional fences
+            if text.startswith("```"):
+                text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.DOTALL)
+            parsed = json.loads(text)
+            if not isinstance(parsed, dict):
+                return {}
+            allowed_set = set(allowed)
+            result = {
+                str(k): str(v)
+                for k, v in parsed.items()
+                if isinstance(v, str) and v in allowed_set
+            }
+            log.info(
+                "Categorized %d grocery items in %d ms",
+                len(result), int((time.monotonic() - t0) * 1000),
+            )
+            return result
+        except Exception:
+            log.exception("Grocery categorization failed")
+            return {}

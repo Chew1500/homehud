@@ -10,6 +10,7 @@ TAB_BAR = """\
   <button class="tab-btn" data-tab="tab-services">Services</button>
   <button class="tab-btn" data-tab="tab-garden">Garden</button>
   <button class="tab-btn" data-tab="tab-recipes">Recipes</button>
+  <button class="tab-btn" data-tab="tab-grocery">Grocery</button>
   <button class="tab-btn active" data-tab="tab-voice">Voice</button>
 </div>
 """
@@ -203,6 +204,7 @@ const TAB_LOADERS = {
   'tab-services': () => loadServices(),
   'tab-garden': () => loadGarden(),
   'tab-recipes': () => loadRecipes(),
+  'tab-grocery': () => loadGrocery(),
   'tab-voice': () => loadVoice(),
 };
 
