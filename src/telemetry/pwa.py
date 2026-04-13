@@ -23,7 +23,7 @@ MANIFEST_JSON = """\
 """
 
 SERVICE_WORKER_JS = """\
-const CACHE_NAME = 'homehud-v1';
+const CACHE_NAME = 'homehud-v2-grocery';
 const SHELL_URLS = ['/', '/audio-processor.js'];
 
 self.addEventListener('install', (e) => {
