@@ -144,7 +144,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._send_json({"ok": True})
         elif path == "/":
-            self._send_html(DASHBOARD_HTML)
+            self._send_html(self._render_dashboard_html())
         elif path == "/audio-processor.js":
             self._send_js()
         elif path == "/manifest.json":
@@ -221,6 +221,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._handle_config_save()
         elif path == "/api/voice":
             self._handle_voice()
+        elif path == "/api/text":
+            self._handle_text()
+        elif path == "/api/conversation/reset":
+            self._handle_conversation_reset()
         elif path == "/api/auth/pair":
             self._handle_auth_pair()
         elif path == "/api/auth/generate-code":
@@ -437,10 +441,92 @@ class _Handler(BaseHTTPRequestHandler):
                          quote(metadata.get("transcription", ""), safe=""))
         self.send_header("X-Response-Text",
                          quote(metadata.get("response_text", ""), safe=""))
+        self.send_header("X-Thread-Active",
+                         "1" if metadata.get("thread_active") else "0")
         self.send_header("Access-Control-Expose-Headers",
-                         "X-Transcription, X-Response-Text")
+                         "X-Transcription, X-Response-Text, X-Thread-Active")
         self.end_headers()
         self.wfile.write(wav_bytes)
+
+    def _handle_text(self):
+        """POST /api/text — accept JSON {text}, return JSON response.
+
+        Shares the IntentRouter and LLM history with /api/voice, so voice
+        and text turns live in the same conversation thread.
+        """
+        handler = getattr(self.server, "voice_handler", None)
+        if handler is None:
+            self._send_json(
+                {"error": "Voice not available"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (ValueError, TypeError):
+            self._send_json(
+                {"error": "Missing Content-Length"}, HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        if length <= 0 or length > 16_384:
+            self._send_json(
+                {"error": "Content-Length must be 1–16384 bytes"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        try:
+            body = json.loads(self.rfile.read(length))
+        except (ValueError, json.JSONDecodeError):
+            self._send_json({"error": "Invalid JSON"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        text = str(body.get("text", "")).strip()
+        if not text:
+            self._send_json(
+                {"error": "Missing 'text' field"}, HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        try:
+            metadata = handler.handle_text_request(text)
+        except Exception:
+            log.exception("Text handler error")
+            self._send_json(
+                {"error": "Text processing failed"},
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+
+        self._send_json({
+            "transcription": metadata.get("transcription", ""),
+            "response_text": metadata.get("response_text", ""),
+            "thread_active": bool(metadata.get("thread_active")),
+            "expects_follow_up": bool(metadata.get("expects_follow_up")),
+            "error": metadata.get("error"),
+        })
+
+    def _handle_conversation_reset(self):
+        """POST /api/conversation/reset — clear LLM history + follow-up state."""
+        handler = getattr(self.server, "voice_handler", None)
+        if handler is None:
+            self._send_json(
+                {"error": "Voice not available"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        try:
+            handler.reset_conversation()
+        except Exception:
+            log.exception("Conversation reset failed")
+            self._send_json(
+                {"error": "Reset failed"},
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self._send_json({"ok": True})
 
     def _handle_display(self):
         snapshot_path = getattr(self.server, "display_snapshot_path", None)
@@ -1057,6 +1143,24 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _render_dashboard_html(self):
+        """Return the dashboard HTML with server-side values injected.
+
+        Currently injects the LLM history TTL so the Voice tab's thread
+        idle timer matches the server-side ``llm_history_ttl`` config.
+        """
+        config = getattr(self.server, "config", None)
+        ttl_s = 300
+        if config is not None:
+            try:
+                ttl_s = int(config.get("llm_history_ttl", 300))
+            except (TypeError, ValueError):
+                ttl_s = 300
+        return DASHBOARD_HTML.replace(
+            "const VOICE_THREAD_TTL_MS = 300000;",
+            f"const VOICE_THREAD_TTL_MS = {ttl_s * 1000};",
+        )
 
     def _send_html(self, html):
         body = html.encode()

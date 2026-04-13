@@ -147,6 +147,8 @@ class BrowserVoiceHandler:
             tts_pcm = self._tts.synthesize(response) if response else b""
             exchange.end_phase("tts")
 
+            metadata["thread_active"] = self._thread_active()
+
         # Build WAV outside the lock (pure data transform)
         wav_bytes = _pcm_to_wav(tts_pcm) if tts_pcm else _pcm_to_wav(b"")
 
@@ -154,6 +156,117 @@ class BrowserVoiceHandler:
         self._persist(session)
 
         return wav_bytes, metadata
+
+    def handle_text_request(
+        self, text: str, user_id: str = "browser",
+    ) -> dict:
+        """Process a typed text request — skips STT/TTS, reuses the router.
+
+        Args:
+            text: The user's typed message.
+            user_id: Identifier for the requesting user (for telemetry).
+
+        Returns:
+            Dict with ``transcription`` (echo of input), ``response_text``,
+            ``thread_active`` (whether conversation context is still live),
+            ``expects_follow_up``, and optional ``error``.
+        """
+        session = Session(wake_model="browser")
+        exchange = session.create_exchange()
+
+        metadata: dict = {
+            "user_id": user_id,
+            "transcription": text or "",
+            "response_text": "",
+            "thread_active": False,
+            "expects_follow_up": False,
+        }
+
+        if not text or not text.strip():
+            metadata["error"] = "empty_text"
+            session.finish()
+            self._persist(session)
+            return metadata
+
+        with self._lock:
+            exchange.start_phase("routing")
+            try:
+                response = self._router.route(text)
+                if isinstance(response, types.GeneratorType):
+                    response = " ".join(response)
+            except Exception as e:
+                log.exception("Text routing error")
+                exchange.end_phase("routing")
+                exchange.error = str(e)
+                metadata["error"] = "routing_failed"
+                session.finish()
+                self._persist(session)
+                return metadata
+
+            exchange.end_phase("routing")
+
+            if hasattr(self._router, "_last_route_info") and self._router._last_route_info:
+                exchange.routing_path = self._router._last_route_info.get("path")
+                exchange.matched_feature = self._router._last_route_info.get("matched_feature")
+                exchange.feature_action = self._router._last_route_info.get("feature_action")
+
+            exchange.transcription = text
+            exchange.response_text = response
+            metadata["response_text"] = response or ""
+
+            if hasattr(self._router, "_last_llm_calls"):
+                for call_dict in self._router._last_llm_calls:
+                    exchange.llm_calls.append(LLMCallInfo(
+                        call_type=call_dict.get("call_type", ""),
+                        model=call_dict.get("model"),
+                        system_prompt=call_dict.get("system_prompt"),
+                        user_message=call_dict.get("user_message"),
+                        response_text=call_dict.get("response_text"),
+                        input_tokens=call_dict.get("input_tokens"),
+                        output_tokens=call_dict.get("output_tokens"),
+                        stop_reason=call_dict.get("stop_reason"),
+                        duration_ms=call_dict.get("duration_ms"),
+                        error=call_dict.get("error"),
+                    ))
+
+            metadata["expects_follow_up"] = bool(
+                getattr(self._router, "expects_follow_up", False),
+            )
+            metadata["thread_active"] = self._thread_active()
+
+        session.finish()
+        self._persist(session)
+        return metadata
+
+    def reset_conversation(self) -> None:
+        """Clear LLM history and router follow-up state for a fresh thread."""
+        with self._lock:
+            llm = getattr(self._router, "_llm", None)
+            if llm is not None and hasattr(llm, "clear_history"):
+                llm.clear_history()
+            if hasattr(self._router, "_last_feature"):
+                self._router._last_feature = None
+            if hasattr(self._router, "_llm_expects_follow_up"):
+                self._router._llm_expects_follow_up = False
+
+    def _thread_active(self) -> bool:
+        """Whether a multi-turn conversation context is currently live.
+
+        True if the router expects an immediate follow-up or the LLM still
+        has non-expired conversation history.
+        """
+        if getattr(self._router, "expects_follow_up", False):
+            return True
+        llm = getattr(self._router, "_llm", None)
+        if llm is None:
+            return False
+        if hasattr(llm, "_expire_history"):
+            try:
+                llm._expire_history()
+            except Exception:
+                pass
+        history = getattr(llm, "_history", None)
+        return bool(history)
 
     def _persist(self, session: Session) -> None:
         """Save session telemetry if a store is configured."""
