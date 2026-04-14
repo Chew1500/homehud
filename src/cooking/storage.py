@@ -43,14 +43,21 @@ class RecipeStorage:
         return None
 
     def search(self, query: str) -> list[dict]:
-        """Search recipes by name and tags (case-insensitive substring)."""
-        q = query.lower()
+        """Search recipes by name, tags, and ingredient names (case-insensitive substring)."""
+        q = query.lower().strip()
+        if not q:
+            return []
         results = []
         for r in self._load():
-            name = r.get("name", "").lower()
-            tags = [t.lower() for t in r.get("tags", [])]
-            if q in name or any(q in t for t in tags):
+            if q in r.get("name", "").lower():
                 results.append(r)
+                continue
+            if any(q in t.lower() for t in r.get("tags", [])):
+                results.append(r)
+                continue
+            if any(q in (i.get("name") or "").lower() for i in r.get("ingredients", [])):
+                results.append(r)
+                continue
         return results
 
     # -- Write operations --

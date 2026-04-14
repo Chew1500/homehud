@@ -78,8 +78,11 @@ _INTENT_SYSTEM_PROMPT = (
     "Actions: recommend(media_type), add_recommendation(), dismiss_recommendation(),\n"
     "         next_recommendation(), taste_profile()\n"
     'media_type: "movie", "series", or omit for any\n'
+    "ONLY for movies and TV shows. NEVER route recipe, food, or cooking "
+    "requests here — those go to `recipes`.\n"
     'Example triggers: "recommend a movie", "what should I watch", '
-    '"add that", "next", "not interested", "what\'s my taste profile"\n\n'
+    '"find me something to watch", "add that", "next", "not interested", '
+    '"what\'s my taste profile"\n\n'
     "### volume\n"
     "Actions: adjust_volume(direction, magnitude), set_volume(level), query()\n"
     'direction: "up" or "down"; magnitude: "small", "medium", or "large"\n'
@@ -97,8 +100,17 @@ _INTENT_SYSTEM_PROMPT = (
     "Actions: list(), search(query), detail(recipe_name), delete(recipe_name),\n"
     "         recommend(preference), refine_recommendation(feedback),\n"
     "         add_ingredients_to_grocery(recipe_name), start_cooking(recipe_name)\n"
+    "Use `recommend` for open-ended dietary/cuisine asks ('a vegetarian recipe', "
+    "'something with seafood'). Use `search` when the user names a specific "
+    "ingredient or keyword ('a recipe with rice', 'something with mushrooms') — "
+    "extract just the ingredient/keyword as `query`. Use `refine_recommendation` "
+    "for follow-up asks like 'a different one' while a recommendation is active.\n"
     'Example triggers: "show my recipes", "find a spicy recipe",\n'
+    '  "give me a vegetarian recipe", "a seafood recipe",\n'
+    '  "a recipe with rice" → search(query="rice"),\n'
+    '  "something with mushrooms" → search(query="mushrooms"),\n'
     '  "recommend something healthy", "what should I cook",\n'
+    '  "give me a different recipe" (during follow-up),\n'
     '  "add ingredients for tikka masala to grocery list",\n'
     '  "let\'s cook the pasta recipe"\n\n'
     "### cooking_session\n"
@@ -112,6 +124,8 @@ _INTENT_SYSTEM_PROMPT = (
     "Actions: list(), describe(feature)\n"
     'Example triggers: "what can you do", "tell me about reminders"\n\n'
     "## Guidelines\n"
+    "- If the user mentions \"recipe\", \"cook\", or \"eat\", route to `recipes` "
+    "(never `discovery`). \"Watch\" / \"movie\" / \"show\" go to `discovery`.\n"
     '- Use "action" when the user clearly wants a feature. Use "conversation" for general Q&A.\n'
     '  Use "clarification" only when the transcription is too ambiguous to determine intent.\n'
     '- Common STT errors: "gross free"→"grocery", "rye mend"→"remind", garbled movie titles\n'

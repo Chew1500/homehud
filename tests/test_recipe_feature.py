@@ -27,6 +27,63 @@ def _sample_recipe(name="Test Recipe", tags=None):
     }
 
 
+class TestFilterCandidates:
+    def test_token_match_ranks_by_score(self):
+        from features.recipe import _filter_candidates
+
+        recipes = [
+            {"name": "Veggie Chili", "tags": ["vegetarian", "dinner"], "ingredients": []},
+            {"name": "Steak", "tags": ["beef"], "ingredients": []},
+            {"name": "Tofu Stir Fry", "tags": ["vegetarian"], "ingredients": []},
+        ]
+        result = _filter_candidates("vegetarian dinner", recipes)
+        names = [r["name"] for r in result]
+        assert names[0] == "Veggie Chili"  # 2 token matches
+        assert "Tofu Stir Fry" in names    # 1 token match
+        assert "Steak" not in names
+
+    def test_no_match_falls_back_to_all_capped(self):
+        from features.recipe import MAX_CANDIDATES, _filter_candidates
+
+        recipes = [
+            {"name": f"Recipe {i}", "tags": ["thing"], "ingredients": []}
+            for i in range(40)
+        ]
+        result = _filter_candidates("xyznothing qqqz", recipes)
+        assert len(result) == MAX_CANDIDATES
+
+    def test_stopwords_only_returns_capped_full_list(self):
+        from features.recipe import MAX_CANDIDATES, _filter_candidates
+
+        recipes = [
+            {"name": f"Recipe {i}", "tags": [], "ingredients": []}
+            for i in range(40)
+        ]
+        # "give me a recipe please" is all stopwords — no useful tokens
+        result = _filter_candidates("give me a recipe please", recipes)
+        assert len(result) == MAX_CANDIDATES
+
+    def test_matches_ingredient_names(self):
+        from features.recipe import _filter_candidates
+
+        recipes = [
+            {"name": "Bowl", "tags": [], "ingredients": [{"name": "rice"}]},
+            {"name": "Toast", "tags": [], "ingredients": [{"name": "bread"}]},
+        ]
+        result = _filter_candidates("rice", recipes)
+        assert [r["name"] for r in result] == ["Bowl"]
+
+    def test_caps_at_max_candidates_with_strong_match(self):
+        from features.recipe import MAX_CANDIDATES, _filter_candidates
+
+        recipes = [
+            {"name": f"Veg {i}", "tags": ["vegetarian"], "ingredients": []}
+            for i in range(50)
+        ]
+        result = _filter_candidates("vegetarian", recipes)
+        assert len(result) == MAX_CANDIDATES
+
+
 class TestRecipeFeature:
 
     def _make(self, tmp_path, llm=None, grocery=None, cooking=None):

@@ -65,6 +65,18 @@ class TestRecipeStorage:
         assert len(storage.search("italian")) == 1
         assert len(storage.search("nonexistent")) == 0
 
+    def test_search_matches_ingredient_names(self, tmp_path):
+        storage = self._make(tmp_path)
+        # The sample has flour + sugar in its ingredients but no matching tag
+        storage.add(self._sample_recipe("Birthday Cake", ["dessert"]))
+        storage.add(self._sample_recipe("Salad", ["healthy"]))
+        flour_results = storage.search("flour")
+        assert len(flour_results) == 2  # both samples have flour
+        # Ingredient with substring match works case-insensitive
+        assert len(storage.search("FLOUR")) == 2
+        assert len(storage.search("dessert")) == 1  # tag match still works
+        assert storage.search("") == []
+
     def test_update(self, tmp_path):
         storage = self._make(tmp_path)
         rid = storage.add(self._sample_recipe())

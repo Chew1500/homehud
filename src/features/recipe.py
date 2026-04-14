@@ -60,6 +60,58 @@ _REFINE_NO = re.compile(
 
 _RECOMMENDATION_TTL = 120  # seconds
 
+# Cap on how many recipe summaries we send to the LLM in one recommend call.
+# Keeps prompt size bounded as the recipe book grows past a few hundred entries.
+MAX_CANDIDATES = 25
+
+_STOPWORDS = frozenset({
+    "a", "an", "the", "give", "me", "some", "any", "with", "for",
+    "something", "anything", "recipe", "recipes", "please", "i", "want",
+    "would", "like", "to", "eat", "make", "cook", "have", "of", "and",
+    "or", "that", "is", "good", "nice", "today", "tonight", "dinner",
+    "lunch", "breakfast",
+})
+
+
+def _tokenize_preference(text: str) -> list[str]:
+    """Lowercase, split on non-word chars, drop stopwords and short tokens."""
+    tokens = re.findall(r"[a-zA-Z]+", text.lower())
+    return [t for t in tokens if t not in _STOPWORDS and len(t) > 2]
+
+
+def _recipe_haystack(recipe: dict) -> str:
+    """Concatenate the searchable text of a recipe for token matching."""
+    parts = [recipe.get("name", "")]
+    parts.extend(recipe.get("tags", []) or [])
+    parts.extend(
+        (i.get("name") or "") for i in (recipe.get("ingredients") or [])
+    )
+    return " ".join(parts).lower()
+
+
+def _filter_candidates(preference: str, recipes: list[dict]) -> list[dict]:
+    """Pre-filter recipes by preference tokens, capped at MAX_CANDIDATES.
+
+    Ranks by number of token matches (best fit first). Falls back to the
+    full list (truncated) if no token matches anything.
+    """
+    tokens = _tokenize_preference(preference)
+    if not tokens:
+        return recipes[:MAX_CANDIDATES]
+
+    scored: list[tuple[int, dict]] = []
+    for r in recipes:
+        hay = _recipe_haystack(r)
+        score = sum(1 for tok in tokens if tok in hay)
+        if score > 0:
+            scored.append((score, r))
+
+    if not scored:
+        return recipes[:MAX_CANDIDATES]
+
+    scored.sort(key=lambda s: s[0], reverse=True)
+    return [r for _, r in scored[:MAX_CANDIDATES]]
+
 
 class RecipeFeature(BaseFeature):
     """Manages recipes: CRUD, LLM-powered recommendations, grocery integration."""
@@ -285,25 +337,9 @@ class RecipeFeature(BaseFeature):
         if not recipes:
             return "Your recipe book is empty. Add some recipes first."
 
-        # Build recipe summaries for the LLM
-        summaries = []
-        for r in recipes:
-            tags = ", ".join(r.get("tags", []))
-            ing_names = [i.get("name", "") for i in r.get("ingredients", [])]
-            summaries.append(
-                f"- {r['name']} (tags: {tags}; "
-                f"ingredients: {', '.join(ing_names[:8])}; "
-                f"prep: {r.get('prep_time_min', '?')}min, "
-                f"cook: {r.get('cook_time_min', '?')}min, "
-                f"serves: {r.get('servings', '?')})"
-            )
-
-        prompt = (
-            f"The user has these recipes:\n\n"
-            f"{''.join(s + chr(10) for s in summaries)}\n"
-            f"The user wants: {preference}\n\n"
-            f"Recommend ONE recipe from the list. Explain briefly why it matches. "
-            f"Keep your response to 2-3 sentences, suitable for text-to-speech."
+        candidates = _filter_candidates(preference, recipes)
+        prompt = self._build_recommend_prompt(
+            preference, candidates, total=len(recipes)
         )
 
         try:
@@ -312,8 +348,8 @@ class RecipeFeature(BaseFeature):
             log.exception("Recipe recommendation LLM error")
             return "Sorry, I had trouble generating a recommendation."
 
-        # Try to identify which recipe was recommended
-        for r in recipes:
+        # Try to identify which recipe was recommended (search candidates first)
+        for r in candidates:
             if r.get("name", "").lower() in response.lower():
                 self._active_recommendation = r
                 self._recommendation_context = preference
@@ -328,22 +364,25 @@ class RecipeFeature(BaseFeature):
         if not recipes:
             return "Your recipe book is empty."
 
-        summaries = []
-        for r in recipes:
-            tags = ", ".join(r.get("tags", []))
-            summaries.append(f"- {r['name']} (tags: {tags})")
-
         prev_name = ""
         if self._active_recommendation:
             prev_name = self._active_recommendation.get("name", "")
 
-        prompt = (
-            f"The user has these recipes:\n\n"
-            f"{''.join(s + chr(10) for s in summaries)}\n"
-            f"Previously recommended: {prev_name}\n"
-            f"User feedback: {feedback}\n\n"
-            f"Recommend a DIFFERENT recipe. Explain briefly why. "
-            f"Keep to 2-3 sentences for text-to-speech."
+        # Combine the original preference with the new feedback so the filter
+        # still narrows by the original intent (e.g. "seafood" + "different one").
+        combined = f"{self._recommendation_context or ''} {feedback}".strip()
+        candidates = [
+            r for r in _filter_candidates(combined, recipes)
+            if r.get("name", "").lower() != prev_name.lower()
+        ]
+        if not candidates:
+            candidates = [
+                r for r in recipes
+                if r.get("name", "").lower() != prev_name.lower()
+            ][:MAX_CANDIDATES]
+
+        prompt = self._build_refine_prompt(
+            feedback, prev_name, candidates, total=len(recipes)
         )
 
         try:
@@ -352,12 +391,65 @@ class RecipeFeature(BaseFeature):
             log.exception("Recipe refinement LLM error")
             return "Sorry, I had trouble refining the recommendation."
 
-        for r in recipes:
+        for r in candidates:
             if r.get("name", "").lower() in response.lower():
                 self._active_recommendation = r
                 break
 
         return response
+
+    @staticmethod
+    def _format_summary(recipe: dict, compact: bool) -> str:
+        tags = ", ".join(recipe.get("tags", []) or [])
+        if compact:
+            return f"- {recipe.get('name', 'Unnamed')} [{tags}]"
+        ing_names = [i.get("name", "") for i in (recipe.get("ingredients") or [])]
+        return (
+            f"- {recipe.get('name', 'Unnamed')} (tags: {tags}; "
+            f"ingredients: {', '.join(ing_names[:8])}; "
+            f"prep: {recipe.get('prep_time_min', '?')}min, "
+            f"cook: {recipe.get('cook_time_min', '?')}min, "
+            f"serves: {recipe.get('servings', '?')})"
+        )
+
+    def _build_recommend_prompt(
+        self, preference: str, candidates: list[dict], total: int
+    ) -> str:
+        compact = total > MAX_CANDIDATES
+        summaries = "\n".join(
+            self._format_summary(r, compact=compact) for r in candidates
+        )
+        scope_note = (
+            f"(showing {len(candidates)} of {total} recipes most relevant to the request)\n\n"
+            if compact else ""
+        )
+        return (
+            f"The user has these recipes:\n\n"
+            f"{scope_note}{summaries}\n\n"
+            f"The user wants: {preference}\n\n"
+            f"Recommend ONE recipe from the list. Explain briefly why it matches. "
+            f"Keep your response to 2-3 sentences, suitable for text-to-speech."
+        )
+
+    def _build_refine_prompt(
+        self, feedback: str, prev_name: str, candidates: list[dict], total: int
+    ) -> str:
+        compact = total > MAX_CANDIDATES
+        summaries = "\n".join(
+            self._format_summary(r, compact=compact) for r in candidates
+        )
+        scope_note = (
+            f"(showing {len(candidates)} of {total} recipes most relevant)\n\n"
+            if compact else ""
+        )
+        return (
+            f"The user has these recipes:\n\n"
+            f"{scope_note}{summaries}\n\n"
+            f"Previously recommended: {prev_name}\n"
+            f"User feedback: {feedback}\n\n"
+            f"Recommend a DIFFERENT recipe. Explain briefly why. "
+            f"Keep to 2-3 sentences for text-to-speech."
+        )
 
     def _add_to_grocery(self, recipe_name: str) -> str:
         if not self._storage:
