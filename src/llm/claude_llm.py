@@ -54,10 +54,20 @@ _INTENT_SYSTEM_PROMPT = (
     "Use the route_intent tool to respond. ALWAYS use this tool.\n\n"
     "## Available Features\n\n"
     "### grocery\n"
-    "Actions: add(items: list[str]) or add(item: str), remove(item), list(), clear()\n"
-    'For multiple items in one request, use `items` as a list: '
-    '"add eggs, milk, and bread to grocery list" → '
-    'action=add, parameters={"items": ["eggs", "milk", "bread"]}.\n'
+    "Actions: add(items), remove(item), list(), clear()\n"
+    "`items` is a list of objects {name, quantity?, unit?}. Always extract\n"
+    "numeric quantity and unit as separate fields — NEVER embed them in the\n"
+    "name string. For \"add another X\", send quantity=1 and the grocery\n"
+    "feature will bump the running count.\n"
+    "Examples:\n"
+    '- "add eight cantaloupes" → add, '
+    '{"items": [{"name": "cantaloupe", "quantity": 8}]}\n'
+    '- "add two cups of flour and a dozen eggs" → add, '
+    '{"items": [{"name": "flour", "quantity": 2, "unit": "cup"}, '
+    '{"name": "egg", "quantity": 12}]}\n'
+    '- "add another nascar" → add, '
+    '{"items": [{"name": "nascar", "quantity": 1}]}\n'
+    '- "add milk" → add, {"items": [{"name": "milk"}]}\n'
     'Example triggers: "add milk to grocery list", "what\'s on the shopping list"\n\n'
     "### reminder\n"
     "Actions: set(task, time), list(), cancel(task), clear()\n"
@@ -93,9 +103,13 @@ _INTENT_SYSTEM_PROMPT = (
     '"volume to 50%", "what\'s the volume", "too loud", "too quiet"\n\n'
     "### garden\n"
     "Actions: status(), zone_status(zone), log_watering(zone), history()\n"
-    'zone: "lawn", "vegetable_garden", "young_trees", "established_trees"\n'
-    'Example triggers: "do I need to water", "garden status", "I watered the lawn", '
-    '"how are the trees", "watering history"\n\n'
+    'zone: "lawn", "vegetable_garden", "young_trees", "established_trees", '
+    'or a natural phrase like "lawn and vegetables", "trees", "everything". '
+    "For log_watering, pass the user's phrase verbatim so multiple zones are "
+    "preserved (e.g. zone=\"lawn and vegetable garden\").\n"
+    'Example triggers: "do I need to water", "garden status", '
+    '"I watered the lawn", "I watered the lawn and the tomatoes", '
+    '"I watered everything", "how are the trees", "watering history"\n\n'
     "### network\n"
     "Actions: query()\n"
     'Example triggers: "what\'s my IP", "what\'s my IP address", "network info"\n\n'

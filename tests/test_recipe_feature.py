@@ -220,6 +220,35 @@ class TestRecipeGroceryIntegration:
         # Only 2 new items added (sugar and eggs), plus the original flour
         assert len(grocery.get_items()) == 3
 
+    def test_two_recipes_share_flour(self, tmp_path):
+        feat, storage, grocery = self._make(tmp_path)
+        storage.add({
+            "name": "Cake A",
+            "source": "manual",
+            "tags": ["test"],
+            "prep_time_min": 10, "cook_time_min": 20, "servings": 4,
+            "ingredients": [
+                {"name": "flour", "quantity": "2", "unit": "cups"},
+            ],
+            "directions": ["mix"],
+        })
+        storage.add({
+            "name": "Cake B",
+            "source": "manual",
+            "tags": ["test"],
+            "prep_time_min": 10, "cook_time_min": 20, "servings": 4,
+            "ingredients": [
+                {"name": "flour", "quantity": "1", "unit": "cup"},
+            ],
+            "directions": ["mix"],
+        })
+        feat.execute("add_ingredients_to_grocery", {"recipe_name": "Cake A"})
+        feat.execute("add_ingredients_to_grocery", {"recipe_name": "Cake B"})
+        items = grocery.get_items_structured()
+        assert len(items) == 1
+        assert items[0]["quantity"] == 3.0
+        assert items[0]["unit"] == "cup"
+
     def test_add_ingredients_recipe_not_found(self, tmp_path):
         feat, storage, grocery = self._make(tmp_path)
         result = feat.execute(

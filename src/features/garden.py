@@ -69,9 +69,14 @@ _ZONE_ALIASES: dict[str, str] = {
 }
 
 
-def _resolve_zone(text: str) -> list[str]:
-    """Resolve user text to one or more zone names."""
+_ZONE_SPLIT_RE = re.compile(r"\s*,\s*|\s+and\s+|\s*&\s*", re.IGNORECASE)
+
+
+def _resolve_zone_strict(text: str) -> list[str]:
+    """Resolve user text to zones, returning [] when nothing matches."""
     text = text.strip().lower()
+    if not text:
+        return []
     alias = _ZONE_ALIASES.get(text)
     if alias == "_all_trees":
         return ["young_trees", "established_trees"]
@@ -79,7 +84,6 @@ def _resolve_zone(text: str) -> list[str]:
         return list(DEFAULT_ZONES.keys())
     if alias:
         return [alias]
-    # Try partial match
     for key, value in _ZONE_ALIASES.items():
         if key in text:
             if value == "_all_trees":
@@ -87,7 +91,29 @@ def _resolve_zone(text: str) -> list[str]:
             if value == "all":
                 return list(DEFAULT_ZONES.keys())
             return [value]
-    return list(DEFAULT_ZONES.keys())  # default to all
+    return []
+
+
+def _resolve_zone(text: str) -> list[str]:
+    """Resolve user text to one or more zone names, defaulting to all on no match."""
+    resolved = _resolve_zone_strict(text)
+    return resolved if resolved else list(DEFAULT_ZONES.keys())
+
+
+def _resolve_zones_from_phrase(text: str) -> list[str]:
+    """Resolve a possibly multi-zone phrase into a deduped list of zone names.
+
+    Splits on ",", "and", "&" and resolves each chunk strictly; unrecognized
+    chunks are dropped rather than falling back to "all zones".
+    """
+    parts = [p.strip() for p in _ZONE_SPLIT_RE.split(text) if p.strip()]
+    if len(parts) <= 1:
+        return _resolve_zone(text)
+    seen: dict[str, None] = {}
+    for part in parts:
+        for z in _resolve_zone_strict(part):
+            seen.setdefault(z, None)
+    return list(seen) if seen else _resolve_zone(text)
 
 
 def _format_status(statuses: list[ZoneStatus]) -> str:
@@ -304,19 +330,37 @@ class GardenFeature(BaseFeature):
         return _format_status(matching)
 
     def _log_watering(self, zone_text: str) -> str:
-        zone_names = _resolve_zone(zone_text)
+        zone_names = _resolve_zones_from_phrase(zone_text)
+        # Filter to enabled zones; preserve order
+        zone_names = [z for z in zone_names if z in self._zones]
+        if not zone_names:
+            return "I couldn't figure out which zone you watered."
+
+        # Fetch current statuses once so we can record a "thorough" amount
+        # that actually drives each zone's deficit back into the ok band.
+        statuses = {s.zone: s for s in self.get_status()}
         for zone_name in zone_names:
-            self._watering_log.log_watering(zone_name, self._default_amount)
-        if len(zone_names) == 1 and zone_names[0] in self._zones:
-            label = self._zones[zone_names[0]].label
-        elif len(zone_names) == len(self._zones):
+            zc = self._zones[zone_name]
+            status = statuses.get(zone_name)
+            if status is not None:
+                amount = max(
+                    self._default_amount,
+                    status.deficit_inches + 0.1 * status.threshold_inches,
+                )
+            else:
+                # Weather unavailable — still credit a thorough watering.
+                amount = max(self._default_amount, zc.threshold_inches)
+            self._watering_log.log_watering(zone_name, round(amount, 2))
+
+        labels = [self._zones[z].label for z in zone_names]
+        if len(labels) == len(self._zones):
             label = "everything"
+        elif len(labels) == 1:
+            label = labels[0]
+        elif len(labels) == 2:
+            label = f"{labels[0]} and {labels[1]}"
         else:
-            labels = []
-            for z in zone_names:
-                if z in self._zones:
-                    labels.append(self._zones[z].label)
-            label = " and ".join(labels)
+            label = ", ".join(labels[:-1]) + f", and {labels[-1]}"
         return f"Got it, I've logged that you watered the {label}."
 
     def _get_history(self) -> str:

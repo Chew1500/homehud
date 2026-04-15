@@ -263,3 +263,99 @@ def test_handle_multi_item_voice(tmp_path):
         "ranch dressing",
         "lasagna",
     ]
+
+
+# -- structured quantities --
+
+
+def _items(grocery_file):
+    """Full item dicts from disk."""
+    data = json.loads(grocery_file.read_text())
+    return data.get("items", [])
+
+
+def test_add_structured_quantity(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    feat.execute("add", {"items": [{"name": "cantaloupe", "quantity": 8}]})
+    items = _items(gf)
+    assert len(items) == 1
+    assert items[0]["name"] == "cantaloupe"
+    assert items[0]["quantity"] == 8.0
+    assert items[0]["unit"] is None
+
+
+def test_another_bumps_implicit(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    feat.execute("add", {"items": [{"name": "nascar", "quantity": 1}]})
+    feat.execute("add", {"items": [{"name": "nascar", "quantity": 1}]})
+    items = _items(gf)
+    assert len(items) == 1
+    assert items[0]["name"] == "nascar"
+    assert items[0]["quantity"] == 2.0
+
+
+def test_merge_same_unit_pluralization(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    feat.execute("add", {"items": [{"name": "flour", "quantity": 2, "unit": "cups"}]})
+    feat.execute("add", {"items": [{"name": "flour", "quantity": 1, "unit": "cup"}]})
+    items = _items(gf)
+    assert len(items) == 1
+    assert items[0]["quantity"] == 3.0
+    assert items[0]["unit"] == "cup"
+
+
+def test_merge_mixed_units_keeps_both(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    feat.execute("add", {"items": [{"name": "flour", "quantity": 2, "unit": "cup"}]})
+    feat.execute("add", {"items": [{"name": "flour", "quantity": 1, "unit": "lb"}]})
+    items = _items(gf)
+    assert len(items) == 2
+    units = sorted(i["unit"] for i in items)
+    assert units == ["cup", "lb"]
+
+
+def test_bare_existing_adopts_incoming_unit(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    feat.execute("add", {"items": [{"name": "flour"}]})
+    feat.execute("add", {"items": [{"name": "flour", "quantity": 2, "unit": "cup"}]})
+    items = _items(gf)
+    assert len(items) == 1
+    assert items[0]["unit"] == "cup"
+    assert items[0]["quantity"] == 3.0  # bare existing treated as 1
+
+
+def test_v2_migration_parses_leading_quantity(tmp_path):
+    grocery_file = tmp_path / "grocery.json"
+    grocery_file.write_text(json.dumps({
+        "items": [
+            {"id": "a", "name": "8 cantaloupes", "category": "Produce", "checked": False},
+            {"id": "b", "name": "2 cups flour", "category": "Pantry", "checked": False},
+            {"id": "c", "name": "milk", "category": "Dairy", "checked": False},
+        ]
+    }))
+    config = {"grocery_file": str(grocery_file)}
+    feat = GroceryFeature(config)
+    state = feat.get_state()
+    by_name = {i["name"]: i for i in state["items"]}
+    assert by_name["cantaloupes"]["quantity"] == 8.0
+    assert by_name["cantaloupes"]["unit"] is None
+    assert by_name["flour"]["quantity"] == 2.0
+    assert by_name["flour"]["unit"] == "cup"
+    assert by_name["milk"]["quantity"] is None
+    assert by_name["milk"]["unit"] is None
+
+
+def test_legacy_string_items_still_work(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    feat.execute("add", {"items": ["milk"]})
+    items = _items(gf)
+    assert len(items) == 1
+    assert items[0]["name"] == "milk"
+    assert items[0]["quantity"] is None
+
+
+def test_plain_dup_still_skipped(tmp_path):
+    feat, _ = _make_feature(tmp_path)
+    feat.execute("add", {"items": [{"name": "milk"}]})
+    result = feat.execute("add", {"items": [{"name": "milk"}]})
+    assert "already on" in result

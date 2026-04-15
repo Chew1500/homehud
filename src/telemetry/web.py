@@ -1403,13 +1403,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "Name required"}, HTTPStatus.BAD_REQUEST)
             return
 
+        quantity = body.get("quantity")
+        unit = body.get("unit")
+
         # Try the cache first for instant categorization
         category = None
         cache = getattr(self.server, "grocery_category_cache", None)
         if cache is not None:
             category = cache.get(name)
 
-        item = grocery.add_item(name, category)
+        item = grocery.add_item(name, category, quantity=quantity, unit=unit)
         if item is None:
             self._send_json({"error": "Item already on list"},
                             HTTPStatus.CONFLICT)

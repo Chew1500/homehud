@@ -135,6 +135,76 @@ let groceryOrderMode = false;
 let groceryDragId = null;
 let groceryDragCategory = null;
 
+// Canonical singular units — matches src/features/grocery.py _UNIT_ALIASES.
+const GROCERY_UNIT_ALIASES = {
+  cup: 'cup', cups: 'cup',
+  tsp: 'tsp', teaspoon: 'tsp', teaspoons: 'tsp',
+  tbsp: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp',
+  lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+  oz: 'oz', ounce: 'oz', ounces: 'oz',
+  g: 'g', gram: 'g', grams: 'g',
+  kg: 'kg', kilogram: 'kg', kilograms: 'kg',
+  ml: 'ml', milliliter: 'ml', milliliters: 'ml',
+  l: 'l', liter: 'l', liters: 'l', litre: 'l', litres: 'l',
+  clove: 'clove', cloves: 'clove',
+  piece: 'piece', pieces: 'piece',
+  slice: 'slice', slices: 'slice',
+  can: 'can', cans: 'can',
+  pack: 'pack', packs: 'pack',
+  bottle: 'bottle', bottles: 'bottle',
+  dozen: 'dozen', dozens: 'dozen',
+  bunch: 'bunch', bunches: 'bunch',
+  stick: 'stick', sticks: 'stick',
+  head: 'head', heads: 'head',
+};
+
+function formatGroceryItem(it) {
+  const parts = [];
+  const q = it.quantity;
+  const u = it.unit;
+  const name = it.name || '';
+  if (q != null) parts.push(Number.isInteger(q) ? String(q) : String(q));
+  if (u) {
+    if (q != null && q !== 1 && !u.endsWith('s')) parts.push(u + 's');
+    else parts.push(u);
+    parts.push(name);
+  } else {
+    if (q != null && q !== 1 && name && !name.endsWith('s')) parts.push(name + 's');
+    else parts.push(name);
+  }
+  return parts.filter(p => p).join(' ');
+}
+
+function parseGroceryInput(input) {
+  // Parse "2 cups flour", "1/2 lb butter", "3 cans tomato sauce" into
+  // {name, quantity, unit}. Falls back to {name: input} for plain strings.
+  const s = input.trim();
+  if (!s) return {name: ''};
+  const m = s.match(
+    /^(\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?)\\s+(?:([a-zA-Z]+)\\s+)?(.+)$/
+  );
+  if (!m) return {name: s};
+  let qty;
+  if (m[1].includes('/')) {
+    const frac = m[1].split(/\\s+/);
+    if (frac.length === 2) {
+      const [n, d] = frac[1].split('/').map(Number);
+      qty = parseFloat(frac[0]) + n / d;
+    } else {
+      const [n, d] = m[1].split('/').map(Number);
+      qty = n / d;
+    }
+  } else {
+    qty = parseFloat(m[1]);
+  }
+  const rawUnit = (m[2] || '').toLowerCase();
+  const unit = rawUnit && GROCERY_UNIT_ALIASES[rawUnit]
+    ? GROCERY_UNIT_ALIASES[rawUnit] : null;
+  // If we consumed a word as unit but it wasn't a known unit, put it back.
+  const name = unit ? m[3] : (m[2] ? (m[2] + ' ' + m[3]) : m[3]);
+  return {name: name.trim(), quantity: qty, unit};
+}
+
 async function loadGrocery() {
   try {
     const data = await fetchJSON('/api/grocery');
@@ -196,7 +266,7 @@ function renderGrocery() {
         + ' ondrop="groceryDropOnItem(event)">'
         + '<input type="checkbox" ' + checked
         + ' onchange="groceryToggleChecked(\\'' + it.id + '\\', this.checked)">'
-        + '<span class="grocery-item-name">' + escapeHtml(it.name) + '</span>'
+        + '<span class="grocery-item-name">' + escapeHtml(formatGroceryItem(it)) + '</span>'
         + '<button class="grocery-item-delete" title="Remove"'
         + ' onclick="groceryDelete(\\'' + it.id + '\\')">&times;</button>'
         + '<span class="grocery-item-handle">&#8942;&#8942;</span>'
@@ -209,14 +279,16 @@ function renderGrocery() {
 
 async function groceryAdd() {
   const input = document.getElementById('grocery-add-input');
-  const name = input.value.trim();
-  if (!name) return;
+  const raw = input.value.trim();
+  if (!raw) return;
   input.value = '';
+  const parsed = parseGroceryInput(raw);
+  if (!parsed.name) return;
   try {
     const res = await fetch('/api/grocery', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name}),
+      body: JSON.stringify(parsed),
     });
     if (!res.ok && res.status !== 409) {
       throw new Error('HTTP ' + res.status);

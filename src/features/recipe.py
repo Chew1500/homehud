@@ -465,43 +465,37 @@ class RecipeFeature(BaseFeature):
         if not ingredients:
             return f"{recipe['name']} has no ingredients listed."
 
-        current_items = self._grocery.get_items()
-        current_lower = [i.lower() for i in current_items]
-
-        added = []
-        skipped = []
+        entries = []
         for ing in ingredients:
-            name = ing.get("name", "").strip()
+            name = (ing.get("name") or "").strip()
             if not name:
                 continue
-            qty = ing.get("quantity", "")
-            unit = ing.get("unit", "")
-
-            # Build the grocery item string with quantity
-            if qty and unit:
-                item_str = f"{qty} {unit} {name}"
-            elif qty:
-                item_str = f"{qty} {name}"
-            else:
-                item_str = name
-
-            # Check if ingredient already on list (fuzzy: check if name appears)
-            if any(name.lower() in ci for ci in current_lower):
-                skipped.append(name)
-            else:
-                self._grocery.execute("add", {"item": item_str})
-                added.append(name)
-                # Update our view of current items
-                current_lower.append(item_str.lower())
-
-        parts = []
-        if added:
-            parts.append(f"Added {len(added)} items: {', '.join(added)}")
-        if skipped:
-            parts.append(f"Already on list: {', '.join(skipped)}")
-        if not added and not skipped:
+            entries.append({
+                "name": name,
+                "quantity": ing.get("quantity"),
+                "unit": ing.get("unit") or None,
+            })
+        if not entries:
             return f"No ingredients to add from {recipe['name']}."
 
+        _, detail = self._grocery._add_many_detailed(entries)
+
+        added_names = [a["name"] for a in detail["added"]] + [
+            m["new"]["name"] for m in detail["mixed_units"]
+        ]
+        merged_names = [m["name"] for m in detail["merged"]]
+        skipped_names = [s["name"] for s in detail["skipped_dup"]]
+        pre_existing = merged_names + skipped_names
+
+        parts = []
+        if added_names:
+            parts.append(
+                f"Added {len(added_names)} items: {', '.join(added_names)}"
+            )
+        if pre_existing:
+            parts.append(f"Already on list: {', '.join(pre_existing)}")
+        if not parts:
+            return f"No ingredients to add from {recipe['name']}."
         return ". ".join(parts) + "."
 
     def _start_cooking(self, recipe_name: str) -> str:
