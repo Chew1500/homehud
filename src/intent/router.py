@@ -118,8 +118,12 @@ class IntentRouter:
                 return result
             except Exception:
                 log.exception("Feature execute() failed for %s.%s", feature_name, action)
-                # Use LLM's speech as fallback
+                # Use LLM's speech as fallback, but for mutating actions the
+                # LLM's optimistic confirmation would mislead the user, so
+                # append a failure note.
                 if speech:
+                    if action in {"add", "remove", "clear", "set", "delete"}:
+                        speech = f"{speech} But something went wrong saving that."
                     self._llm.record_exchange(text, speech)
                     return speech
                 return None

@@ -211,3 +211,55 @@ def test_delete_from_grocery_list(tmp_path):
     feat.handle("add milk to the grocery list")
     result = feat.handle("delete milk from the grocery list")
     assert "Removed milk" in result
+
+
+# -- multi-item add (LLM path) --
+
+
+def test_execute_add_items_list(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    result = feat.execute(
+        "add",
+        {"items": ["chicken wings", "salad mix", "ranch dressing", "lasagna"]},
+    )
+    assert "chicken wings" in result
+    assert "4 items" in result
+    assert _names(gf) == ["chicken wings", "salad mix", "ranch dressing", "lasagna"]
+
+
+def test_execute_add_item_comma_string(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    result = feat.execute("add", {"item": "eggs, milk, and bread"})
+    assert "3 items" in result
+    assert _names(gf) == ["eggs", "milk", "bread"]
+
+
+def test_execute_add_item_list_in_item_key(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    result = feat.execute("add", {"item": ["eggs", "milk"]})
+    assert "2 items" in result
+    assert _names(gf) == ["eggs", "milk"]
+
+
+def test_execute_add_with_partial_duplicates(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    feat.handle("add milk to the grocery list")
+    result = feat.execute("add", {"items": ["milk", "eggs", "bread"]})
+    assert "eggs" in result
+    assert "bread" in result
+    assert "already on" in result
+    assert _names(gf) == ["milk", "eggs", "bread"]
+
+
+def test_handle_multi_item_voice(tmp_path):
+    feat, gf = _make_feature(tmp_path)
+    result = feat.handle(
+        "add chicken wings, salad mix, ranch dressing, and lasagna to the grocery list"
+    )
+    assert "4 items" in result
+    assert _names(gf) == [
+        "chicken wings",
+        "salad mix",
+        "ranch dressing",
+        "lasagna",
+    ]

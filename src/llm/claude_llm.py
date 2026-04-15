@@ -54,7 +54,10 @@ _INTENT_SYSTEM_PROMPT = (
     "Use the route_intent tool to respond. ALWAYS use this tool.\n\n"
     "## Available Features\n\n"
     "### grocery\n"
-    "Actions: add(item), remove(item), list(), clear()\n"
+    "Actions: add(items: list[str]) or add(item: str), remove(item), list(), clear()\n"
+    'For multiple items in one request, use `items` as a list: '
+    '"add eggs, milk, and bread to grocery list" → '
+    'action=add, parameters={"items": ["eggs", "milk", "bread"]}.\n'
     'Example triggers: "add milk to grocery list", "what\'s on the shopping list"\n\n'
     "### reminder\n"
     "Actions: set(task, time), list(), cancel(task), clear()\n"

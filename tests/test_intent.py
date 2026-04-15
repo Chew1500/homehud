@@ -407,7 +407,7 @@ def test_llm_first_execute_error_uses_speech_fallback():
 
     result = router.route("add milk")
 
-    assert result == "Adding milk to your list."
+    assert result == "Adding milk to your list. But something went wrong saving that."
     llm.record_exchange.assert_called_once()
 
 

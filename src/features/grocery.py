@@ -49,6 +49,51 @@ DEFAULT_CATEGORIES = [
 UNCATEGORIZED = "Uncategorized"
 
 
+def _split_item_phrase(phrase: str) -> list[str]:
+    """Split a natural-language item phrase into individual item names.
+
+    Handles "a, b, c", "a, b, and c", "a and b".
+    """
+    if not phrase:
+        return []
+    # Normalize " and " / " & " to commas, then split.
+    normalized = re.sub(r"\s*,?\s+(?:and|&)\s+", ",", phrase, flags=re.IGNORECASE)
+    parts = [p.strip() for p in normalized.split(",")]
+    return [p for p in parts if p]
+
+
+def _extract_names(parameters: dict) -> list[str]:
+    """Pull a list of item names out of LLM-supplied parameters.
+
+    Accepts `items: list[str]`, `item: str`, or `item: list[str]`. A single
+    string may contain comma/and-separated items which are split out.
+    """
+    raw = parameters.get("items")
+    if raw is None:
+        raw = parameters.get("item")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return _split_item_phrase(raw)
+    if isinstance(raw, list):
+        names: list[str] = []
+        for entry in raw:
+            if isinstance(entry, str):
+                names.extend(_split_item_phrase(entry))
+        return names
+    return []
+
+
+def _join_names(names: list[str]) -> str:
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + f", and {names[-1]}"
+
+
 class GroceryFeature(BaseFeature):
     """Manages a grocery list stored as a JSON file.
 
@@ -90,28 +135,33 @@ class GroceryFeature(BaseFeature):
     @property
     def action_schema(self) -> dict:
         return {
-            "add": {"item": "str"},
+            "add": {"item": "str", "items": "list[str]"},
             "remove": {"item": "str"},
             "list": {},
             "clear": {},
         }
 
     def execute(self, action: str, parameters: dict) -> str:
-        actions = {
-            "add": lambda: self._add(parameters["item"]),
-            "remove": lambda: self._remove(parameters["item"]),
-            "list": self._list,
-            "clear": self._clear,
-        }
-        handler = actions.get(action)
-        if handler is None:
+        if action == "add":
+            names = _extract_names(parameters)
+            if not names:
+                return self._list()
+            return self._add_many(names)
+        if action == "remove":
+            return self._remove(parameters["item"])
+        if action == "list":
             return self._list()
-        return handler()
+        if action == "clear":
+            return self._clear()
+        return self._list()
 
     def handle(self, text: str) -> str:
         m = _ADD.search(text)
         if m:
-            return self._add(m.group(1).strip())
+            names = _split_item_phrase(m.group(1))
+            if names:
+                return self._add_many(names)
+            return self._list()
 
         m = _REMOVE.search(text)
         if m:
@@ -129,15 +179,59 @@ class GroceryFeature(BaseFeature):
     # -- Voice actions (operate on the dict model but return user-facing text) --
 
     def _add(self, item: str) -> str:
+        return self._add_many([item])
+
+    def _add_many(self, names: list[str]) -> str:
         state = self._load_state()
         items = state["items"]
-        if item.lower() in [i["name"].lower() for i in items]:
-            return f"{item} is already on the grocery list."
-        items.append(self._new_item(item))
-        self._save_state(state)
+        existing_lower = {i["name"].lower() for i in items}
+
+        added: list[str] = []
+        duplicates: list[str] = []
+        seen_in_batch: set[str] = set()
+        for raw in names:
+            name = raw.strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen_in_batch:
+                continue
+            seen_in_batch.add(key)
+            if key in existing_lower:
+                duplicates.append(name)
+                continue
+            items.append(self._new_item(name))
+            existing_lower.add(key)
+            added.append(name)
+
+        if added:
+            self._save_state(state)
+
         count = len(items)
-        s = "item" if count == 1 else "items"
-        return f"Added {item} to the grocery list. You now have {count} {s}."
+        total_s = "item" if count == 1 else "items"
+
+        if added and not duplicates:
+            if len(added) == 1:
+                return (
+                    f"Added {added[0]} to the grocery list. "
+                    f"You now have {count} {total_s}."
+                )
+            return (
+                f"Added {_join_names(added)} to the grocery list. "
+                f"You now have {count} {total_s}."
+            )
+        if added and duplicates:
+            return (
+                f"Added {_join_names(added)}. "
+                f"{_join_names(duplicates)} "
+                f"{'was' if len(duplicates) == 1 else 'were'} already on the list. "
+                f"You now have {count} {total_s}."
+            )
+        if not added and duplicates:
+            if len(duplicates) == 1:
+                return f"{duplicates[0]} is already on the grocery list."
+            return f"{_join_names(duplicates)} are already on the grocery list."
+        return self._list()
 
     def _remove(self, item: str) -> str:
         state = self._load_state()
