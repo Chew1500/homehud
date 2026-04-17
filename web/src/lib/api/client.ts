@@ -11,10 +11,14 @@
  *  store.
  */
 
-import { browser } from '$app/environment';
 import { ApiFetchError } from './types';
 
 const TOKEN_KEY = 'hud_auth_token';
+
+/** True in a real DOM (browser or jsdom). We deliberately avoid
+ *  ``$app/environment.browser`` here: it reports false under vitest,
+ *  which would make all library modules no-op in tests. */
+const hasDom = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
 type AuthListener = (event: 'unauthorized' | 'forbidden') => void;
 const listeners = new Set<AuthListener>();
@@ -25,12 +29,12 @@ export function onAuthEvent(fn: AuthListener): () => void {
 }
 
 export function getToken(): string | null {
-  if (!browser) return null;
+  if (!hasDom) return null;
   return localStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string | null): void {
-  if (!browser) return;
+  if (!hasDom) return;
   if (token === null) localStorage.removeItem(TOKEN_KEY);
   else localStorage.setItem(TOKEN_KEY, token);
 }

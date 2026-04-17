@@ -4,8 +4,6 @@
  * truth for values the SPA needs before its first network call.
  */
 
-import { browser } from '$app/environment';
-
 export interface RuntimeConfig {
   /** Idle window before a new voice conversation divider appears. */
   voiceThreadTtlMs: number;
@@ -25,7 +23,9 @@ const DEFAULTS: RuntimeConfig = {
 };
 
 function readConfig(): RuntimeConfig {
-  if (!browser) return DEFAULTS;
+  // Use a typeof-document check rather than $app/environment.browser
+  // so this module works identically in vitest (jsdom) and browser.
+  if (typeof document === 'undefined') return DEFAULTS;
   const el = document.getElementById('hud-config');
   if (!el?.textContent) return DEFAULTS;
   try {
