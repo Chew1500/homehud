@@ -198,16 +198,22 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: web-dist
-          # Sits under the runner's work dir, not /tmp — /tmp permissions
-          # can be tricky across restarts and cleanup daemons.
-          path: ${{ runner.temp }}/web-dist
+          # Use /tmp/ (sticky 1777, world-readable) rather than the
+          # runner's work dir — the latter lives under the runner
+          # user's home (0700) which the ``hud`` service user can't
+          # read across for the cp below.
+          path: /tmp/web-dist
 
       - name: Verify artifact before sync
         run: |
           # Guard against an empty or malformed artifact nuking a
           # working dist/ via rsync --delete downstream.
-          test -s "${{ runner.temp }}/web-dist/index.html"
-          grep -q 'id="hud-config"' "${{ runner.temp }}/web-dist/index.html"
+          test -s /tmp/web-dist/index.html
+          grep -q 'id="hud-config"' /tmp/web-dist/index.html
+          # Ensure the tree is traversable by the hud user (cp below
+          # runs as hud). The runner writes files 0644 by default, but
+          # we chmod the dir explicitly for belt-and-suspenders.
+          chmod -R a+rX /tmp/web-dist
 
       - name: Stage SPA assets into dist.new
         run: |
@@ -216,7 +222,7 @@ jobs:
           # the restart below fails.
           sudo -H -u hud mkdir -p /opt/homehud/web
           sudo -H -u hud rm -rf /opt/homehud/web/dist.new
-          sudo -H -u hud cp -a "${{ runner.temp }}/web-dist" /opt/homehud/web/dist.new
+          sudo -H -u hud cp -a /tmp/web-dist /opt/homehud/web/dist.new
           test -s /opt/homehud/web/dist.new/index.html
 
       - name: Swap SPA dist (atomic)
