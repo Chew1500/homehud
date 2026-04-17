@@ -942,7 +942,14 @@ class _Handler(BaseHTTPRequestHandler):
     def _handle_logs(self, params):
         log_dir = getattr(self.server, "log_dir", None)
         if not log_dir:
-            self._send_json({"error": "Log directory not configured"}, HTTPStatus.NOT_FOUND)
+            # Return 200 with a soft "unavailable" payload so the SPA
+            # can render a friendly empty state rather than confusing
+            # the caller with a routing-style 404.
+            self._send_json({
+                "lines": [], "total_lines": 0,
+                "log_file": "homehud.log", "filters": {},
+                "message": "Log directory not configured on this server.",
+            })
             return
 
         log_path = Path(log_dir) / "homehud.log"
@@ -950,6 +957,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({
                 "lines": [], "total_lines": 0,
                 "log_file": "homehud.log", "filters": {},
+                "message": f"Log file {log_path} does not exist yet.",
             })
             return
 

@@ -106,7 +106,8 @@
   const dirtyCount = $derived(Object.keys(dirtyValues).length);
 </script>
 
-<div class="flex h-full flex-col gap-4">
+
+<div class="flex flex-col gap-4 pb-24">
   <header class="flex items-start justify-between gap-3">
     <div>
       <h1 class="text-2xl font-semibold">Config</h1>
@@ -142,7 +143,7 @@
   {/if}
 
   {#if data}
-    <div class="flex flex-1 flex-col gap-3 overflow-y-auto pb-28">
+    <div class="flex flex-col gap-3">
       {#each data.groups as group (group)}
         {@const items = paramsInGroup(group)}
         {#if items.length > 0}
@@ -178,10 +179,11 @@
     </div>
   {/if}
 
-  <!-- Sticky save bar -->
+  <!-- Sticky save bar (fixed-positioned so it never interacts with
+       parent scroll containers or overflow clipping). -->
   {#if dirtyCount > 0}
     <div
-      class="sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur"
+      class="fixed inset-x-0 bottom-0 z-20 flex items-center gap-3 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur"
     >
       <span class="flex-1 text-sm text-fg-muted">
         {dirtyCount} unsaved change{dirtyCount === 1 ? '' : 's'}

@@ -15,7 +15,10 @@ export interface LogsResponse {
   lines: LogEntry[];
   total_lines: number;
   log_file: string;
-  filters: { level: string | null; limit: number };
+  filters: { level?: string | null; limit?: number };
+  /** Soft hint from the server when logs aren't available (e.g.
+   *  log_dir unset). The UI can render an empty state using this. */
+  message?: string;
 }
 
 export function fetchLogs(params: { lines?: number; level?: string | null }): Promise<LogsResponse> {

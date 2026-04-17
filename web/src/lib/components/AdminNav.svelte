@@ -8,7 +8,6 @@
     Volume2,
     Activity,
     LogOut,
-    ExternalLink,
   } from 'lucide-svelte';
   import { logout } from '$lib/auth/store';
   import { goto } from '$app/navigation';
@@ -51,13 +50,6 @@
     </a>
   {/each}
   <div class="flex-1 md:mt-auto"></div>
-  <a
-    href="/?ui=old"
-    class="flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm text-fg-muted hover:bg-surface-muted hover:text-fg"
-  >
-    <ExternalLink class="size-4" />
-    <span>Classic admin</span>
-  </a>
   <button
     type="button"
     onclick={handleLogout}

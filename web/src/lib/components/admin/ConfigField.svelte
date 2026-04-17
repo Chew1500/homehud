@@ -41,11 +41,11 @@
 </script>
 
 <div
-  class="flex flex-col gap-2 border-b border-border py-3 last:border-b-0 sm:flex-row sm:items-center"
+  class="flex flex-col gap-2 border-b border-border py-3 last:border-b-0 md:flex-row md:items-center md:gap-4"
 >
-  <div class="flex-1 min-w-0">
-    <div class="flex items-center gap-2">
-      <code class="font-mono text-sm text-fg">{param.key}</code>
+  <div class="min-w-0 md:flex-1">
+    <div class="flex flex-wrap items-center gap-1.5">
+      <code class="break-all font-mono text-sm text-fg">{param.key}</code>
       <span
         class="rounded-full px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide"
         class:bg-accent={param.source === 'file'}
@@ -66,19 +66,21 @@
         </span>
       {/if}
     </div>
-    <p class="mt-0.5 text-xs text-fg-muted">{param.description}</p>
+    <p class="mt-0.5 break-words text-xs text-fg-muted">{param.description}</p>
   </div>
 
-  <div class="shrink-0 sm:w-72">
+  <div class="w-full md:w-72 md:shrink-0">
     {#if param.sensitive}
       <input
         type="text"
         value="••••••••"
         disabled
-        class="w-full cursor-not-allowed rounded-lg border border-border bg-surface-muted px-3 py-2 font-mono text-sm text-fg-muted"
+        class="block w-full cursor-not-allowed rounded-lg border border-border bg-surface-muted px-3 py-2 font-mono text-sm text-fg-muted"
       />
     {:else if param.type === 'bool'}
-      <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2">
+      <label
+        class="flex w-full cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2"
+      >
         <span class="flex-1 text-xs text-fg-muted">
           {value ? 'Enabled' : 'Disabled'}
         </span>
@@ -86,7 +88,7 @@
           type="checkbox"
           checked={Boolean(value)}
           oninput={onInput}
-          class="size-4 accent-accent"
+          class="size-4 shrink-0 accent-accent"
         />
       </label>
     {:else if param.type === 'int' || param.type === 'float'}
@@ -96,7 +98,7 @@
         step={param.type === 'float' ? 'any' : '1'}
         value={value ?? ''}
         oninput={onInput}
-        class="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-fg focus:border-accent focus:outline-none"
+        class="block w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-fg focus:border-accent focus:outline-none"
         class:border-warn={dirty}
       />
     {:else}
@@ -107,7 +109,7 @@
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
-        class="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-fg focus:border-accent focus:outline-none"
+        class="block w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-fg focus:border-accent focus:outline-none"
         class:border-warn={dirty}
       />
     {/if}
