@@ -104,18 +104,10 @@ def test_unknown_path_returns_404(server):
     assert data["error"] == "Not found"
 
 
-def test_ui_new_flag_without_dist_returns_503(server):
-    """When web/dist/ is missing, ?ui=new should report 503 rather
-    than silently falling back to the classic UI. Keeps the flag
-    honest about whether the SPA build is actually available."""
-    # The test fixture runs from the repo with no build; StaticAssets
-    # loads lazily and reports unavailable. _new_ui_active should
-    # therefore return False and the classic dashboard gets served.
-    # If/when the build exists locally, this path goes through _serve_static.
-    status, body = _get(server, "/?ui=new")
-    # Either the classic HTML (when dist missing) or the SPA shell
-    # (when dist present). Both are 200; what must NOT happen is a
-    # 404 or server crash.
+def test_default_ui_serves_classic_without_spa_build(server):
+    """Without a built SPA at web/dist/, the root should still return
+    the classic dashboard (graceful degradation) — not a 503."""
+    status, body = _get(server, "/")
     assert status == 200
     # classic UI signature
     is_classic = b"Home HUD Telemetry" in body
@@ -124,16 +116,28 @@ def test_ui_new_flag_without_dist_returns_503(server):
     assert is_classic or is_spa
 
 
-def test_ui_old_clears_new_ui_cookie(server):
-    """?ui=old should send a Set-Cookie clearing hud_ui so that a
-    user who opted into the new UI can bail back to classic."""
+def test_ui_old_sets_opt_out_cookie(server):
+    """?ui=old should send a Set-Cookie setting hud_ui=old so the
+    user's opt-out sticks across subsequent requests."""
     url = _url(server, "/?ui=old")
-    req = urllib.request.Request(url)
-    req.add_header("Cookie", "hud_ui=new")
-    resp = urllib.request.urlopen(req)
+    resp = urllib.request.urlopen(url)
     assert resp.status == 200
     cookies = resp.headers.get_all("Set-Cookie") or []
-    assert any("hud_ui=" in c and "Max-Age=0" in c for c in cookies)
+    assert any(c.startswith("hud_ui=old") for c in cookies)
+
+
+def test_ui_new_clears_opt_out_cookie(server):
+    """?ui=new should clear the opt-out cookie so default behaviour
+    (serve SPA) resumes on the next request. The server needs a
+    built SPA for the clear to emit — we only assert the no-503 path."""
+    url = _url(server, "/?ui=new")
+    req = urllib.request.Request(url)
+    req.add_header("Cookie", "hud_ui=old")
+    # Without web/dist/ present the server should still not crash —
+    # _new_ui_active returns False when assets are unavailable, so
+    # the classic dashboard serves and no Set-Cookie is emitted.
+    resp = urllib.request.urlopen(req)
+    assert resp.status == 200
 
 
 def test_stats_empty_db(server):

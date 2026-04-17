@@ -166,10 +166,10 @@ class _Handler(BaseHTTPRequestHandler):
     def _new_ui_active(self, params: dict) -> bool:
         """True when the SvelteKit SPA should handle this request.
 
-        Active if ``?ui=new`` is present OR a ``hud_ui=new`` cookie is
-        set. Explicit ``?ui=old`` overrides both. Static SPA asset paths
-        (``/_app/*`` etc.) also activate it, so hard-refreshes of deep
-        SPA routes work after the cookie has been set once.
+        The SPA is the default. Opt-out via ``?ui=old`` (persisted via
+        the ``hud_ui=old`` cookie). The legacy ``hud_ui=new`` cookie
+        set during the flag-gating phase is harmless here — the default
+        path already serves the SPA for those users.
         """
         assets = getattr(self.server, "static_assets", None)
         if assets is None or not assets.available:
@@ -180,9 +180,9 @@ class _Handler(BaseHTTPRequestHandler):
         if ui == "new":
             return True
         cookie_header = self.headers.get("Cookie", "")
-        if "hud_ui=new" in cookie_header:
-            return True
-        return False
+        if "hud_ui=old" in cookie_header:
+            return False
+        return True
 
     def _spa_handles(self, path: str) -> bool:
         """Paths the SPA owns even without an explicit ``?ui=new`` flag.
@@ -200,22 +200,24 @@ class _Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         params = parse_qs(parsed.query)
 
-        # Flag-gated SPA. Serve shell + bundle assets for non-/api/*
-        # paths when ``?ui=new`` or the ``hud_ui=new`` cookie is active.
-        # Runs before _authenticate: the SPA shell is public (like the
-        # old dashboard HTML at /), and the SPA calls /api/auth/status
-        # to drive its own login flow. /api/* still goes through
+        # SPA routing. Default is the SvelteKit shell; ``?ui=old``
+        # (persisted via the ``hud_ui=old`` opt-out cookie) falls back
+        # to the classic Python-strings dashboard. Runs before
+        # _authenticate — the SPA shell is public (like the old
+        # dashboard HTML at /), and the SPA calls /api/auth/status to
+        # drive its own login flow. /api/* still goes through
         # _authenticate below.
         new_ui = self._new_ui_active(params)
-        spa_set_cookie = new_ui and (params.get("ui") or [""])[0] == "new"
-        spa_clear_cookie = (params.get("ui") or [""])[0] == "old"
+        ui_param = (params.get("ui") or [""])[0]
+        spa_clear_cookie = ui_param == "new"   # opt back into default
+        classic_set_cookie = ui_param == "old"  # persist opt-out
         if new_ui and not path.startswith("/api/"):
-            self._serve_static(path, set_cookie=spa_set_cookie)
+            self._serve_static(path, clear_opt_out=spa_clear_cookie)
             return
         if self._spa_handles(path):
             assets = getattr(self.server, "static_assets", None)
             if assets is not None and assets.available:
-                self._serve_static(path, set_cookie=False)
+                self._serve_static(path, clear_opt_out=False)
                 return
 
         user_id = self._authenticate(path)
@@ -227,7 +229,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/":
             self._send_html(
                 self._render_dashboard_html(),
-                clear_ui_cookie=spa_clear_cookie,
+                set_opt_out=classic_set_cookie,
             )
         elif path == "/audio-processor.js":
             self._send_js()
@@ -1246,16 +1248,18 @@ class _Handler(BaseHTTPRequestHandler):
             f"const VOICE_THREAD_TTL_MS = {ttl_s * 1000};",
         )
 
-    def _send_html(self, html, clear_ui_cookie: bool = False):
+    def _send_html(self, html, set_opt_out: bool = False):
         body = html.encode()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Permissions-Policy", "microphone=(self)")
-        if clear_ui_cookie:
+        if set_opt_out:
+            # Sticky opt-out — one year; user can return to the SPA
+            # any time via /?ui=new (which clears the cookie).
             self.send_header(
                 "Set-Cookie",
-                "hud_ui=; Path=/; Max-Age=0; SameSite=Lax",
+                "hud_ui=old; Path=/; Max-Age=31536000; SameSite=Lax",
             )
         self.end_headers()
         self.wfile.write(body)
@@ -1293,7 +1297,7 @@ class _Handler(BaseHTTPRequestHandler):
         )
         return index_bytes.replace(placeholder, replacement, 1)
 
-    def _serve_static(self, url_path: str, set_cookie: bool = False) -> None:
+    def _serve_static(self, url_path: str, clear_opt_out: bool = False) -> None:
         assets = getattr(self.server, "static_assets", None)
         if assets is None or not assets.available:
             self._send_json(
@@ -1309,11 +1313,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Permissions-Policy", "microphone=(self)")
-            if set_cookie:
-                # 1 year; SameSite=Lax keeps it working across Tailscale
+            if clear_opt_out:
+                # Clear the classic-UI opt-out cookie when the user
+                # explicitly comes back via ?ui=new.
                 self.send_header(
                     "Set-Cookie",
-                    "hud_ui=new; Path=/; Max-Age=31536000; SameSite=Lax",
+                    "hud_ui=; Path=/; Max-Age=0; SameSite=Lax",
                 )
             self.end_headers()
             self.wfile.write(body)

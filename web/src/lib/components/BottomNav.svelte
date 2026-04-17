@@ -1,13 +1,20 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { Mic, ShoppingBasket, CookingPot, Sprout } from 'lucide-svelte';
+  import { Mic, ShoppingBasket, CookingPot, Sprout, Settings } from 'lucide-svelte';
+  import { isAdmin } from '$lib/auth/store';
 
-  const items = [
+  type NavItem = { href: string; label: string; Icon: typeof Mic };
+
+  const baseItems: NavItem[] = [
     { href: '/voice', label: 'Voice', Icon: Mic },
     { href: '/grocery', label: 'Grocery', Icon: ShoppingBasket },
     { href: '/recipes', label: 'Recipes', Icon: CookingPot },
     { href: '/garden', label: 'Garden', Icon: Sprout },
-  ] as const;
+  ];
+
+  const items = $derived<NavItem[]>(
+    $isAdmin ? [...baseItems, { href: '/admin', label: 'Admin', Icon: Settings }] : baseItems,
+  );
 
   const active = $derived($page.url.pathname);
 </script>
