@@ -1,0 +1,173 @@
+/**
+ * Grocery list store.
+ *
+ * Holds the list state + async loading/error flags, and exposes
+ * optimistic CRUD helpers that update the store first and reconcile
+ * with the server in the background. Mirrors the classic UI's UX —
+ * fast local feedback with best-effort sync.
+ */
+
+import { writable, derived, get } from 'svelte/store';
+import {
+  addGroceryItem,
+  clearCheckedGroceryItems,
+  deleteGroceryItem,
+  fetchGrocery,
+  setCategoryOrder,
+  updateGroceryItem,
+  type AddItemRequest,
+  type GroceryItem,
+  type GroceryPatch,
+  type GroceryState,
+} from '$lib/api/grocery';
+
+interface StoreState extends GroceryState {
+  loading: boolean;
+  error: string | null;
+  initialised: boolean;
+}
+
+const initial: StoreState = {
+  items: [],
+  category_order: [],
+  categories: [],
+  loading: false,
+  error: null,
+  initialised: false,
+};
+
+const store = writable<StoreState>(initial);
+
+export const grocery = { subscribe: store.subscribe };
+export const groceryItems = derived(store, (s) => s.items);
+export const groceryCategoryOrder = derived(store, (s) => s.category_order);
+
+export async function loadGrocery(): Promise<void> {
+  store.update((s) => ({ ...s, loading: true, error: null }));
+  try {
+    const data = await fetchGrocery();
+    store.set({
+      ...data,
+      loading: false,
+      error: null,
+      initialised: true,
+    });
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      loading: false,
+      error: err instanceof Error ? err.message : 'Failed to load grocery list',
+      initialised: true,
+    }));
+  }
+}
+
+/** Add an item and refetch to pick up server-side categorization. */
+export async function addItem(req: AddItemRequest): Promise<'ok' | 'duplicate' | 'error'> {
+  try {
+    const result = await addGroceryItem(req);
+    if (result === 'duplicate') return 'duplicate';
+    // Reload — the server may assign a category via cache/LLM and we
+    // want that reflected immediately.
+    await loadGrocery();
+    return 'ok';
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      error: err instanceof Error ? err.message : 'Failed to add item',
+    }));
+    return 'error';
+  }
+}
+
+export async function toggleChecked(id: string, checked: boolean): Promise<void> {
+  mutateItem(id, (item) => ({ ...item, checked }));
+  try {
+    await updateGroceryItem(id, { checked });
+  } catch (err) {
+    mutateItem(id, (item) => ({ ...item, checked: !checked }));
+    store.update((s) => ({
+      ...s,
+      error: err instanceof Error ? err.message : 'Toggle failed',
+    }));
+  }
+}
+
+export async function deleteItem(id: string): Promise<void> {
+  const snapshot = get(store).items;
+  store.update((s) => ({ ...s, items: s.items.filter((i) => i.id !== id) }));
+  try {
+    await deleteGroceryItem(id);
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      items: snapshot,
+      error: err instanceof Error ? err.message : 'Delete failed',
+    }));
+  }
+}
+
+export async function patchItem(id: string, patch: GroceryPatch): Promise<void> {
+  const snapshot = get(store).items;
+  mutateItem(id, (item) => ({ ...item, ...patch }));
+  try {
+    await updateGroceryItem(id, patch);
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      items: snapshot,
+      error: err instanceof Error ? err.message : 'Update failed',
+    }));
+  }
+}
+
+export async function clearChecked(): Promise<number> {
+  const snapshot = get(store).items;
+  store.update((s) => ({ ...s, items: s.items.filter((i) => !i.checked) }));
+  try {
+    const res = await clearCheckedGroceryItems();
+    return res.removed;
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      items: snapshot,
+      error: err instanceof Error ? err.message : 'Clear failed',
+    }));
+    return 0;
+  }
+}
+
+export async function moveCategory(from: number, to: number): Promise<void> {
+  const current = get(store).category_order.slice();
+  if (from < 0 || from >= current.length) return;
+  const clamped = Math.max(0, Math.min(to, current.length - 1));
+  if (from === clamped) return;
+  const [moved] = current.splice(from, 1);
+  current.splice(clamped, 0, moved);
+  store.update((s) => ({ ...s, category_order: current }));
+  try {
+    const res = await setCategoryOrder(current);
+    store.update((s) => ({ ...s, category_order: res.category_order }));
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      error: err instanceof Error ? err.message : 'Reorder failed',
+    }));
+  }
+}
+
+export function clearGroceryError(): void {
+  store.update((s) => ({ ...s, error: null }));
+}
+
+function mutateItem(id: string, fn: (item: GroceryItem) => GroceryItem): void {
+  store.update((s) => ({
+    ...s,
+    items: s.items.map((i) => (i.id === id ? fn(i) : i)),
+  }));
+}
+
+/** Test hook. */
+export function __resetGroceryStore(): void {
+  store.set(initial);
+}
