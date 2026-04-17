@@ -39,10 +39,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
-          # Falls back gracefully if pnpm-lock.yaml is missing on
-          # first push (setup-node just skips caching).
-          cache-dependency-path: 'web/pnpm-lock.yaml'
+          # No cache yet: setup-node's pnpm cache needs a lockfile AND
+          # a stable store path. We'll re-enable `cache: 'pnpm'` (with
+          # `cache-dependency-path: 'web/pnpm-lock.yaml'`) after the
+          # lockfile is committed and the pipeline is green once.
 
       # Plain `pnpm install` (not --frozen-lockfile) so the first push
       # succeeds before the lockfile is committed. Once web/pnpm-lock.yaml
