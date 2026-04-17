@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter/index.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+
+/* ─── Design tokens ─────────────────────────────────────────────
+   Warm-ambient palette (bedside home device, not SaaS dashboard).
+   Dark is default; light mode activates via `:root:not(.dark)`.
+   ─────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-bg: #15130f;
+  --color-surface: #1f1c17;
+  --color-surface-muted: #2a2620;
+  --color-border: #3a342c;
+  --color-fg: #f5f1e8;
+  --color-fg-muted: #9a9488;
+  --color-accent: #f39060;
+  --color-accent-fg: #15130f;
+  --color-success: #7aad87;
+  --color-warn: #e0a74f;
+  --color-danger: #e06b5e;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+:root:not(.dark) {
+  --color-bg: #faf8f4;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f2eee7;
+  --color-border: #e4ded3;
+  --color-fg: #1a1814;
+  --color-fg-muted: #6e6a60;
+  --color-accent: #e8743f;
+  --color-accent-fg: #ffffff;
+  --color-success: #4a7c59;
+  --color-warn: #c88b2a;
+  --color-danger: #b8443a;
+}
+
+html,
+body {
+  height: 100%;
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-family:
+    'Inter Variable',
+    system-ui,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Thin, unobtrusive scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}

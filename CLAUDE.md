@@ -85,8 +85,22 @@ The Pi serves a web dashboard as a PWA, accessible via Tailscale at `https://hom
 
 - **Mobile-first**: The Voice tab is the default landing page. UI is optimized for phone screens (large touch targets, vertically centered layout, safe area insets for notches).
 - **Voice tab is the hero**: Regular users see a clean mic button + transcript — no telemetry clutter. The header is hidden on the Voice tab.
-- **Dashboard UI is modular**: Each tab is a separate file in `src/telemetry/ui/` exporting `TAB_HTML` and `TAB_JS` string constants. The `build_dashboard_html()` function in `__init__.py` composes them. No build step, no external static files.
-- **New tabs**: Add a file in `src/telemetry/ui/`, export `TAB_HTML`/`TAB_JS`, import in `__init__.py`, add a button to `TAB_BAR` in `shell.py`, add a loader to `TAB_LOADERS`. If the tab is admin-only, add its ID to the `ADMIN_TABS` array in `shell.py`.
+- **Two UIs during rollout**:
+  - **Classic UI** (default): inline Python strings in `src/telemetry/ui/`. Each tab exports `TAB_HTML`/`TAB_JS` constants; `build_dashboard_html()` in `__init__.py` composes them. No build step.
+  - **New UI** (`?ui=new` or `hud_ui=new` cookie): SvelteKit SPA in `web/`, built to `web/dist/` and served by the Python telemetry server. Dark-default, warm-ambient palette, user app at `/` (bottom-nav: Voice/Grocery/Recipes/Garden) with a separate `/admin` console.
+  - The new UI will become the default and the classic UI will be deleted once the rewrite is complete. Until then, both live in the tree.
+
+### Web frontend (`web/`)
+
+- **Stack**: SvelteKit 2 (adapter-static, SPA mode) · TypeScript · Tailwind v4 · shadcn-svelte · Lucide icons · TanStack Query · Vitest · Playwright.
+- **Run locally**: `make web-dev` (Vite at :5173, proxies `/api` to `http://127.0.0.1:8080`). Hit `make run` in another terminal for the Python server.
+- **Build**: `make web-build` emits `web/dist/`. The Python server auto-loads it on startup (look for "Loaded SPA shell" in logs).
+- **Deploy**: CI builds the SPA in the cloud (`build-web` runs in parallel with `lint-and-test`). The self-hosted Pi runner downloads the artifact, stages it at `/opt/homehud/web/dist.new/`, atomic-swaps it into `/opt/homehud/web/dist/` (keeping the previous build at `dist.prev/` for rollback), restarts the service, and probes `/api/health`. If the restart fails after the swap, the previous `dist.prev/` is restored automatically. The Pi has no Node.
+- **Lockfile prerequisite**: after the first `pnpm install` in `web/` locally, commit `web/pnpm-lock.yaml` so CI builds are deterministic. Without a lockfile, CI falls back to a fresh `pnpm install` (works but non-deterministic). Once the lockfile is committed, you can tighten the install step to `pnpm install --frozen-lockfile` in `.github/workflows/deploy.yml`.
+- **Runtime config**: passed to the SPA via a `<script id="hud-config" type="application/json">{}</script>` tag that the Python server rewrites per request (see `_runtime_config_dict` in `web.py`). Read client-side via `$lib/config`.
+- **Auth**: `$lib/auth/store` hydrates from `GET /api/auth/status` (auth-exempt). Bearer tokens kept in `localStorage.hud_auth_token`; `$lib/api/client.apiFetch` injects the header. Route guards in `$lib/auth/guard` protect authenticated routes and `/admin/*`.
+- **Mobile testing**: Web UI changes must be smoke-tested on a real iPhone via Tailscale before merge — the primary audience is mobile, not desktop browsers.
+- **Classic UI (legacy)**: files in `src/telemetry/ui/` — tabs export `TAB_HTML`/`TAB_JS`, composed by `build_dashboard_html()`. Do NOT add new tabs here; add them in `web/src/routes/` instead.
 
 ### Browser voice endpoint
 

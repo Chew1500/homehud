@@ -15,8 +15,39 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from telemetry.dashboard import DASHBOARD_HTML
+from telemetry.static_assets import StaticAssets
 
 log = logging.getLogger("home-hud.telemetry.web")
+
+# Mime lookup for SPA static assets served from web/dist.
+_STATIC_MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json",
+    ".webmanifest": "application/manifest+json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".map": "application/json",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+# Paths that should always go through the SPA when the new UI is active,
+# regardless of query/cookie state (they're part of the bundle).
+_SPA_STATIC_PREFIXES = (
+    "/_app/", "/assets/", "/fonts/",
+)
+_SPA_STATIC_FILES = frozenset({
+    "/manifest.webmanifest", "/sw.js", "/audio-processor.js",
+    "/favicon.ico", "/robots.txt",
+})
 
 # Regex for /api/sessions/<uuid>
 _SESSION_RE = re.compile(r"^/api/sessions/([0-9a-f-]+)$")
@@ -132,10 +163,60 @@ class _Handler(BaseHTTPRequestHandler):
         )
         return False
 
+    def _new_ui_active(self, params: dict) -> bool:
+        """True when the SvelteKit SPA should handle this request.
+
+        Active if ``?ui=new`` is present OR a ``hud_ui=new`` cookie is
+        set. Explicit ``?ui=old`` overrides both. Static SPA asset paths
+        (``/_app/*`` etc.) also activate it, so hard-refreshes of deep
+        SPA routes work after the cookie has been set once.
+        """
+        assets = getattr(self.server, "static_assets", None)
+        if assets is None or not assets.available:
+            return False
+        ui = (params.get("ui") or [""])[0]
+        if ui == "old":
+            return False
+        if ui == "new":
+            return True
+        cookie_header = self.headers.get("Cookie", "")
+        if "hud_ui=new" in cookie_header:
+            return True
+        return False
+
+    def _spa_handles(self, path: str) -> bool:
+        """Paths the SPA owns even without an explicit ``?ui=new`` flag.
+
+        These are bundle assets the SPA shell references with absolute
+        URLs; if the cookie hasn't been set yet (e.g. a preload) we
+        still want them served from dist/ rather than 404'd.
+        """
+        if path in _SPA_STATIC_FILES:
+            return True
+        return any(path.startswith(p) for p in _SPA_STATIC_PREFIXES)
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         params = parse_qs(parsed.query)
+
+        # Flag-gated SPA. Serve shell + bundle assets for non-/api/*
+        # paths when ``?ui=new`` or the ``hud_ui=new`` cookie is active.
+        # Runs before _authenticate: the SPA shell is public (like the
+        # old dashboard HTML at /), and the SPA calls /api/auth/status
+        # to drive its own login flow. /api/* still goes through
+        # _authenticate below.
+        new_ui = self._new_ui_active(params)
+        spa_set_cookie = new_ui and (params.get("ui") or [""])[0] == "new"
+        spa_clear_cookie = (params.get("ui") or [""])[0] == "old"
+        if new_ui and not path.startswith("/api/"):
+            self._serve_static(path, set_cookie=spa_set_cookie)
+            return
+        if self._spa_handles(path):
+            assets = getattr(self.server, "static_assets", None)
+            if assets is not None and assets.available:
+                self._serve_static(path, set_cookie=False)
+                return
 
         user_id = self._authenticate(path)
         if user_id is None:
@@ -144,7 +225,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._send_json({"ok": True})
         elif path == "/":
-            self._send_html(self._render_dashboard_html())
+            self._send_html(
+                self._render_dashboard_html(),
+                clear_ui_cookie=spa_clear_cookie,
+            )
         elif path == "/audio-processor.js":
             self._send_js()
         elif path == "/manifest.json":
@@ -1162,12 +1246,96 @@ class _Handler(BaseHTTPRequestHandler):
             f"const VOICE_THREAD_TTL_MS = {ttl_s * 1000};",
         )
 
-    def _send_html(self, html):
+    def _send_html(self, html, clear_ui_cookie: bool = False):
         body = html.encode()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Permissions-Policy", "microphone=(self)")
+        if clear_ui_cookie:
+            self.send_header(
+                "Set-Cookie",
+                "hud_ui=; Path=/; Max-Age=0; SameSite=Lax",
+            )
+        self.end_headers()
+        self.wfile.write(body)
+
+    # --- SPA (SvelteKit dist) serving ---
+
+    def _runtime_config_dict(self) -> dict:
+        """Return the runtime config snapshot injected into the SPA shell.
+
+        Kept small — the SPA fetches anything variable over the API.
+        """
+        config = getattr(self.server, "config", None) or {}
+        try:
+            ttl_s = int(config.get("llm_history_ttl", 300))
+        except (TypeError, ValueError):
+            ttl_s = 300
+        return {
+            "voiceThreadTtlMs": ttl_s * 1000,
+            "pwaName": config.get("pwa_name", "Home HUD"),
+            "pwaThemeColor": config.get("pwa_theme_color", "#F39060"),
+            "authEnabled": bool(config.get("web_auth_enabled", False)),
+            "serverTime": int(time.time()),
+        }
+
+    def _inject_runtime_config(self, index_bytes: bytes) -> bytes:
+        """Fill the ``<script id="hud-config">{}</script>`` placeholder."""
+        cfg_json = json.dumps(self._runtime_config_dict()).encode()
+        placeholder = (
+            b'<script id="hud-config" type="application/json">{}</script>'
+        )
+        replacement = (
+            b'<script id="hud-config" type="application/json">'
+            + cfg_json
+            + b"</script>"
+        )
+        return index_bytes.replace(placeholder, replacement, 1)
+
+    def _serve_static(self, url_path: str, set_cookie: bool = False) -> None:
+        assets = getattr(self.server, "static_assets", None)
+        if assets is None or not assets.available:
+            self._send_json(
+                {"error": "SPA build not available"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        file_path, index_bytes, is_hashed = assets.resolve(url_path)
+        if index_bytes is not None:
+            body = self._inject_runtime_config(index_bytes)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Permissions-Policy", "microphone=(self)")
+            if set_cookie:
+                # 1 year; SameSite=Lax keeps it working across Tailscale
+                self.send_header(
+                    "Set-Cookie",
+                    "hud_ui=new; Path=/; Max-Age=31536000; SameSite=Lax",
+                )
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if file_path is None:
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+            return
+        body = file_path.read_bytes()
+        mime = _STATIC_MIME.get(
+            file_path.suffix.lower(), "application/octet-stream",
+        )
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(body)))
+        if is_hashed:
+            self.send_header(
+                "Cache-Control", "public, max-age=31536000, immutable",
+            )
+        else:
+            self.send_header("Cache-Control", "no-cache")
+        if file_path.name == "audio-processor.js":
+            self.send_header("Permissions-Policy", "microphone=(self)")
         self.end_headers()
         self.wfile.write(body)
 
@@ -1640,6 +1808,12 @@ class TelemetryWeb:
         self._server.llm = self._llm
         self._server.grocery_feature = self._grocery_feature
         self._server.grocery_category_cache = self._grocery_category_cache
+
+        # SPA (SvelteKit static build). Looks up web/dist relative to
+        # the repo root. Missing dist is logged but non-fatal — the old
+        # Python-strings dashboard keeps working.
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        self._server.static_assets = StaticAssets(repo_root / "web" / "dist")
 
         # Optional TLS
         if self._tls_cert and self._tls_key:

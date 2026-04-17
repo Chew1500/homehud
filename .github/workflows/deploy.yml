@@ -25,8 +25,57 @@ jobs:
       - name: Test
         run: pytest tests/ -v
 
+  build-web:
+    # Runs in parallel with lint-and-test (Python). The deploy job
+    # blocks on both before touching the Pi.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          # Falls back gracefully if pnpm-lock.yaml is missing on
+          # first push (setup-node just skips caching).
+          cache-dependency-path: 'web/pnpm-lock.yaml'
+
+      # Plain `pnpm install` (not --frozen-lockfile) so the first push
+      # succeeds before the lockfile is committed. Once web/pnpm-lock.yaml
+      # exists in the repo, pnpm will honour it deterministically.
+      - name: Install web dependencies
+        run: pnpm --dir web install
+
+      - name: Lint web
+        run: pnpm --dir web run lint
+
+      - name: Test web (unit)
+        run: pnpm --dir web run test
+
+      - name: Build web
+        run: pnpm --dir web run build
+
+      - name: Verify build output
+        run: |
+          # Fail the job loudly if the build emitted nothing useful —
+          # cheaper than discovering it on the Pi after rsync.
+          test -s web/dist/index.html
+          grep -q 'id="hud-config"' web/dist/index.html
+          echo "Build artifact OK ($(du -sh web/dist | cut -f1))"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+          if-no-files-found: error
+
   deploy:
-    needs: lint-and-test
+    needs: [lint-and-test, build-web]
     runs-on: [self-hosted, pi]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
@@ -144,6 +193,40 @@ jobs:
           cd /opt/homehud/src
           sudo -H -u hud HUD_DISPLAY_MODE=mock /opt/homehud/venv/bin/python -c "from config import load_config; print('Config OK')"
 
+      - name: Download SPA build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          # Sits under the runner's work dir, not /tmp — /tmp permissions
+          # can be tricky across restarts and cleanup daemons.
+          path: ${{ runner.temp }}/web-dist
+
+      - name: Verify artifact before sync
+        run: |
+          # Guard against an empty or malformed artifact nuking a
+          # working dist/ via rsync --delete downstream.
+          test -s "${{ runner.temp }}/web-dist/index.html"
+          grep -q 'id="hud-config"' "${{ runner.temp }}/web-dist/index.html"
+
+      - name: Stage SPA assets into dist.new
+        run: |
+          # Stage the build into a sibling directory, then atomic-swap.
+          # Keeps the previous dist/ intact as dist.prev for rollback if
+          # the restart below fails.
+          sudo -H -u hud mkdir -p /opt/homehud/web
+          sudo -H -u hud rm -rf /opt/homehud/web/dist.new
+          sudo -H -u hud cp -a "${{ runner.temp }}/web-dist" /opt/homehud/web/dist.new
+          test -s /opt/homehud/web/dist.new/index.html
+
+      - name: Swap SPA dist (atomic)
+        run: |
+          sudo -H -u hud rm -rf /opt/homehud/web/dist.prev
+          if [ -d /opt/homehud/web/dist ]; then
+            sudo -H -u hud mv /opt/homehud/web/dist /opt/homehud/web/dist.prev
+          fi
+          sudo -H -u hud mv /opt/homehud/web/dist.new /opt/homehud/web/dist
+          ls -la /opt/homehud/web/dist | head -20
+
       - name: Sync systemd service file
         run: |
           sudo cp /opt/homehud/systemd/home-hud.service /etc/systemd/system/home-hud.service
@@ -155,10 +238,49 @@ jobs:
           sleep 3
           if ! sudo systemctl is-active --quiet home-hud; then
             echo "Service failed to start. Journal output:"
-            sudo journalctl -u home-hud -n 40 --no-pager
+            sudo journalctl -u home-hud -n 60 --no-pager
             exit 1
           fi
           sudo systemctl status home-hud --no-pager -l
+
+      - name: Rollback SPA dist on failure
+        if: failure()
+        run: |
+          # Restore the previous dist/ if we have one staged. No-op if
+          # this deploy never got as far as the swap step, or if
+          # dist.prev was never populated (first-ever deploy).
+          if [ -d /opt/homehud/web/dist.prev ]; then
+            echo "Rolling back SPA dist…"
+            sudo -H -u hud rm -rf /opt/homehud/web/dist
+            sudo -H -u hud mv /opt/homehud/web/dist.prev /opt/homehud/web/dist
+            sudo systemctl restart home-hud || true
+          else
+            echo "No dist.prev to roll back to — leaving state as-is."
+          fi
+
+      - name: Probe health + SPA availability
+        run: |
+          # /api/health is auth-exempt. Works over HTTP or HTTPS (Pi runs
+          # TLS with Tailscale certs in prod); ``-k`` skips localhost cert
+          # mismatch since the cert names homehud.*.ts.net, not 127.0.0.1.
+          probe() {
+            curl -fksS --max-time 5 "https://127.0.0.1:8080$1" 2>/dev/null \
+              || curl -fsS --max-time 5 "http://127.0.0.1:8080$1" 2>/dev/null
+          }
+          for i in 1 2 3 4 5; do
+            if probe /api/health >/dev/null; then
+              echo "Health check passed on attempt $i"
+              break
+            fi
+            [ $i -eq 5 ] && { echo "Health check failed"; exit 1; }
+            sleep 2
+          done
+          # SPA shell sanity check (soft — log but do not fail).
+          if probe "/?ui=new" | grep -q 'id="hud-config"'; then
+            echo "SPA shell served OK"
+          else
+            echo "::warning::SPA shell not detected at /?ui=new — classic UI still serving"
+          fi
 
       - name: Refresh mDNS
         run: |

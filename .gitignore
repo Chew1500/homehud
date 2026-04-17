@@ -27,3 +27,14 @@ models/
 # OS
 .DS_Store
 Thumbs.db
+
+# Web frontend (SvelteKit)
+web/node_modules/
+web/.svelte-kit/
+web/dist/
+web/dist.new/
+web/dist.prev/
+web/test-results/
+web/playwright-report/
+web/.vite/
+web/coverage/

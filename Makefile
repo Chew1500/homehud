@@ -1,4 +1,4 @@
-.PHONY: run dev lint test clean
+.PHONY: run dev lint test clean web-dev web-build web-test web-lint
 
 # Run the HUD (mock mode by default)
 run:
@@ -30,3 +30,21 @@ test:
 # Clean generated files
 clean:
 	rm -rf output/ __pycache__ src/__pycache__ src/display/__pycache__ src/audio/__pycache__ src/speech/__pycache__
+
+# --- Web frontend (SvelteKit SPA in web/) ---
+
+# Start Vite dev server (proxies /api to http://127.0.0.1:8080)
+web-dev:
+	cd web && pnpm run dev
+
+# Build the SPA into web/dist/ — served by the Python telemetry server
+web-build:
+	cd web && pnpm run build
+
+# Run Vitest unit/component tests
+web-test:
+	cd web && pnpm run test
+
+# Lint + format check
+web-lint:
+	cd web && pnpm run lint
