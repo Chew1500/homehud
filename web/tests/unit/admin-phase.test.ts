@@ -82,18 +82,25 @@ describe('computeSegments', () => {
     ]);
   });
 
-  it('skips phases missing either timestamp', () => {
+  it('skips phases missing either timestamp but still emits the inter-phase gap', () => {
     const ex = mkExchange({
       recording_started_at: t('00.000'),
       recording_ended_at: t('00.500'),
       stt_started_at: t('00.600'),
-      // stt_ended_at missing → phase skipped
+      // stt_ended_at missing → STT phase is dropped
       routing_started_at: t('00.800'),
       routing_ended_at: t('00.900'),
     });
     const segs = computeSegments(ex);
-    // Two phases, no gap computed between them (prevEnd skipped to recording end).
-    expect(segs.map((s) => s.phase)).toEqual(['recording', 'routing']);
+    // STT phase omitted; prevEnd carries forward from recording-end, so a
+    // gap segment spans recording-end → routing-start (300 ms).
+    const phases = segs.filter((s) => s.kind === 'phase').map((s) => s.phase);
+    expect(phases).toEqual(['recording', 'routing']);
+    expect(segs.map((s) => `${s.kind}:${s.phase}:${s.durationMs}`)).toEqual([
+      'phase:recording:500',
+      'gap:routing:300',
+      'phase:routing:100',
+    ]);
   });
 });
 
