@@ -29,7 +29,8 @@ class StaticAssets:
             log.info("Loaded SPA shell from %s", index_path)
         else:
             log.warning(
-                "SPA build not found at %s — ?ui=new will 404 until built",
+                "SPA build not found at %s — run `make web-build` (or the CI "
+                "deploy will produce it for you).",
                 index_path,
             )
 

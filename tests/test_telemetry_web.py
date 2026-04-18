@@ -88,56 +88,21 @@ def _make_session(with_exchange=True, with_llm_call=True):
     return session
 
 
-def test_dashboard_returns_html(server):
-    """GET / should return HTML with 200."""
+def test_root_without_spa_build_returns_503(server):
+    """Without ``web/dist/`` present, GET / should return a 503 with a
+    hint about running the build — NOT a 500 crash."""
     status, body = _get(server, "/")
-    assert status == 200
-    assert b"Home HUD Telemetry" in body
-    assert b"text/html" in body or True  # body is the content, not headers
+    assert status == 503
+    data = json.loads(body)
+    assert "SPA build" in data["error"]
 
 
-def test_unknown_path_returns_404(server):
-    """Unknown paths should return 404."""
-    status, body = _get(server, "/nonexistent")
+def test_unknown_api_path_returns_404(server):
+    """Unknown /api/* paths should return a JSON 404."""
+    status, body = _get(server, "/api/nonexistent")
     assert status == 404
     data = json.loads(body)
     assert data["error"] == "Not found"
-
-
-def test_default_ui_serves_classic_without_spa_build(server):
-    """Without a built SPA at web/dist/, the root should still return
-    the classic dashboard (graceful degradation) — not a 503."""
-    status, body = _get(server, "/")
-    assert status == 200
-    # classic UI signature
-    is_classic = b"Home HUD Telemetry" in body
-    # SPA signature (script tag with hud-config placeholder)
-    is_spa = b'id="hud-config"' in body
-    assert is_classic or is_spa
-
-
-def test_ui_old_sets_opt_out_cookie(server):
-    """?ui=old should send a Set-Cookie setting hud_ui=old so the
-    user's opt-out sticks across subsequent requests."""
-    url = _url(server, "/?ui=old")
-    resp = urllib.request.urlopen(url)
-    assert resp.status == 200
-    cookies = resp.headers.get_all("Set-Cookie") or []
-    assert any(c.startswith("hud_ui=old") for c in cookies)
-
-
-def test_ui_new_clears_opt_out_cookie(server):
-    """?ui=new should clear the opt-out cookie so default behaviour
-    (serve SPA) resumes on the next request. The server needs a
-    built SPA for the clear to emit — we only assert the no-503 path."""
-    url = _url(server, "/?ui=new")
-    req = urllib.request.Request(url)
-    req.add_header("Cookie", "hud_ui=old")
-    # Without web/dist/ present the server should still not crash —
-    # _new_ui_active returns False when assets are unavailable, so
-    # the classic dashboard serves and no Set-Cookie is emitted.
-    resp = urllib.request.urlopen(req)
-    assert resp.status == 200
 
 
 def test_stats_empty_db(server):
@@ -257,15 +222,16 @@ def test_close_shuts_down_cleanly(store):
     web = TelemetryWeb(store._db_path, host="127.0.0.1", port=0)
     web.start()
 
-    # Verify it's serving
-    status, _ = _get(web, "/")
+    # Verify it's serving — /api/health is auth-exempt and always
+    # available, unlike / which needs a built SPA.
+    status, _ = _get(web, "/api/health")
     assert status == 200
 
     # Close and verify
     web.close()
     # After close, requests should fail
     with pytest.raises(Exception):
-        _get(web, "/")
+        _get(web, "/api/health")
 
 
 def test_sessions_limit_capped(store, server):

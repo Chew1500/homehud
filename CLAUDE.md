@@ -29,12 +29,12 @@ src/speech/          — STT and TTS engines (ElevenLabs, Whisper, Kokoro)
 src/intent/          — Intent parsing and command routing
 src/features/        — Built-in features (grocery, reminders, solar, garden)
 src/llm/             — LLM fallback for general queries (Claude)
-src/telemetry/       — Web dashboard, API, telemetry storage
-src/telemetry/ui/    — Dashboard UI modules (one file per tab)
-src/telemetry/auth.py    — Authentication (pairing codes, Tailscale identity)
+src/telemetry/       — REST API + SPA static-asset serving
+src/telemetry/auth.py         — Authentication (pairing codes, Tailscale identity)
 src/telemetry/voice_handler.py — Browser voice endpoint
-src/telemetry/pwa.py     — PWA manifest, service worker, icon generation
+src/telemetry/static_assets.py — Loads + resolves web/dist/ for the SPA shell
 src/utils/           — Shared helpers (VAD, prompt cache, tone gen)
+web/                 — SvelteKit frontend (source) — see "Web frontend" below
 ```
 
 ## Code Principles
@@ -75,32 +75,28 @@ The Pi serves a web dashboard as a PWA, accessible via Tailscale at `https://hom
 
 ### User model
 
-- **Admin**: The first user to connect (auto-registered via Tailscale identity). Sees all tabs: Voice, Garden, Overview, Sessions, Logs, Config, Voice Cache, Services.
-- **Regular user**: Anyone added after the first user. Sees only **Voice** and **Garden** tabs. Admin-only API endpoints return 403.
-- Auth is managed by `src/telemetry/auth.py`. User records are stored in `data/auth.json` on the Pi. The first registered user gets `"admin": true` automatically.
+- **Admin**: first user to connect (auto-registered via Tailscale). Sees all five bottom-nav tabs (Voice · Grocery · Recipes · Garden · Admin) plus the admin console at `/admin/*`.
+- **Regular user**: anyone added after the first user. Sees only the four user tabs (Voice · Grocery · Recipes · Garden). Admin-only API endpoints return 403.
+- Auth is managed by `src/telemetry/auth.py`. User records in `data/auth.json`. First registered user gets `"admin": true` automatically.
 - Tailscale users are auto-registered on first visit (no pairing code needed). Non-Tailscale users pair via a 6-digit code.
 - Auth is opt-in (`web_auth_enabled` config param). When disabled, everyone is treated as admin.
 
 ### Design principles for the web UI
 
-- **Mobile-first**: The Voice tab is the default landing page. UI is optimized for phone screens (large touch targets, vertically centered layout, safe area insets for notches).
-- **Voice tab is the hero**: Regular users see a clean mic button + transcript — no telemetry clutter. The header is hidden on the Voice tab.
-- **Two UIs during rollout**:
-  - **Classic UI** (default): inline Python strings in `src/telemetry/ui/`. Each tab exports `TAB_HTML`/`TAB_JS` constants; `build_dashboard_html()` in `__init__.py` composes them. No build step.
-  - **New UI** (`?ui=new` or `hud_ui=new` cookie): SvelteKit SPA in `web/`, built to `web/dist/` and served by the Python telemetry server. Dark-default, warm-ambient palette, user app at `/` (bottom-nav: Voice/Grocery/Recipes/Garden) with a separate `/admin` console.
-  - The new UI will become the default and the classic UI will be deleted once the rewrite is complete. Until then, both live in the tree.
+- **Mobile-first**: the Voice tab is the default landing page. UI is optimised for phone screens (large touch targets, safe-area insets, dvh heights).
+- **Voice tab is the hero**: clean mic button + transcript, no telemetry clutter. No page header.
+- **Two surfaces, one app**: user-facing at `/` (bottom nav), admin console at `/admin/*` (side nav on desktop, horizontal tab strip on mobile). One-tap exit "Back to app" link sits at the top of the admin nav.
 
 ### Web frontend (`web/`)
 
-- **Stack**: SvelteKit 2 (adapter-static, SPA mode) · TypeScript · Tailwind v4 · shadcn-svelte · Lucide icons · TanStack Query · Vitest · Playwright.
-- **Run locally**: `make web-dev` (Vite at :5173, proxies `/api` to `http://127.0.0.1:8080`). Hit `make run` in another terminal for the Python server.
-- **Build**: `make web-build` emits `web/dist/`. The Python server auto-loads it on startup (look for "Loaded SPA shell" in logs).
-- **Deploy**: CI builds the SPA in the cloud (`build-web` runs in parallel with `lint-and-test`). The self-hosted Pi runner downloads the artifact, stages it at `/opt/homehud/web/dist.new/`, atomic-swaps it into `/opt/homehud/web/dist/` (keeping the previous build at `dist.prev/` for rollback), restarts the service, and probes `/api/health`. If the restart fails after the swap, the previous `dist.prev/` is restored automatically. The Pi has no Node.
-- **Lockfile prerequisite**: after the first `pnpm install` in `web/` locally, commit `web/pnpm-lock.yaml` so CI builds are deterministic. Without a lockfile, CI falls back to a fresh `pnpm install` (works but non-deterministic). Once the lockfile is committed, you can tighten the install step to `pnpm install --frozen-lockfile` in `.github/workflows/deploy.yml`.
-- **Runtime config**: passed to the SPA via a `<script id="hud-config" type="application/json">{}</script>` tag that the Python server rewrites per request (see `_runtime_config_dict` in `web.py`). Read client-side via `$lib/config`.
-- **Auth**: `$lib/auth/store` hydrates from `GET /api/auth/status` (auth-exempt). Bearer tokens kept in `localStorage.hud_auth_token`; `$lib/api/client.apiFetch` injects the header. Route guards in `$lib/auth/guard` protect authenticated routes and `/admin/*`.
-- **Mobile testing**: Web UI changes must be smoke-tested on a real iPhone via Tailscale before merge — the primary audience is mobile, not desktop browsers.
-- **Classic UI (legacy)**: files in `src/telemetry/ui/` — tabs export `TAB_HTML`/`TAB_JS`, composed by `build_dashboard_html()`. Do NOT add new tabs here; add them in `web/src/routes/` instead.
+- **Stack**: SvelteKit 2 (adapter-static, SPA mode) · TypeScript · Tailwind v4 · Lucide icons · Vitest · Playwright.
+- **Run locally**: `make web-dev` (Vite at :5173, proxies `/api` to `http://127.0.0.1:8080`). In another terminal: `make run`.
+- **Build**: `make web-build` emits `web/dist/`. The Python server loads it on startup (look for "Loaded SPA shell" in logs). If `web/dist/` is missing, the server returns HTTP 503 for any non-API request with a hint to run the build.
+- **Deploy**: CI builds the SPA in the cloud (`build-web` job runs in parallel with `lint-and-test`). The self-hosted Pi runner cleans `/tmp/web-dist`, downloads the artifact fresh, stages it at `/opt/homehud/web/dist.new/`, atomic-swaps it into `/opt/homehud/web/dist/` (keeping the previous build at `dist.prev/` for rollback), restarts the service, and probes `/api/health`. Rollback runs automatically on restart failure. The Pi has no Node.
+- **Runtime config**: passed to the SPA via a `<script id="hud-config" type="application/json">{}</script>` tag that the Python server rewrites on every HTML response (see `_inject_runtime_config` in `web.py`). Read client-side via `$lib/config`.
+- **Auth**: `$lib/auth/store` hydrates from `GET /api/auth/status` (auth-exempt). Bearer tokens in `localStorage.hud_auth_token`; `$lib/api/client.apiFetch` injects the header. Route guards in `$lib/auth/guard` gate authenticated routes and `/admin/*`.
+- **Mobile testing**: web changes must be smoke-tested on a real phone via Tailscale before merge. The primary audience is mobile, not desktop browsers.
+- **Adding a route**: create `web/src/routes/<path>/+page.svelte` (+ optional `+page.ts` for auth guard). Add a nav item to `web/src/lib/components/BottomNav.svelte` (user surface) or `AdminNav.svelte` (admin).
 
 ### Browser voice endpoint
 
@@ -119,7 +115,7 @@ Claude Code can access the API via `curl` from the dev machine (do NOT use `WebF
 
 - Follow the abstraction pattern — interfaces that can be mocked for local dev and swapped for real hardware on the Pi. This applies to audio I/O, speech engines, and display backends alike.
 - Keep Pillow as the rendering layer; all display UI is composed as PIL Images.
-- Config goes through the `ConfigParam` registry in `config.py`. To add a new setting, add a `ConfigParam` entry to `CONFIG_REGISTRY` — it will automatically appear in the dashboard Config tab.
+- Config goes through the `ConfigParam` registry in `config.py`. To add a new setting, add a `ConfigParam` entry to `CONFIG_REGISTRY` — it will automatically appear in the admin Config tab (served dynamically from `/api/config`).
 - Priority: `data/config.json` > env vars (`.env`) > defaults. The config file is editable from the dashboard.
 - `HUD_DISPLAY_MODE` (mock or eink) selects the display backend. See `.env.example` for all vars.
 - **Web UI changes should be tested on a phone.** The primary audience is mobile users accessing via Tailscale, not desktop browsers. Test with the Voice tab as the landing page.

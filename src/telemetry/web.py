@@ -14,7 +14,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from telemetry.dashboard import DASHBOARD_HTML
 from telemetry.static_assets import StaticAssets
 
 log = logging.getLogger("home-hud.telemetry.web")
@@ -38,16 +37,6 @@ _STATIC_MIME = {
     ".map": "application/json",
     ".txt": "text/plain; charset=utf-8",
 }
-
-# Paths that should always go through the SPA when the new UI is active,
-# regardless of query/cookie state (they're part of the bundle).
-_SPA_STATIC_PREFIXES = (
-    "/_app/", "/assets/", "/fonts/",
-)
-_SPA_STATIC_FILES = frozenset({
-    "/manifest.webmanifest", "/sw.js", "/audio-processor.js",
-    "/favicon.ico", "/robots.txt",
-})
 
 # Regex for /api/sessions/<uuid>
 _SESSION_RE = re.compile(r"^/api/sessions/([0-9a-f-]+)$")
@@ -73,12 +62,12 @@ _LEVEL_ORDER = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 
 
 
-# Paths that never require authentication
-_AUTH_EXEMPT = frozenset({
-    "/api/health", "/manifest.json", "/sw.js",
-    "/audio-processor.js", "/",
-})
-_AUTH_EXEMPT_PREFIXES = ("/api/auth/", "/icons/")
+# Paths that never require authentication. SPA asset paths (``/``,
+# ``/_app/*``, ``/manifest.webmanifest``, etc.) are served via
+# ``_serve_static`` *before* ``_authenticate`` runs, so they don't
+# need to be listed here.
+_AUTH_EXEMPT = frozenset({"/api/health"})
+_AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -163,62 +152,19 @@ class _Handler(BaseHTTPRequestHandler):
         )
         return False
 
-    def _new_ui_active(self, params: dict) -> bool:
-        """True when the SvelteKit SPA should handle this request.
-
-        The SPA is the default. Opt-out via ``?ui=old`` (persisted via
-        the ``hud_ui=old`` cookie). The legacy ``hud_ui=new`` cookie
-        set during the flag-gating phase is harmless here — the default
-        path already serves the SPA for those users.
-        """
-        assets = getattr(self.server, "static_assets", None)
-        if assets is None or not assets.available:
-            return False
-        ui = (params.get("ui") or [""])[0]
-        if ui == "old":
-            return False
-        if ui == "new":
-            return True
-        cookie_header = self.headers.get("Cookie", "")
-        if "hud_ui=old" in cookie_header:
-            return False
-        return True
-
-    def _spa_handles(self, path: str) -> bool:
-        """Paths the SPA owns even without an explicit ``?ui=new`` flag.
-
-        These are bundle assets the SPA shell references with absolute
-        URLs; if the cookie hasn't been set yet (e.g. a preload) we
-        still want them served from dist/ rather than 404'd.
-        """
-        if path in _SPA_STATIC_FILES:
-            return True
-        return any(path.startswith(p) for p in _SPA_STATIC_PREFIXES)
-
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         params = parse_qs(parsed.query)
 
-        # SPA routing. Default is the SvelteKit shell; ``?ui=old``
-        # (persisted via the ``hud_ui=old`` opt-out cookie) falls back
-        # to the classic Python-strings dashboard. Runs before
-        # _authenticate — the SPA shell is public (like the old
-        # dashboard HTML at /), and the SPA calls /api/auth/status to
-        # drive its own login flow. /api/* still goes through
-        # _authenticate below.
-        new_ui = self._new_ui_active(params)
-        ui_param = (params.get("ui") or [""])[0]
-        spa_clear_cookie = ui_param == "new"   # opt back into default
-        classic_set_cookie = ui_param == "old"  # persist opt-out
-        if new_ui and not path.startswith("/api/"):
-            self._serve_static(path, clear_opt_out=spa_clear_cookie)
+        # Everything that isn't an API call is an SPA route or bundle
+        # asset — serve straight from web/dist/. The SPA shell itself
+        # is public; the SvelteKit router handles the login screen
+        # client-side by consulting /api/auth/status (which is auth-
+        # exempt on the server).
+        if not path.startswith("/api/"):
+            self._serve_static(path)
             return
-        if self._spa_handles(path):
-            assets = getattr(self.server, "static_assets", None)
-            if assets is not None and assets.available:
-                self._serve_static(path, clear_opt_out=False)
-                return
 
         user_id = self._authenticate(path)
         if user_id is None:
@@ -226,21 +172,6 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path == "/api/health":
             self._send_json({"ok": True})
-        elif path == "/":
-            self._send_html(
-                self._render_dashboard_html(),
-                set_opt_out=classic_set_cookie,
-            )
-        elif path == "/audio-processor.js":
-            self._send_js()
-        elif path == "/manifest.json":
-            self._send_manifest()
-        elif path == "/sw.js":
-            self._send_service_worker()
-        elif path == "/icons/192.png":
-            self._send_icon(192)
-        elif path == "/icons/512.png":
-            self._send_icon(512)
         elif path == "/api/stats":
             if self._require_admin(user_id):
                 self._handle_stats()
@@ -1238,40 +1169,6 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _render_dashboard_html(self):
-        """Return the dashboard HTML with server-side values injected.
-
-        Currently injects the LLM history TTL so the Voice tab's thread
-        idle timer matches the server-side ``llm_history_ttl`` config.
-        """
-        config = getattr(self.server, "config", None)
-        ttl_s = 300
-        if config is not None:
-            try:
-                ttl_s = int(config.get("llm_history_ttl", 300))
-            except (TypeError, ValueError):
-                ttl_s = 300
-        return DASHBOARD_HTML.replace(
-            "const VOICE_THREAD_TTL_MS = 300000;",
-            f"const VOICE_THREAD_TTL_MS = {ttl_s * 1000};",
-        )
-
-    def _send_html(self, html, set_opt_out: bool = False):
-        body = html.encode()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Permissions-Policy", "microphone=(self)")
-        if set_opt_out:
-            # Sticky opt-out — one year; user can return to the SPA
-            # any time via /?ui=new (which clears the cookie).
-            self.send_header(
-                "Set-Cookie",
-                "hud_ui=old; Path=/; Max-Age=31536000; SameSite=Lax",
-            )
-        self.end_headers()
-        self.wfile.write(body)
-
     # --- SPA (SvelteKit dist) serving ---
 
     def _runtime_config_dict(self) -> dict:
@@ -1305,11 +1202,16 @@ class _Handler(BaseHTTPRequestHandler):
         )
         return index_bytes.replace(placeholder, replacement, 1)
 
-    def _serve_static(self, url_path: str, clear_opt_out: bool = False) -> None:
+    def _serve_static(self, url_path: str) -> None:
+        """Serve SPA assets (bundle, manifest, icons) or the SPA shell.
+
+        Unknown non-API paths fall back to index.html so the SvelteKit
+        client router can handle them.
+        """
         assets = getattr(self.server, "static_assets", None)
         if assets is None or not assets.available:
             self._send_json(
-                {"error": "SPA build not available"},
+                {"error": "SPA build not available — run `make web-build`"},
                 HTTPStatus.SERVICE_UNAVAILABLE,
             )
             return
@@ -1321,13 +1223,6 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Permissions-Policy", "microphone=(self)")
-            if clear_opt_out:
-                # Clear the classic-UI opt-out cookie when the user
-                # explicitly comes back via ?ui=new.
-                self.send_header(
-                    "Set-Cookie",
-                    "hud_ui=; Path=/; Max-Age=0; SameSite=Lax",
-                )
             self.end_headers()
             self.wfile.write(body)
             return
@@ -1349,50 +1244,6 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
         if file_path.name == "audio-processor.js":
             self.send_header("Permissions-Policy", "microphone=(self)")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_js(self):
-        from telemetry.ui.audio_worklet import AUDIO_PROCESSOR_JS
-
-        body = AUDIO_PROCESSOR_JS.encode()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/javascript")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_manifest(self):
-        from telemetry.pwa import get_manifest
-
-        config = getattr(self.server, "config", None) or {}
-        body = get_manifest(config).encode()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/manifest+json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Permissions-Policy", "microphone=(self)")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_service_worker(self):
-        from telemetry.pwa import SERVICE_WORKER_JS
-
-        body = SERVICE_WORKER_JS.encode()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/javascript")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_icon(self, size: int):
-        from telemetry.pwa import generate_icon
-
-        config = getattr(self.server, "config", None) or {}
-        body = generate_icon(size, config.get("pwa_theme_color", "#3b82f6"))
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "image/png")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "public, max-age=86400")
         self.end_headers()
         self.wfile.write(body)
 
