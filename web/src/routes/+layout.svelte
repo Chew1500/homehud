@@ -58,10 +58,19 @@
 </script>
 
 <div class="flex h-[100dvh] flex-col">
-  <main class="min-h-0 flex-1 overflow-hidden">
+  <main
+    class="min-h-0 flex-1 overflow-hidden"
+    class:pb-[calc(4rem+env(safe-area-inset-bottom))]={!hideNav}
+  >
     {@render children()}
   </main>
   {#if !hideNav}
-    <BottomNav />
+    <!-- Fixed positioning so the nav stays visible even on mobile
+         browsers that resize the viewport mid-scroll (Android URL bar
+         hide/show, PWA quirks, etc.). ``pb-*`` on main reserves space
+         so content doesn't slide under it. -->
+    <div class="fixed inset-x-0 bottom-0 z-30">
+      <BottomNav />
+    </div>
   {/if}
 </div>

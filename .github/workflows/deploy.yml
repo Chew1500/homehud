@@ -62,31 +62,51 @@ jobs:
 
       - name: Verify build output
         run: |
+          set -e
           # Fail the job loudly if the build emitted nothing useful —
           # cheaper than discovering it on the Pi after rsync.
           test -s web/dist/index.html
           grep -q 'id="hud-config"' web/dist/index.html
           echo "Build artifact OK ($(du -sh web/dist | cut -f1))"
 
-          # Confirm the SvelteKit route manifest includes every route we
-          # expect. adapter-static bakes the manifest into the first
-          # hashed JS chunk under _app/; if a route silently drops out
-          # of the build, a literal path match will fail here rather
-          # than 404ing on the phone in production.
-          MANIFEST_FILES=$(find web/dist/_app -name '*.js' 2>/dev/null || true)
-          if [ -z "$MANIFEST_FILES" ]; then
-            echo "::error::No _app JS files found — build malformed."
+          # Print tree + node list so build output is inspectable in
+          # the CI log without needing a phone to reproduce.
+          echo "::group::dist tree"
+          find web/dist -type f | sort
+          echo "::endgroup::"
+
+          echo "::group::dist/_app/immutable/nodes"
+          ls -la web/dist/_app/immutable/nodes/ 2>/dev/null || \
+            echo "(no nodes dir)"
+          echo "::endgroup::"
+
+          # Count built nodes vs source page/layout files. Nodes include
+          # the root error page too, so exact match isn't expected, but
+          # a deficit is a red flag.
+          NODE_COUNT=$(find web/dist/_app/immutable/nodes -name '*.js' \
+            2>/dev/null | wc -l | tr -d ' ')
+          ROUTE_COUNT=$(find web/src/routes \
+            \( -name '+page.svelte' -o -name '+layout.svelte' \) \
+            | wc -l | tr -d ' ')
+          echo "Built nodes: $NODE_COUNT  ·  Source page/layout files: $ROUTE_COUNT"
+          if [ "$NODE_COUNT" -lt "$ROUTE_COUNT" ]; then
+            echo "::error::Fewer built nodes ($NODE_COUNT) than source routes ($ROUTE_COUNT). A route is missing from the build."
             exit 1
           fi
+
+          # Confirm each route path appears somewhere in the manifest.
+          MISSING=0
           for ROUTE in "/voice" "/grocery" "/recipes" "/garden" \
                        "/admin" "/admin/sessions" "/admin/logs" \
                        "/admin/config" "/admin/voice-cache" "/admin/services"; do
             if ! grep -rqF "\"$ROUTE\"" web/dist/_app 2>/dev/null \
-              && ! grep -rqF "'$ROUTE'" web/dist/_app 2>/dev/null; then
-              echo "::error::Route $ROUTE missing from SvelteKit build — check for a compile error on that page."
-              exit 1
+              && ! grep -rqF "'$ROUTE'" web/dist/_app 2>/dev/null \
+              && ! grep -rqF "$ROUTE\"" web/dist/_app 2>/dev/null; then
+              echo "::error::Route $ROUTE not found in any built JS chunk."
+              MISSING=1
             fi
           done
+          [ "$MISSING" = "0" ] || exit 1
           echo "All expected routes present in build."
 
       - uses: actions/upload-artifact@v4
