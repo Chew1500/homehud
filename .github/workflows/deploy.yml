@@ -68,6 +68,27 @@ jobs:
           grep -q 'id="hud-config"' web/dist/index.html
           echo "Build artifact OK ($(du -sh web/dist | cut -f1))"
 
+          # Confirm the SvelteKit route manifest includes every route we
+          # expect. adapter-static bakes the manifest into the first
+          # hashed JS chunk under _app/; if a route silently drops out
+          # of the build, a literal path match will fail here rather
+          # than 404ing on the phone in production.
+          MANIFEST_FILES=$(find web/dist/_app -name '*.js' 2>/dev/null || true)
+          if [ -z "$MANIFEST_FILES" ]; then
+            echo "::error::No _app JS files found — build malformed."
+            exit 1
+          fi
+          for ROUTE in "/voice" "/grocery" "/recipes" "/garden" \
+                       "/admin" "/admin/sessions" "/admin/logs" \
+                       "/admin/config" "/admin/voice-cache" "/admin/services"; do
+            if ! grep -rqF "\"$ROUTE\"" web/dist/_app 2>/dev/null \
+              && ! grep -rqF "'$ROUTE'" web/dist/_app 2>/dev/null; then
+              echo "::error::Route $ROUTE missing from SvelteKit build — check for a compile error on that page."
+              exit 1
+            fi
+          done
+          echo "All expected routes present in build."
+
       - uses: actions/upload-artifact@v4
         with:
           name: web-dist
