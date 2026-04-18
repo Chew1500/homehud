@@ -60,15 +60,17 @@
 <div class="flex h-[100dvh] flex-col">
   <main
     class="min-h-0 flex-1 overflow-hidden"
-    class:pb-[calc(4rem+env(safe-area-inset-bottom))]={!hideNav}
+    class:pb-[calc(5rem+env(safe-area-inset-bottom))]={!hideNav}
   >
     {@render children()}
   </main>
   {#if !hideNav}
     <!-- Fixed positioning so the nav stays visible even on mobile
          browsers that resize the viewport mid-scroll (Android URL bar
-         hide/show, PWA quirks, etc.). ``pb-*`` on main reserves space
-         so content doesn't slide under it. -->
+         hide/show, PWA quirks, etc.). The ``pb-*`` on main reserves
+         enough space (5rem + safe-area) to comfortably clear the nav
+         with breathing room; the nav itself is ~65 px tall on Android
+         and ~90 px on iOS with the home-indicator safe area. -->
     <div class="fixed inset-x-0 bottom-0 z-30">
       <BottomNav />
     </div>
