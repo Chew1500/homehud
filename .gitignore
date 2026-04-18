@@ -14,8 +14,9 @@ output/
 # Feature data (grocery list, etc.)
 data/
 
-# Log files
-logs/
+# Runtime log files (anchored to repo root — do NOT match
+# web/src/routes/admin/logs/ which is a real route directory).
+/logs/
 
 # Downloaded models
 models/

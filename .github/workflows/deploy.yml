@@ -94,15 +94,25 @@ jobs:
             exit 1
           fi
 
-          # Confirm each route path appears somewhere in the manifest.
+          # Confirm each route appears in the SvelteKit client manifest
+          # specifically — scan the entry/app.*.js chunk (the route
+          # table) and NOT the whole _app tree. A match against
+          # ``href="/admin/logs"`` inside a <a> component is a false
+          # positive: it proves a link, not a registered route.
+          APP_CHUNK=$(ls web/dist/_app/immutable/entry/app.*.js 2>/dev/null | head -1)
+          if [ -z "$APP_CHUNK" ]; then
+            echo "::error::Could not find entry/app.*.js chunk."
+            exit 1
+          fi
+          echo "Scanning $APP_CHUNK for route entries…"
           MISSING=0
-          for ROUTE in "/voice" "/grocery" "/recipes" "/garden" \
-                       "/admin" "/admin/sessions" "/admin/logs" \
-                       "/admin/config" "/admin/voice-cache" "/admin/services"; do
-            if ! grep -rqF "\"$ROUTE\"" web/dist/_app 2>/dev/null \
-              && ! grep -rqF "'$ROUTE'" web/dist/_app 2>/dev/null \
-              && ! grep -rqF "$ROUTE\"" web/dist/_app 2>/dev/null; then
-              echo "::error::Route $ROUTE not found in any built JS chunk."
+          # Route identifiers in the manifest use path WITHOUT leading slash.
+          for ROUTE in "voice" "grocery" "recipes" "garden" \
+                       "admin" "admin/sessions" "admin/logs" \
+                       "admin/config" "admin/voice-cache" "admin/services"; do
+            if ! grep -qF "\"$ROUTE\"" "$APP_CHUNK" \
+              && ! grep -qF "'$ROUTE'" "$APP_CHUNK"; then
+              echo "::error::Route \"$ROUTE\" not found in SvelteKit route manifest. Is the source directory missing from git (check .gitignore)?"
               MISSING=1
             fi
           done
@@ -234,6 +244,16 @@ jobs:
         run: |
           cd /opt/homehud/src
           sudo -H -u hud HUD_DISPLAY_MODE=mock /opt/homehud/venv/bin/python -c "from config import load_config; print('Config OK')"
+
+      - name: Clean any previous artifact extraction
+        run: |
+          # actions/download-artifact@v4 extracts INTO the target dir
+          # without removing pre-existing files. On a self-hosted
+          # runner /tmp persists across jobs, so without this cleanup
+          # stale hashed chunks from earlier builds accumulate here,
+          # get copied to dist.new, and eventually pollute the live
+          # dist/ with nodes from multiple builds.
+          sudo rm -rf /tmp/web-dist
 
       - name: Download SPA build artifact
         uses: actions/download-artifact@v4
