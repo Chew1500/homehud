@@ -8,6 +8,7 @@
     Volume2,
     Activity,
     LogOut,
+    ArrowLeft,
   } from 'lucide-svelte';
   import { logout } from '$lib/auth/store';
   import { goto } from '$app/navigation';
@@ -36,7 +37,23 @@
 <aside
   class="flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-border bg-surface p-2 md:w-56 md:flex-col md:border-b-0 md:border-r md:p-4"
 >
-  <div class="hidden px-2 py-3 text-sm font-semibold text-fg-muted md:block">Admin</div>
+  <!-- Exit back to the user app. Leads the nav on mobile (horizontal
+       strip) and sits above the Admin heading on desktop (sidebar),
+       so it's always one tap away no matter how deep you are. -->
+  <a
+    href="/voice"
+    class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-border px-3 py-2 text-sm text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg md:border-0 md:px-2 md:py-1.5"
+  >
+    <ArrowLeft class="size-4" />
+    <span>Back to app</span>
+  </a>
+
+  <div
+    class="hidden border-t border-border/60 px-2 pb-1 pt-3 text-sm font-semibold text-fg-muted md:block"
+  >
+    Admin
+  </div>
+
   {#each items as item (item.href)}
     {@const act = isActive(item.href, 'exact' in item ? item.exact : false)}
     <a
