@@ -6,7 +6,7 @@
   inline (toggles in place) rather than a modal.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { ArrowUpDown, Trash2, RefreshCw, AlertCircle } from 'lucide-svelte';
   import AddItemComposer from '$lib/components/grocery/AddItemComposer.svelte';
   import CategoryOrderEditor from '$lib/components/grocery/CategoryOrderEditor.svelte';
@@ -15,12 +15,25 @@
   import {
     clearChecked,
     clearGroceryError,
+    commitItemReorder,
     grocery,
     loadGrocery,
+    setItemsLocally,
   } from '$lib/grocery/store';
+
+  const UNCATEGORIZED = 'Uncategorized';
 
   let editingOrder = $state(false);
   let clearing = $state(false);
+
+  // Snapshot of items as they were BEFORE the current drag. Used by
+  // commitItemReorder to detect which items' categories changed and
+  // to roll back on server failure.
+  let preDragSnapshot: GroceryItem[] | null = null;
+  // Debounce commit — svelte-dnd-action fires `finalize` on BOTH zones
+  // when an item crosses zones. We consolidate the final committed
+  // state before talking to the server.
+  let commitTimer: ReturnType<typeof setTimeout> | null = null;
 
   const state = $derived($grocery);
 
@@ -65,6 +78,64 @@
     await clearChecked();
     clearing = false;
   }
+
+  /**
+   * Build a new global items list by replacing the slice in
+   * ``targetCategory`` with ``newSlice``. Items in ``newSlice`` get
+   * their category normalised to the target so cross-zone drops
+   * update the category server-side.
+   *
+   * Items that left this category but haven't been picked up by the
+   * destination zone's event yet won't appear until that zone fires
+   * — svelte-dnd-action always fires both zones on a cross-zone drop,
+   * so the brief intermediate state is fine.
+   */
+  function applyDragUpdate(targetCategory: string, newSlice: GroceryItem[]) {
+    const newIds = new Set(newSlice.map((i) => i.id));
+    const normalised = newSlice.map((i) => ({
+      ...i,
+      category: targetCategory === UNCATEGORIZED ? null : targetCategory,
+    }));
+
+    // Preserve the order of OTHER categories' items. Reconstruct the
+    // full list by walking the current sections and swapping in
+    // normalised for the target section.
+    const result: GroceryItem[] = [];
+    for (const section of sections) {
+      if (section.category === targetCategory) {
+        result.push(...normalised);
+      } else {
+        for (const item of section.items) {
+          // Skip any item that's now in newSlice (it moved to target)
+          if (!newIds.has(item.id)) result.push(item);
+        }
+      }
+    }
+    setItemsLocally(result);
+  }
+
+  function handleConsider(targetCategory: string, newSlice: GroceryItem[]) {
+    if (!preDragSnapshot) preDragSnapshot = [...state.items];
+    applyDragUpdate(targetCategory, newSlice);
+  }
+
+  function handleFinalize(targetCategory: string, newSlice: GroceryItem[]) {
+    applyDragUpdate(targetCategory, newSlice);
+    // Both source and destination zones fire finalize on cross-zone
+    // drop. Debounce so we commit once with the final state.
+    if (commitTimer) clearTimeout(commitTimer);
+    commitTimer = setTimeout(() => {
+      commitTimer = null;
+      const snapshot = preDragSnapshot;
+      preDragSnapshot = null;
+      if (!snapshot) return;
+      void commitItemReorder(state.items, snapshot);
+    }, 50);
+  }
+
+  onDestroy(() => {
+    if (commitTimer) clearTimeout(commitTimer);
+  });
 </script>
 
 <div class="flex h-full flex-col">
@@ -118,7 +189,12 @@
         {:else}
           <div class="flex flex-col gap-3">
             {#each sections as section (section.category)}
-              <CategorySection category={section.category} items={section.items} />
+              <CategorySection
+                category={section.category}
+                items={section.items}
+                onConsider={handleConsider}
+                onFinalize={handleFinalize}
+              />
             {/each}
           </div>
         {/if}

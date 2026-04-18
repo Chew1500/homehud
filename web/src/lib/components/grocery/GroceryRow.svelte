@@ -1,11 +1,12 @@
 <!--
   Single grocery item row.
 
-  Checkbox + formatted label + delete button. On check/delete the parent
-  store handles optimistic mutation + server sync.
+  Checkbox + formatted label + drag affordance + delete button. Parent
+  wraps this in the <li> that svelte-dnd-action tracks; we render a
+  plain <div> here so the row isn't double-nested.
 -->
 <script lang="ts">
-  import { Trash2, Check } from 'lucide-svelte';
+  import { Trash2, Check, GripVertical } from 'lucide-svelte';
   import type { GroceryItem } from '$lib/api/grocery';
   import { formatGroceryItem } from '$lib/grocery/parser';
   import { deleteItem, toggleChecked } from '$lib/grocery/store';
@@ -25,7 +26,7 @@
   }
 </script>
 
-<li
+<div
   class="group flex items-center gap-3 border-b border-border px-1 py-3 last:border-b-0"
 >
   <button
@@ -52,6 +53,15 @@
     {formatGroceryItem(item)}
   </span>
 
+  <!-- Drag grip — the whole row is draggable, but the grip makes the
+       affordance explicit so users don't have to guess. -->
+  <span
+    aria-hidden="true"
+    class="flex size-6 shrink-0 cursor-grab items-center justify-center text-fg-muted/70 active:cursor-grabbing"
+  >
+    <GripVertical class="size-4" />
+  </span>
+
   <button
     type="button"
     onclick={onDelete}
@@ -60,4 +70,4 @@
   >
     <Trash2 class="size-4" />
   </button>
-</li>
+</div>

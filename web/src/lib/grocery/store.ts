@@ -13,6 +13,7 @@ import {
   clearCheckedGroceryItems,
   deleteGroceryItem,
   fetchGrocery,
+  reorderGroceryItems,
   setCategoryOrder,
   updateGroceryItem,
   type AddItemRequest,
@@ -158,6 +159,53 @@ export async function moveCategory(from: number, to: number): Promise<void> {
 
 export function clearGroceryError(): void {
   store.update((s) => ({ ...s, error: null }));
+}
+
+/**
+ * Commit a drag-reorder to the server.
+ *
+ *  - ``newOrder`` is the full items list in its new order (categories
+ *    already reflect any cross-category moves).
+ *  - ``snapshot`` is the items list as it was BEFORE the drag began —
+ *    used to detect which items had their category changed so we can
+ *    PATCH each one, and to roll back the optimistic update if
+ *    anything fails.
+ *
+ *  The optimistic update to ``store.items`` has already been applied
+ *  by the drag handlers; this function only talks to the server and
+ *  rolls back on failure.
+ */
+export async function commitItemReorder(
+  newOrder: GroceryItem[],
+  snapshot: GroceryItem[],
+): Promise<void> {
+  const priorById = new Map(snapshot.map((i) => [i.id, i]));
+  const categoryChanges = newOrder.filter((item) => {
+    const prev = priorById.get(item.id);
+    return prev != null && (prev.category ?? null) !== (item.category ?? null);
+  });
+
+  try {
+    // Apply category changes first so the server-side state matches
+    // the ID order we're about to POST.
+    for (const item of categoryChanges) {
+      await updateGroceryItem(item.id, { category: item.category });
+    }
+    await reorderGroceryItems(newOrder.map((i) => i.id));
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      items: snapshot,
+      error: err instanceof Error ? err.message : 'Reorder failed',
+    }));
+  }
+}
+
+/** Apply a drag preview to store.items without hitting the server.
+ *  Called during svelte-dnd-action's ``consider`` and ``finalize``
+ *  events so the UI keeps up with the pointer. */
+export function setItemsLocally(newItems: GroceryItem[]): void {
+  store.update((s) => ({ ...s, items: newItems }));
 }
 
 function mutateItem(id: string, fn: (item: GroceryItem) => GroceryItem): void {
