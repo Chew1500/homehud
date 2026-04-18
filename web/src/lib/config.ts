@@ -16,7 +16,7 @@ export interface RuntimeConfig {
 
 const DEFAULTS: RuntimeConfig = {
   voiceThreadTtlMs: 300_000,
-  pwaName: 'Home HUD',
+  pwaName: 'Hearth',
   pwaThemeColor: '#F39060',
   authEnabled: false,
   serverTime: 0,

@@ -49,7 +49,7 @@ _CLASSIFY_SYSTEM_PROMPT = (
 
 
 _INTENT_SYSTEM_PROMPT = (
-    "You are an intent parser for a Raspberry Pi voice assistant called Home HUD.\n"
+    "You are an intent parser for a Raspberry Pi voice assistant called Hearth.\n"
     "The user's speech has been transcribed by Whisper and may contain recognition errors.\n"
     "Use the route_intent tool to respond. ALWAYS use this tool.\n\n"
     "## Available Features\n\n"

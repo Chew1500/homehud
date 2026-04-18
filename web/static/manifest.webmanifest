@@ -1,6 +1,6 @@
 {
-  "name": "Home HUD",
-  "short_name": "HUD",
+  "name": "Hearth",
+  "short_name": "Hearth",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

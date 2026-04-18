@@ -1,4 +1,4 @@
-/* Home HUD service worker.
+/* Hearth service worker.
  *
  * Strategy:
  *   - never cache /api/voice (always network — session-specific audio + headers)
@@ -13,7 +13,7 @@
  * CACHE_NAME bumped → old caches purged on `activate`.
  */
 
-const CACHE_NAME = 'homehud-spa-v3';
+const CACHE_NAME = 'hearth-spa-v1';
 
 self.addEventListener('install', (event) => {
   // Skip waiting so the new SW takes over immediately.

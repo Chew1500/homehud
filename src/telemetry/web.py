@@ -1183,8 +1183,8 @@ class _Handler(BaseHTTPRequestHandler):
             ttl_s = 300
         return {
             "voiceThreadTtlMs": ttl_s * 1000,
-            "pwaName": config.get("pwa_name", "Home HUD"),
-            "pwaThemeColor": config.get("pwa_theme_color", "#F39060"),
+            "pwaName": config.get("pwa_name", "Hearth"),
+            "pwaThemeColor": config.get("pwa_theme_color", "#15130F"),
             "authEnabled": bool(config.get("web_auth_enabled", False)),
             "serverTime": int(time.time()),
         }

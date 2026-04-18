@@ -572,7 +572,7 @@ def _render_footer(
     )
 
     draw.text(
-        (r.x + margin, r.y + 12), "home-hud v0.1.0", fill=BLACK, font=fonts[14]
+        (r.x + margin, r.y + 12), "hearth v0.2.0", fill=BLACK, font=fonts[14]
     )
 
     # Last updated time (right-aligned)

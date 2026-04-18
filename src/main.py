@@ -1,4 +1,4 @@
-"""Home HUD - Raspberry Pi e-ink dashboard."""
+"""Hearth — Raspberry Pi voice assistant + e-ink dashboard."""
 
 import logging
 import logging.handlers
@@ -49,7 +49,7 @@ def main():
     display = get_display(config)
 
     name = display.__class__.__name__
-    log.info(f"Starting Home HUD with {name} ({display.size[0]}x{display.size[1]})")
+    log.info(f"Starting Hearth with {name} ({display.size[0]}x{display.size[1]})")
 
     # Graceful shutdown — threading.Event is thread-safe
     running = threading.Event()
@@ -425,7 +425,7 @@ def main():
         if audio:
             audio.close()
         display.close()
-        log.info("Home HUD stopped.")
+        log.info("Hearth stopped.")
 
 
 if __name__ == "__main__":

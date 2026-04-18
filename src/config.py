@@ -1,4 +1,4 @@
-"""Configuration management for Home HUD.
+"""Configuration management for Hearth.
 
 Config values are loaded with this priority (highest wins):
   1. Local config file (data/config.json)
@@ -338,12 +338,12 @@ CONFIG_REGISTRY: list[ConfigParam] = [
     # --- Web / PWA ---
     ConfigParam("web_voice_enabled", "HUD_WEB_VOICE_ENABLED", "true", "bool",
                 "Web", "Enable browser voice endpoint (POST /api/voice)"),
-    ConfigParam("pwa_name", "HUD_PWA_NAME", "Home HUD", "str",
+    ConfigParam("pwa_name", "HUD_PWA_NAME", "Hearth", "str",
                 "Web", "PWA display name (shown on home screen)"),
-    ConfigParam("pwa_short_name", "HUD_PWA_SHORT_NAME", "HUD", "str",
+    ConfigParam("pwa_short_name", "HUD_PWA_SHORT_NAME", "Hearth", "str",
                 "Web", "PWA short name"),
-    ConfigParam("pwa_theme_color", "HUD_PWA_THEME_COLOR", "#3b82f6", "str",
-                "Web", "PWA theme color"),
+    ConfigParam("pwa_theme_color", "HUD_PWA_THEME_COLOR", "#15130F", "str",
+                "Web", "PWA theme color (matches app background)"),
     ConfigParam("web_auth_enabled", "HUD_WEB_AUTH_ENABLED", "false", "bool",
                 "Web", "Enable authentication for the dashboard"),
     ConfigParam("web_auth_secret", "HUD_WEB_AUTH_SECRET", "", "str",

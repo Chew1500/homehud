@@ -1,1 +1,1 @@
-"""Built-in features for the Home HUD voice assistant."""
+"""Built-in features for the Hearth voice assistant."""

@@ -1,6 +1,8 @@
-# Home HUD
+# Hearth
 
-A Raspberry Pi-powered voice assistant with an e-ink companion display. Responds to wake words, handles built-in commands (grocery lists, reminders, solar monitoring), and falls back to an LLM for general queries.
+A Raspberry Pi-powered voice assistant with an e-ink companion display. Responds to wake words, handles built-in commands (grocery lists, reminders, solar monitoring), and falls back to an LLM for general queries. Installed as a PWA on your phone via Tailscale.
+
+_(Previously "Home HUD" — the repo directory, systemd unit, and some internal namespaces still use the old name for operational continuity.)_
 
 ## Hardware
 

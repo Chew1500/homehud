@@ -1,5 +1,5 @@
 [Unit]
-Description=Home HUD e-ink Dashboard
+Description=Hearth — home-automation voice assistant
 After=network-online.target
 Wants=network-online.target
 

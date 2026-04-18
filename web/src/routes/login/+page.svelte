@@ -34,7 +34,7 @@
     <div class="space-y-2 text-center">
       <h1 class="text-3xl font-semibold">Pair this device</h1>
       <p class="text-sm text-fg-muted">
-        Ask Home HUD: <span class="font-medium text-fg">"generate pairing code"</span>
+        Ask Hearth: <span class="font-medium text-fg">"generate pairing code"</span>
       </p>
     </div>
 

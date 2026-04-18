@@ -2,11 +2,11 @@
 
 ## Project
 
-Home HUD — a Raspberry Pi 5 voice assistant with an e-ink companion display. Listens for a wake word, processes spoken commands for built-in features (grocery lists, reminders, solar monitoring), and falls back to an LLM for general queries.
+Hearth (formerly Home HUD — systemd unit and logger namespace still use the old name for operational continuity) — a Raspberry Pi 5 voice assistant with an e-ink companion display. Listens for a wake word, processes spoken commands for built-in features (grocery lists, reminders, solar monitoring), and falls back to an LLM for general queries.
 
 ## Current Focus
 
-The voice pipeline is functional end-to-end. Current focus is on the mobile PWA experience — the primary way users interact with Home HUD is through the browser voice interface on their phones via Tailscale, not directly at the Pi.
+The voice pipeline is functional end-to-end. Most interaction happens through the mobile PWA (Hearth) via Tailscale — the Pi itself is headless beyond the e-ink display.
 
 ## Stack
 
@@ -71,7 +71,7 @@ make test         # pytest tests/ -v
 
 ## Web Dashboard & PWA
 
-The Pi serves a web dashboard as a PWA, accessible via Tailscale at `https://homehud.tail5593cb.ts.net:8080`. This is the **primary user interface** — most users interact with Home HUD through the browser voice tab on their phones, not directly at the Pi.
+The Pi serves the Hearth PWA via Tailscale at `https://homehud.tail5593cb.ts.net:8080` (hostname unchanged — the Tailscale machine is still named `homehud`). This is the **primary user interface** — most users interact through the browser voice tab on their phones, not directly at the Pi.
 
 ### User model
 

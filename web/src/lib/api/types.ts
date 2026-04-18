@@ -1,4 +1,4 @@
-/** Shared types for the Home HUD API surface. Kept minimal for scaffolding;
+/** Shared types for the Hearth API surface. Kept minimal for scaffolding;
  *  specific endpoints will extend these as each tab is ported. */
 
 export interface AuthStatus {

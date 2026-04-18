@@ -14,7 +14,7 @@ WAKE_PHRASES = [
 ]
 
 STARTUP_PHRASES = [
-    "Home HUD is ready.",
+    "Hearth is ready.",
     "I'm up and running.",
     "All systems go.",
     "Ready when you are.",
