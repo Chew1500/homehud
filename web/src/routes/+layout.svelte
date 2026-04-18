@@ -12,9 +12,25 @@
 
   onMount(() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        /* best-effort */
-      });
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => {
+          // Force an update check on every mount so a new deploy gets
+          // picked up the next time the user opens the PWA instead of
+          // waiting for the browser's lazy update heuristics.
+          reg.update().catch(() => {});
+          // When a new SW takes control, force a reload so the fresh
+          // bundle serves deep routes added in this deploy.
+          let reloading = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (reloading) return;
+            reloading = true;
+            location.reload();
+          });
+        })
+        .catch(() => {
+          /* best-effort */
+        });
     }
   });
 </script>
