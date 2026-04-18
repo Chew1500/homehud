@@ -3,8 +3,8 @@
   water-balance, forecast, and watering-log tables on the Garden page.
 -->
 <script lang="ts">
+  import { untrack, type Snippet } from 'svelte';
   import { ChevronRight } from 'lucide-svelte';
-  import type { Snippet } from 'svelte';
 
   interface Props {
     title: string;
@@ -14,7 +14,10 @@
   }
 
   let { title, subtitle, defaultOpen = true, children }: Props = $props();
-  let open = $state(defaultOpen);
+  // ``untrack`` keeps Svelte from warning that $state only captures
+  // the initial value of a reactive prop — which is exactly our intent
+  // (local toggle, seeded from the prop).
+  let open = $state(untrack(() => defaultOpen));
 </script>
 
 <section class="overflow-hidden rounded-xl border border-border bg-surface">

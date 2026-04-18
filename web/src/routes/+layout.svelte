@@ -12,6 +12,18 @@
 
   onMount(() => {
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      // Attach the controllerchange listener BEFORE register() so that
+      // a fast-activating new SW — one that claims clients during the
+      // register() promise itself — doesn't slip past us and leave the
+      // user stuck on a stale bundle.
+      let reloading = false;
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        location.reload();
+      });
+
       navigator.serviceWorker
         .register('/sw.js')
         .then((reg) => {
@@ -19,13 +31,23 @@
           // picked up the next time the user opens the PWA instead of
           // waiting for the browser's lazy update heuristics.
           reg.update().catch(() => {});
-          // When a new SW takes control, force a reload so the fresh
-          // bundle serves deep routes added in this deploy.
-          let reloading = false;
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (reloading) return;
-            reloading = true;
-            location.reload();
+
+          // If an installed SW is already waiting to activate, nudge
+          // it along — this handles the case where the user refreshed
+          // at just the right moment before controllerchange fired.
+          if (reg.waiting && hadController) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+
+          // Same treatment for a SW that installs mid-session.
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                nw.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
           });
         })
         .catch(() => {

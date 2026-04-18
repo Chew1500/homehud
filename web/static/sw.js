@@ -23,6 +23,14 @@ self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME));
 });
 
+// Accept a nudge from the page to activate immediately if stuck in
+// `waiting` state.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches

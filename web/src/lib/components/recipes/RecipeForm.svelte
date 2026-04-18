@@ -4,6 +4,7 @@
   actual create/update call plus navigation.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Save, Loader2 } from 'lucide-svelte';
   import type { Recipe, RecipeCreateRequest, RecipeIngredient } from '$lib/api/recipes';
   import { formatIngredientLine, parseIngredientLine } from '$lib/recipes/parser';
@@ -17,15 +18,18 @@
 
   let { initial = {}, submitLabel = 'Save recipe', onSubmit }: Props = $props();
 
-  let name = $state(initial.name ?? '');
-  let tagsText = $state((initial.tags ?? []).join(', '));
-  let prep = $state(initial.prep_time_min ?? null);
-  let cook = $state(initial.cook_time_min ?? null);
-  let servings = $state(initial.servings ?? null);
+  // Seed form fields from the ``initial`` prop once on mount. The form
+  // is a controlled editor after that — parents that want to reset the
+  // form should re-mount the component via {#key}.
+  let name = $state(untrack(() => initial.name ?? ''));
+  let tagsText = $state(untrack(() => (initial.tags ?? []).join(', ')));
+  let prep = $state(untrack(() => initial.prep_time_min ?? null));
+  let cook = $state(untrack(() => initial.cook_time_min ?? null));
+  let servings = $state(untrack(() => initial.servings ?? null));
   let ingredientsText = $state(
-    (initial.ingredients ?? []).map(formatIngredientLine).join('\n'),
+    untrack(() => (initial.ingredients ?? []).map(formatIngredientLine).join('\n')),
   );
-  let directionsText = $state((initial.directions ?? []).join('\n'));
+  let directionsText = $state(untrack(() => (initial.directions ?? []).join('\n')));
 
   let saving = $state(false);
   let errorMsg = $state<string | null>(null);
