@@ -7,10 +7,11 @@
   import { goto } from '$app/navigation';
   import {
     ArrowLeft, Clock, Users, Utensils, Pencil, Trash2,
-    FlameKindling, AlertCircle,
+    FlameKindling, AlertCircle, Share2, Check,
   } from 'lucide-svelte';
   import type { PageData } from './$types';
   import { displayIngredient } from '$lib/recipes/parser';
+  import { shareRecipe } from '$lib/recipes/share';
   import { removeRecipe } from '$lib/recipes/store';
   import { disableWakeLock, enableWakeLock, wakeLockState } from '$lib/recipes/wake-lock';
 
@@ -19,6 +20,8 @@
 
   let deleting = $state(false);
   let errorMsg = $state<string | null>(null);
+  let shareState = $state<'shared' | 'copied' | null>(null);
+  let shareTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const cookMode = $derived($wakeLockState.locked);
   const cookModeSupported = $derived($wakeLockState.supported);
@@ -41,9 +44,32 @@
     }
   }
 
+  async function onShare() {
+    if (shareTimeout) {
+      clearTimeout(shareTimeout);
+      shareTimeout = null;
+    }
+    errorMsg = null;
+    try {
+      const result = await shareRecipe(recipe);
+      if (result === 'shared' || result === 'copied') {
+        shareState = result;
+        shareTimeout = setTimeout(() => {
+          shareState = null;
+          shareTimeout = null;
+        }, 2000);
+      } else if (result === 'unavailable') {
+        errorMsg = 'Sharing is not supported on this device.';
+      }
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : 'Could not share recipe';
+    }
+  }
+
   onDestroy(() => {
     // Always release the wake lock when leaving the detail page.
     void disableWakeLock();
+    if (shareTimeout) clearTimeout(shareTimeout);
   });
 
   const totalMin = $derived(
@@ -200,6 +226,22 @@
         <Pencil class="size-4" />
         Edit
       </a>
+      <button
+        type="button"
+        onclick={onShare}
+        class="flex flex-1 items-center justify-center gap-2 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg hover:bg-surface-muted"
+      >
+        {#if shareState === 'copied'}
+          <Check class="size-4" />
+          Copied!
+        {:else if shareState === 'shared'}
+          <Check class="size-4" />
+          Sent!
+        {:else}
+          <Share2 class="size-4" />
+          Share
+        {/if}
+      </button>
       <button
         type="button"
         onclick={onDelete}
