@@ -299,6 +299,7 @@ def main():
                         tls_cert=config.get("web_tls_cert") or None,
                         tls_key=config.get("web_tls_key") or None,
                         recipe_storage=recipe_storage,
+                        recipe_feature=recipe_feature,
                         llm=llm,
                         grocery_feature=grocery_feature,
                         grocery_category_cache=grocery_category_cache,

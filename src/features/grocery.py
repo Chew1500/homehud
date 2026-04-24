@@ -258,19 +258,29 @@ def _join_names(names: list[str]) -> str:
 class GroceryFeature(BaseFeature):
     """Manages a grocery list stored as a JSON file.
 
-    Storage shape (v3):
+    Storage shape (v4):
         {
           "items": [
             {"id": "...", "name": "flour", "quantity": 2.0, "unit": "cup",
-             "category": "Pantry", "checked": false},
+             "category": "Pantry", "checked": false,
+             "sources": {"<recipe_id>": {"quantity": 2.0, "recipe_name": "..."}},
+             "manual_quantity": 0.0},
             ...
           ],
-          "category_order": ["Produce", "Dairy", ...]
+          "category_order": ["Produce", "Dairy", ...],
+          "recipe_layers": [
+            {"recipe_id": "...", "recipe_name": "...", "added_at": "iso8601"}
+          ]
         }
 
+    Layer invariant (when units align): item.quantity ==
+        manual_quantity + sum(sources[*].quantity). Manual edits to the top-level
+        quantity are captured by the manual_quantity delta, so a later
+        remove_recipe_layer still pulls the exact recipe-contributed amount.
+
     Legacy v1 (bare list of strings) and v2 (item dicts without quantity/unit)
-    are migrated transparently by `_load_state` — v2 item names with a leading
-    quantity (e.g. "2 cups flour") get parsed into structured fields.
+    are migrated transparently by `_load_state`. v3 records (no sources /
+    manual_quantity) are upgraded on load by seeding manual_quantity=quantity.
     """
 
     def __init__(self, config: dict):
@@ -362,9 +372,14 @@ class GroceryFeature(BaseFeature):
         return msg
 
     def _add_many_detailed(
-        self, entries: list[dict]
+        self, entries: list[dict], *, source: dict | None = None
     ) -> tuple[str, dict]:
         """Core add/merge logic. Returns (voice_response, detail_dict).
+
+        When `source={"recipe_id", "recipe_name"}` is given, the contributed
+        quantity is recorded per-item under `sources[recipe_id]` (and does NOT
+        touch `manual_quantity`). When `source` is None, the contribution lands
+        in `manual_quantity` — matching legacy single-item add semantics.
 
         detail_dict = {
           "added": [item, ...],        # brand-new rows
@@ -380,6 +395,25 @@ class GroceryFeature(BaseFeature):
         mixed: list[dict] = []
         skipped: list[dict] = []
         changed = False
+
+        src_id = source.get("recipe_id") if source else None
+        src_name = (source.get("recipe_name") or "") if source else ""
+
+        def record_contribution(item: dict, qty: float) -> None:
+            """Attribute `qty` on `item` to the active source (recipe or manual)."""
+            if src_id:
+                entry = item["sources"].get(src_id)
+                if entry is None:
+                    item["sources"][src_id] = {
+                        "quantity": float(qty),
+                        "recipe_name": src_name,
+                    }
+                else:
+                    entry["quantity"] = float(entry.get("quantity") or 0.0) + float(qty)
+                    if src_name and not entry.get("recipe_name"):
+                        entry["recipe_name"] = src_name
+            else:
+                item["manual_quantity"] = float(item.get("manual_quantity") or 0.0) + float(qty)
 
         for entry in entries:
             name = (entry.get("name") or "").strip()
@@ -407,6 +441,7 @@ class GroceryFeature(BaseFeature):
             if target is not None:
                 ex_qty = target.get("quantity")
                 ex_unit = _normalize_unit(target.get("unit"))
+                added_qty: float = 0.0
                 if ex_unit is None and in_unit is None:
                     if in_qty is None:
                         # Plain bare dup — preserve legacy "already on" behavior.
@@ -415,11 +450,14 @@ class GroceryFeature(BaseFeature):
                     # Bump: treat existing None as 1 when incoming has qty.
                     base = 1.0 if ex_qty is None else float(ex_qty)
                     target["quantity"] = base + float(in_qty)
+                    added_qty = float(in_qty)
                 else:
                     a = float(ex_qty) if ex_qty is not None else 0.0
                     b = float(in_qty) if in_qty is not None else 0.0
                     if (a + b) > 0:
                         target["quantity"] = a + b
+                    added_qty = b
+                record_contribution(target, added_qty)
                 merged.append(dict(target))
                 changed = True
                 continue
@@ -439,6 +477,7 @@ class GroceryFeature(BaseFeature):
                 b = float(in_qty) if in_qty is not None else 1.0
                 bare["quantity"] = a + b
                 bare["unit"] = in_unit
+                record_contribution(bare, b)
                 merged.append(dict(bare))
                 changed = True
                 continue
@@ -446,7 +485,7 @@ class GroceryFeature(BaseFeature):
             # 3. Same name but units are incompatible — append as separate row.
             if same_name:
                 new_item = self._new_item(
-                    name, in_cat, quantity=in_qty, unit=in_unit,
+                    name, in_cat, quantity=in_qty, unit=in_unit, source=source,
                 )
                 items.append(new_item)
                 mixed.append({
@@ -458,7 +497,7 @@ class GroceryFeature(BaseFeature):
 
             # 4. Brand new.
             new_item = self._new_item(
-                name, in_cat, quantity=in_qty, unit=in_unit,
+                name, in_cat, quantity=in_qty, unit=in_unit, source=source,
             )
             items.append(new_item)
             added.append(dict(new_item))
@@ -675,6 +714,7 @@ class GroceryFeature(BaseFeature):
             "items": [dict(i) for i in state["items"]],
             "category_order": list(state["category_order"]),
             "categories": list(DEFAULT_CATEGORIES),
+            "recipe_layers": [dict(layer) for layer in state.get("recipe_layers", [])],
         }
 
     def add_item(
@@ -708,7 +748,14 @@ class GroceryFeature(BaseFeature):
         return None
 
     def update_item(self, item_id: str, patch: dict) -> dict | None:
-        """Update fields on an item (name, category, checked, quantity, unit)."""
+        """Update fields on an item (name, category, checked, quantity, unit).
+
+        Quantity deltas are absorbed by `manual_quantity` so recipe-sourced
+        contributions stay intact for a later layer removal. A unit change
+        detaches the item from its recipe sources — the whole quantity moves
+        into `manual_quantity` and sources are wiped, because we can't safely
+        translate e.g. "cups" → "lb" per source.
+        """
         state = self._load_state()
         for it in state["items"]:
             if it["id"] == item_id:
@@ -718,10 +765,33 @@ class GroceryFeature(BaseFeature):
                     it["category"] = patch["category"] or UNCATEGORIZED
                 if "checked" in patch:
                     it["checked"] = bool(patch["checked"])
-                if "quantity" in patch:
-                    it["quantity"] = _parse_quantity(patch["quantity"])
+                unit_changed = False
                 if "unit" in patch:
-                    it["unit"] = _normalize_unit(patch["unit"])
+                    new_unit = _normalize_unit(patch["unit"])
+                    if new_unit != _normalize_unit(it.get("unit")):
+                        unit_changed = True
+                    it["unit"] = new_unit
+                if "quantity" in patch:
+                    new_q = _parse_quantity(patch["quantity"])
+                    old_q = it.get("quantity")
+                    old_f = float(old_q) if old_q is not None else 0.0
+                    new_f = float(new_q) if new_q is not None else 0.0
+                    delta = new_f - old_f
+                    it["quantity"] = new_q
+                    manual_f = float(it.get("manual_quantity") or 0.0)
+                    manual_f += delta
+                    # Clamp manual_quantity floor to 0; negative would mean the
+                    # user trimmed below what recipes contributed. Keep the
+                    # recipe sources intact — a later remove_recipe_layer will
+                    # underflow the total, which is expected.
+                    it["manual_quantity"] = max(0.0, manual_f)
+                if unit_changed and it.get("sources"):
+                    # Sources are unit-specific; a unit swap invalidates them.
+                    # Dump everything into manual_quantity so remove-layer on
+                    # affected recipes is a cheap noop.
+                    q = it.get("quantity")
+                    it["manual_quantity"] = float(q) if q is not None else 0.0
+                    it["sources"] = {}
                 self._save_state(state)
                 return dict(it)
         return None
@@ -789,6 +859,97 @@ class GroceryFeature(BaseFeature):
             if not i.get("category") or i["category"] == UNCATEGORIZED
         ]
 
+    # -- Recipe layers --
+
+    def register_layer(self, recipe_id: str, recipe_name: str) -> dict:
+        """Record that a recipe contributed to the list. Idempotent.
+
+        If the recipe is already a layer, refresh its `added_at` and
+        `recipe_name` (in case the recipe was renamed) but don't duplicate
+        the entry. Returns the resulting layer dict.
+        """
+        if not recipe_id:
+            raise ValueError("recipe_id required")
+        from datetime import datetime, timezone
+        state = self._load_state()
+        layers = state.setdefault("recipe_layers", [])
+        now = datetime.now(timezone.utc).isoformat()
+        for layer in layers:
+            if layer.get("recipe_id") == recipe_id:
+                layer["added_at"] = now
+                if recipe_name:
+                    layer["recipe_name"] = recipe_name
+                self._save_state(state)
+                return dict(layer)
+        layer = {
+            "recipe_id": str(recipe_id),
+            "recipe_name": str(recipe_name or ""),
+            "added_at": now,
+        }
+        layers.append(layer)
+        self._save_state(state)
+        return dict(layer)
+
+    def remove_recipe_layer(self, recipe_id: str) -> dict:
+        """Pull back a recipe's contribution from every item on the list.
+
+        For each item with `sources[recipe_id]`:
+          - Subtract that source's quantity from the item's top-level quantity.
+          - Drop the source key.
+          - If the item's quantity is now <= 0 AND manual_quantity == 0 AND no
+            other recipe sources remain, delete the row (push to trash for undo).
+
+        Also removes the layer entry from `recipe_layers`. Returns a summary.
+        """
+        state = self._load_state()
+        items = state["items"]
+        layers = state.setdefault("recipe_layers", [])
+        removed_layer: dict | None = None
+        for layer in list(layers):
+            if layer.get("recipe_id") == recipe_id:
+                removed_layer = dict(layer)
+                layers.remove(layer)
+                break
+
+        items_removed: list[dict] = []
+        items_updated: list[dict] = []
+        kept: list[dict] = []
+        for it in items:
+            srcs = it.get("sources") or {}
+            contrib = srcs.get(recipe_id)
+            if contrib is None:
+                kept.append(it)
+                continue
+            amount = float(contrib.get("quantity") or 0.0)
+            new_srcs = {k: v for k, v in srcs.items() if k != recipe_id}
+            it["sources"] = new_srcs
+            cur_q = it.get("quantity")
+            if cur_q is not None:
+                new_q = float(cur_q) - amount
+                it["quantity"] = new_q if new_q > 0 else None
+            # Drop the item if nothing is left to shop for.
+            qty_left = float(it["quantity"]) if it["quantity"] is not None else 0.0
+            manual_q = float(it.get("manual_quantity") or 0.0)
+            if qty_left <= 0 and manual_q <= 0 and not new_srcs:
+                items_removed.append(dict(it))
+                continue
+            items_updated.append(dict(it))
+            kept.append(it)
+
+        state["items"] = kept
+        self._save_state(state)
+        if items_removed:
+            self._push_trash(items_removed)
+        return {
+            "layer": removed_layer,
+            "items_removed": items_removed,
+            "items_updated": items_updated,
+        }
+
+    def get_recipe_layers(self) -> list[dict]:
+        """Return the currently-active recipe layers (read-only copy)."""
+        return [dict(layer) for layer in self._load_state().get("recipe_layers", [])]
+
     # -- Persistence --
 
     @staticmethod
@@ -797,10 +958,20 @@ class GroceryFeature(BaseFeature):
         category: str | None = None,
         quantity=None,
         unit: str | None = None,
+        source: dict | None = None,
     ) -> dict:
         q = quantity
         if q is not None and not isinstance(q, (int, float)):
             q = _parse_quantity(q)
+        sources: dict[str, dict] = {}
+        manual_q = 0.0
+        if source and source.get("recipe_id"):
+            sources[source["recipe_id"]] = {
+                "quantity": float(q) if q is not None else 0.0,
+                "recipe_name": source.get("recipe_name", ""),
+            }
+        else:
+            manual_q = float(q) if q is not None else 0.0
         return {
             "id": uuid.uuid4().hex,
             "name": name,
@@ -808,12 +979,15 @@ class GroceryFeature(BaseFeature):
             "unit": _normalize_unit(unit),
             "category": category or UNCATEGORIZED,
             "checked": False,
+            "sources": sources,
+            "manual_quantity": manual_q,
         }
 
     def _default_state(self) -> dict:
         return {
             "items": [],
             "category_order": list(DEFAULT_CATEGORIES),
+            "recipe_layers": [],
         }
 
     def _load_state(self) -> dict:
@@ -878,13 +1052,33 @@ class GroceryFeature(BaseFeature):
                     unit = parsed["unit"]
                     migrated = True
 
+            parsed_qty = _parse_quantity(qty)
+            raw_sources = entry.get("sources")
+            sources: dict[str, dict] = {}
+            if isinstance(raw_sources, dict):
+                for rid, src in raw_sources.items():
+                    if not isinstance(src, dict):
+                        continue
+                    sources[str(rid)] = {
+                        "quantity": float(src.get("quantity") or 0.0),
+                        "recipe_name": str(src.get("recipe_name") or ""),
+                    }
+            if "sources" not in entry or "manual_quantity" not in entry:
+                # v3 → v4 migration: no recipe provenance means the whole
+                # quantity is manual.
+                manual_q = float(parsed_qty) if parsed_qty is not None else 0.0
+                migrated = True
+            else:
+                manual_q = float(entry.get("manual_quantity") or 0.0)
             items.append({
                 "id": entry.get("id") or uuid.uuid4().hex,
                 "name": name,
-                "quantity": _parse_quantity(qty),
+                "quantity": parsed_qty,
                 "unit": _normalize_unit(unit),
                 "category": entry.get("category") or UNCATEGORIZED,
                 "checked": bool(entry.get("checked", False)),
+                "sources": sources,
+                "manual_quantity": manual_q,
             })
 
         category_order = data.get("category_order")
@@ -896,11 +1090,35 @@ class GroceryFeature(BaseFeature):
                 if c not in category_order:
                     category_order.append(c)
 
-        state = {"items": items, "category_order": category_order}
+        raw_layers = data.get("recipe_layers")
+        recipe_layers: list[dict] = []
+        if isinstance(raw_layers, list):
+            for layer in raw_layers:
+                if not isinstance(layer, dict):
+                    continue
+                rid = layer.get("recipe_id")
+                if not rid:
+                    continue
+                recipe_layers.append({
+                    "recipe_id": str(rid),
+                    "recipe_name": str(layer.get("recipe_name") or ""),
+                    "added_at": str(layer.get("added_at") or ""),
+                })
+
+        state = {
+            "items": items,
+            "category_order": category_order,
+            "recipe_layers": recipe_layers,
+        }
         if migrated:
             self._save_state(state)
         return state
 
     def _save_state(self, state: dict) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(state, indent=2) + "\n")
+        payload = {
+            "items": state.get("items", []),
+            "category_order": state.get("category_order", list(DEFAULT_CATEGORIES)),
+            "recipe_layers": state.get("recipe_layers", []),
+        }
+        self._path.write_text(json.dumps(payload, indent=2) + "\n")

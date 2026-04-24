@@ -12,6 +12,8 @@ export interface RecipeIngredient {
   quantity: string;
   unit: string;
   name: string;
+  /** When true, "Add to grocery" skips this row (e.g. salt, pepper). */
+  pantry_staple?: boolean;
 }
 
 export interface Recipe {

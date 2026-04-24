@@ -11,6 +11,7 @@
   import AddItemComposer from '$lib/components/grocery/AddItemComposer.svelte';
   import CategoryOrderEditor from '$lib/components/grocery/CategoryOrderEditor.svelte';
   import CategorySection from '$lib/components/grocery/CategorySection.svelte';
+  import RecipeLayerRow from '$lib/components/grocery/RecipeLayerRow.svelte';
   import type { GroceryItem } from '$lib/api/grocery';
   import {
     clearChecked,
@@ -176,6 +177,8 @@
         <CategoryOrderEditor onClose={() => (editingOrder = false)} />
       {:else}
         <AddItemComposer />
+
+        <RecipeLayerRow layers={state.recipe_layers ?? []} />
 
         {#if !state.initialised}
           <p class="py-8 text-center text-sm text-fg-muted">Loading…</p>

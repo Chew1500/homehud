@@ -18,6 +18,10 @@
 
   let { initial = {}, submitLabel = 'Save recipe', onSubmit }: Props = $props();
 
+  function normaliseName(name: string): string {
+    return name.trim().toLowerCase();
+  }
+
   // Seed form fields from the ``initial`` prop once on mount. The form
   // is a controlled editor after that — parents that want to reset the
   // form should re-mount the component via {#key}.
@@ -30,6 +34,28 @@
     untrack(() => (initial.ingredients ?? []).map(formatIngredientLine).join('\n')),
   );
   let directionsText = $state(untrack(() => (initial.directions ?? []).join('\n')));
+
+  // Pantry-staple flags keyed by normalised ingredient name. Persists across
+  // textarea edits so a user can edit a line without losing the toggle
+  // (falls back to false when the name changes).
+  const initialStaples: Record<string, boolean> = {};
+  for (const ing of initial.ingredients ?? []) {
+    if (ing?.pantry_staple) {
+      initialStaples[normaliseName(ing.name)] = true;
+    }
+  }
+  let stapleFlags = $state<Record<string, boolean>>(initialStaples);
+
+  const parsedIngredients = $derived(
+    ingredientsText
+      .split('\n')
+      .map(parseIngredientLine)
+      .filter((x): x is RecipeIngredient => x !== null),
+  );
+
+  function toggleStaple(key: string) {
+    stapleFlags = { ...stapleFlags, [key]: !stapleFlags[key] };
+  }
 
   let saving = $state(false);
   let errorMsg = $state<string | null>(null);
@@ -49,10 +75,12 @@
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const ingredients: RecipeIngredient[] = ingredientsText
-      .split('\n')
-      .map(parseIngredientLine)
-      .filter((x): x is RecipeIngredient => x !== null);
+    const ingredients: RecipeIngredient[] = parsedIngredients.map((ing) => {
+      const key = normaliseName(ing.name);
+      return stapleFlags[key]
+        ? { ...ing, pantry_staple: true }
+        : ing;
+    });
 
     const directions = directionsText
       .split('\n')
@@ -149,6 +177,45 @@
       class="rounded-lg border border-border bg-surface px-3 py-2.5 font-mono text-sm text-fg focus:border-accent focus:outline-none"
     ></textarea>
   </label>
+
+  {#if parsedIngredients.length}
+    <div class="flex flex-col gap-1">
+      <span class="text-xs font-medium uppercase tracking-wide text-fg-muted">
+        Pantry staples
+        <span class="normal-case tracking-normal text-fg-muted/70">
+          (toggle to skip on "Add to grocery list")
+        </span>
+      </span>
+      <ul class="flex flex-col gap-1 rounded-lg border border-border bg-surface p-2">
+        {#each parsedIngredients as ing, i (i + ':' + ing.name)}
+          {@const key = normaliseName(ing.name)}
+          {@const checked = !!stapleFlags[key]}
+          <li>
+            <label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-muted">
+              <input
+                type="checkbox"
+                checked={checked}
+                onchange={() => toggleStaple(key)}
+                class="size-5 rounded border-border text-accent focus:ring-accent"
+              />
+              <span
+                class="flex-1 text-sm"
+                class:text-fg-muted={checked}
+                class:line-through={checked}
+              >
+                {formatIngredientLine(ing)}
+              </span>
+              {#if checked}
+                <span class="rounded-full bg-accent/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-accent">
+                  staple
+                </span>
+              {/if}
+            </label>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
   <label class="flex flex-col gap-1">
     <span class="text-xs font-medium uppercase tracking-wide text-fg-muted">

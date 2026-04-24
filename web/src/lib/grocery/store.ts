@@ -10,15 +10,19 @@
 import { writable, derived, get } from 'svelte/store';
 import {
   addGroceryItem,
+  addRecipeToGrocery,
   clearCheckedGroceryItems,
   deleteGroceryItem,
   fetchGrocery,
+  removeRecipeLayer,
   reorderGroceryItems,
   setCategoryOrder,
   updateGroceryItem,
   type AddItemRequest,
+  type AddRecipeResult,
   type GroceryItem,
   type GroceryPatch,
+  type GroceryRecipeLayer,
   type GroceryState,
 } from '$lib/api/grocery';
 
@@ -32,6 +36,7 @@ const initial: StoreState = {
   items: [],
   category_order: [],
   categories: [],
+  recipe_layers: [],
   loading: false,
   error: null,
   initialised: false,
@@ -42,6 +47,7 @@ const store = writable<StoreState>(initial);
 export const grocery = { subscribe: store.subscribe };
 export const groceryItems = derived(store, (s) => s.items);
 export const groceryCategoryOrder = derived(store, (s) => s.category_order);
+export const groceryRecipeLayers = derived(store, (s) => s.recipe_layers ?? []);
 
 export async function loadGrocery(): Promise<void> {
   store.update((s) => ({ ...s, loading: true, error: null }));
@@ -49,6 +55,7 @@ export async function loadGrocery(): Promise<void> {
     const data = await fetchGrocery();
     store.set({
       ...data,
+      recipe_layers: data.recipe_layers ?? [],
       loading: false,
       error: null,
       initialised: true,
@@ -62,6 +69,44 @@ export async function loadGrocery(): Promise<void> {
     }));
   }
 }
+
+export async function addRecipeLayer(recipeId: string, scale = 1.0): Promise<AddRecipeResult | 'error'> {
+  try {
+    const res = await addRecipeToGrocery(recipeId, scale);
+    // Refetch so category assignments (cache + LLM) land before render.
+    await loadGrocery();
+    return res;
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      error: err instanceof Error ? err.message : 'Failed to add recipe',
+    }));
+    return 'error';
+  }
+}
+
+export async function removeRecipeLayerFromList(recipeId: string): Promise<'ok' | 'error'> {
+  const snapshot = get(store);
+  // Optimistic: drop the pill. Items get reconciled on refetch.
+  store.update((s) => ({
+    ...s,
+    recipe_layers: s.recipe_layers.filter((l) => l.recipe_id !== recipeId),
+  }));
+  try {
+    await removeRecipeLayer(recipeId);
+    await loadGrocery();
+    return 'ok';
+  } catch (err) {
+    store.update((s) => ({
+      ...s,
+      recipe_layers: snapshot.recipe_layers,
+      error: err instanceof Error ? err.message : 'Failed to remove recipe',
+    }));
+    return 'error';
+  }
+}
+
+export type { AddRecipeResult, GroceryRecipeLayer };
 
 /** Add an item and refetch to pick up server-side categorization. */
 export async function addItem(req: AddItemRequest): Promise<'ok' | 'duplicate' | 'error'> {

@@ -255,3 +255,60 @@ class TestRecipeGroceryIntegration:
             "add_ingredients_to_grocery", {"recipe_name": "Nonexistent"}
         )
         assert "couldn't find" in result.lower()
+
+    def test_pantry_staples_skipped_from_grocery(self, tmp_path):
+        feat, storage, grocery = self._make(tmp_path)
+        storage.add({
+            "name": "Seasoned Eggs",
+            "source": "manual",
+            "tags": [],
+            "prep_time_min": 5, "cook_time_min": 5, "servings": 2,
+            "ingredients": [
+                {"name": "eggs", "quantity": "3", "unit": ""},
+                {"name": "salt", "quantity": "1", "unit": "tsp",
+                 "pantry_staple": True},
+                {"name": "black pepper", "quantity": "1", "unit": "tsp",
+                 "pantry_staple": True},
+            ],
+            "directions": ["Cook."],
+        })
+        result = feat.execute(
+            "add_ingredients_to_grocery", {"recipe_name": "Seasoned Eggs"}
+        )
+        names = [i["name"] for i in grocery.get_items_structured()]
+        assert "eggs" in names
+        assert "salt" not in names
+        assert "black pepper" not in names
+        assert "staple" in result.lower()
+
+    def test_voice_add_registers_layer(self, tmp_path):
+        feat, storage, grocery = self._make(tmp_path)
+        storage.add(_sample_recipe("Test Recipe"))
+        feat.execute(
+            "add_ingredients_to_grocery", {"recipe_name": "Test Recipe"}
+        )
+        layers = grocery.get_recipe_layers()
+        assert len(layers) == 1
+        assert layers[0]["recipe_name"] == "Test Recipe"
+
+    def test_pantry_staple_survives_storage_roundtrip(self, tmp_path):
+        from cooking.storage import RecipeStorage
+        storage = RecipeStorage(tmp_path / "recipes.json")
+        rid = storage.add({
+            "name": "Foo",
+            "source": "manual",
+            "tags": [],
+            "ingredients": [
+                {"name": "salt", "quantity": "1", "unit": "tsp",
+                 "pantry_staple": True},
+                {"name": "garlic", "quantity": "2", "unit": "clove"},
+            ],
+            "directions": ["cook"],
+        })
+        # Re-open to trigger the repair pass through the normalizer.
+        storage2 = RecipeStorage(tmp_path / "recipes.json")
+        recipe = storage2.get_by_id(rid)
+        salt = next(i for i in recipe["ingredients"] if i["name"] == "salt")
+        garlic = next(i for i in recipe["ingredients"] if i["name"] == "garlic")
+        assert salt.get("pantry_staple") is True
+        assert not garlic.get("pantry_staple")

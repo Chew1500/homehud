@@ -7,13 +7,14 @@
   import { goto } from '$app/navigation';
   import {
     ArrowLeft, Clock, Users, Utensils, Pencil, Trash2,
-    FlameKindling, AlertCircle, Share2, Check,
+    FlameKindling, AlertCircle, Share2, Check, ShoppingCart, Loader2,
   } from 'lucide-svelte';
   import type { PageData } from './$types';
   import { displayIngredient } from '$lib/recipes/parser';
   import { shareRecipe } from '$lib/recipes/share';
   import { removeRecipe } from '$lib/recipes/store';
   import { disableWakeLock, enableWakeLock, wakeLockState } from '$lib/recipes/wake-lock';
+  import { addRecipeLayer } from '$lib/grocery/store';
 
   let { data }: { data: PageData } = $props();
   const recipe = $derived(data.recipe);
@@ -22,6 +23,9 @@
   let errorMsg = $state<string | null>(null);
   let shareState = $state<'shared' | 'copied' | null>(null);
   let shareTimeout: ReturnType<typeof setTimeout> | null = null;
+  let addingToGrocery = $state(false);
+  let grocerySummary = $state<string | null>(null);
+  let groceryTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const cookMode = $derived($wakeLockState.locked);
   const cookModeSupported = $derived($wakeLockState.supported);
@@ -41,6 +45,38 @@
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : 'Delete failed';
       deleting = false;
+    }
+  }
+
+  async function onAddToGrocery() {
+    if (addingToGrocery) return;
+    if (groceryTimeout) {
+      clearTimeout(groceryTimeout);
+      groceryTimeout = null;
+    }
+    errorMsg = null;
+    grocerySummary = null;
+    addingToGrocery = true;
+    try {
+      const res = await addRecipeLayer(recipe.id);
+      if (res === 'error') {
+        errorMsg = 'Could not add to grocery list.';
+        return;
+      }
+      const added = res.detail.added.length + res.detail.mixed_units.length;
+      const merged = res.detail.merged.length;
+      const skipped = res.skipped_pantry.length;
+      const parts: string[] = [];
+      if (added) parts.push(`${added} added`);
+      if (merged) parts.push(`${merged} merged`);
+      if (skipped) parts.push(`${skipped} staple${skipped === 1 ? '' : 's'} skipped`);
+      grocerySummary = parts.length ? parts.join(' • ') : 'Nothing new to add';
+      groceryTimeout = setTimeout(() => {
+        grocerySummary = null;
+        groceryTimeout = null;
+      }, 3000);
+    } finally {
+      addingToGrocery = false;
     }
   }
 
@@ -70,6 +106,7 @@
     // Always release the wake lock when leaving the detail page.
     void disableWakeLock();
     if (shareTimeout) clearTimeout(shareTimeout);
+    if (groceryTimeout) clearTimeout(groceryTimeout);
   });
 
   const totalMin = $derived(
@@ -174,6 +211,27 @@
         <span>{errorMsg}</span>
       </div>
     {/if}
+
+    <!-- Add to grocery (primary CTA) -->
+    <div class="flex flex-col gap-1">
+      <button
+        type="button"
+        onclick={onAddToGrocery}
+        disabled={addingToGrocery || !recipe.ingredients?.length}
+        class="flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-3 text-sm font-medium text-accent-fg transition-opacity disabled:opacity-40"
+      >
+        {#if addingToGrocery}
+          <Loader2 class="size-4 animate-spin" />
+          Adding…
+        {:else}
+          <ShoppingCart class="size-4" />
+          Add to grocery list
+        {/if}
+      </button>
+      {#if grocerySummary}
+        <p class="text-center text-xs text-fg-muted">{grocerySummary}</p>
+      {/if}
+    </div>
 
     <!-- Ingredients -->
     <section class="flex flex-col gap-2">

@@ -559,14 +559,74 @@ class RecipeFeature(BaseFeature):
         if not recipe:
             return f"I couldn't find a recipe called '{recipe_name}'."
 
-        ingredients = recipe.get("ingredients", [])
+        result = self.add_recipe_to_grocery(recipe, scale=scale)
+        if "error" in result:
+            return result["error"]
+
+        detail = result["detail"]
+        added_names = [a["name"] for a in detail["added"]] + [
+            m["new"]["name"] for m in detail["mixed_units"]
+        ]
+        merged_names = [m["name"] for m in detail["merged"]]
+        skipped_names = [s["name"] for s in detail["skipped_dup"]]
+        pre_existing = merged_names + skipped_names
+        staple_count = len(result.get("skipped_pantry", []))
+
+        parts = []
+        if added_names:
+            parts.append(
+                f"Added {len(added_names)} items: {', '.join(added_names)}"
+            )
+        if pre_existing:
+            parts.append(f"Already on list: {', '.join(pre_existing)}")
+        if staple_count:
+            s = "staple" if staple_count == 1 else "staples"
+            parts.append(f"Skipped {staple_count} pantry {s}")
+        if not parts:
+            return f"No ingredients to add from {recipe['name']}."
+        return ". ".join(parts) + "."
+
+    def add_recipe_to_grocery(self, recipe: dict, scale: float = 1.0) -> dict:
+        """Shared add path used by both the voice command and the web button.
+
+        Filters pantry-staple ingredients, normalizes the rest, applies scale,
+        hands them to the grocery merge with this recipe as the source, and
+        registers the recipe as a layer. Returns a structured dict:
+
+            {
+              "recipe": {"id", "name"},
+              "detail": {"added", "merged", "mixed_units", "skipped_dup"},
+              "skipped_pantry": [ingredient_name, ...],
+              "layer": {...}  # from register_layer
+            }
+
+        On error: {"error": "<human-readable message>"}.
+        """
+        if not self._grocery:
+            return {"error": "Grocery list is not available."}
+        if not recipe or not recipe.get("id"):
+            return {"error": "Recipe is missing an id."}
+
+        ingredients = recipe.get("ingredients") or []
         if not ingredients:
-            return f"{recipe['name']} has no ingredients listed."
+            return {"error": f"{recipe.get('name', 'Recipe')} has no ingredients listed."}
+
+        staples: list[str] = []
+        kept: list[dict] = []
+        for ing in ingredients:
+            if not isinstance(ing, dict):
+                continue
+            if ing.get("pantry_staple"):
+                name = (ing.get("name") or "").strip()
+                if name:
+                    staples.append(name)
+                continue
+            kept.append(ing)
 
         from utils.ingredient_normalizer import normalize_ingredients
 
         entries = []
-        for c in normalize_ingredients(ingredients):
+        for c in normalize_ingredients(kept):
             new_qty, needs_suffix = _apply_scale(c.get("quantity"), scale)
             name = c["name"]
             if needs_suffix and scale != 1.0:
@@ -576,28 +636,26 @@ class RecipeFeature(BaseFeature):
                 "quantity": new_qty,
                 "unit": c.get("unit"),
             })
+
+        source = {"recipe_id": recipe["id"], "recipe_name": recipe.get("name", "")}
+        layer = self._grocery.register_layer(recipe["id"], recipe.get("name", ""))
         if not entries:
-            return f"No ingredients to add from {recipe['name']}."
-
-        _, detail = self._grocery._add_many_detailed(entries)
-
-        added_names = [a["name"] for a in detail["added"]] + [
-            m["new"]["name"] for m in detail["mixed_units"]
-        ]
-        merged_names = [m["name"] for m in detail["merged"]]
-        skipped_names = [s["name"] for s in detail["skipped_dup"]]
-        pre_existing = merged_names + skipped_names
-
-        parts = []
-        if added_names:
-            parts.append(
-                f"Added {len(added_names)} items: {', '.join(added_names)}"
-            )
-        if pre_existing:
-            parts.append(f"Already on list: {', '.join(pre_existing)}")
-        if not parts:
-            return f"No ingredients to add from {recipe['name']}."
-        return ". ".join(parts) + "."
+            empty_detail = {
+                "added": [], "merged": [], "mixed_units": [], "skipped_dup": [],
+            }
+            return {
+                "recipe": {"id": recipe["id"], "name": recipe.get("name", "")},
+                "detail": empty_detail,
+                "skipped_pantry": staples,
+                "layer": layer,
+            }
+        _, detail = self._grocery._add_many_detailed(entries, source=source)
+        return {
+            "recipe": {"id": recipe["id"], "name": recipe.get("name", "")},
+            "detail": detail,
+            "skipped_pantry": staples,
+            "layer": layer,
+        }
 
     def _start_cooking(self, recipe_name: str) -> str:
         if not self._storage:

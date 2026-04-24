@@ -6,6 +6,11 @@
 import { apiFetch } from './client';
 import { ApiFetchError } from './types';
 
+export interface GroceryItemSource {
+  quantity: number;
+  recipe_name: string;
+}
+
 export interface GroceryItem {
   id: string;
   name: string;
@@ -13,12 +18,43 @@ export interface GroceryItem {
   quantity: number | null;
   unit: string | null;
   checked: boolean;
+  sources: Record<string, GroceryItemSource>;
+  manual_quantity: number;
+}
+
+export interface GroceryRecipeLayer {
+  recipe_id: string;
+  recipe_name: string;
+  added_at: string;
 }
 
 export interface GroceryState {
   items: GroceryItem[];
   category_order: string[];
   categories: string[];
+  recipe_layers: GroceryRecipeLayer[];
+}
+
+export interface AddRecipeResult {
+  ok: true;
+  recipe: { id: string; name: string };
+  detail: {
+    added: GroceryItem[];
+    merged: GroceryItem[];
+    mixed_units: { new: GroceryItem; existing: GroceryItem[] }[];
+    skipped_dup: GroceryItem[];
+  };
+  skipped_pantry: string[];
+  layer: GroceryRecipeLayer;
+  state: GroceryState;
+}
+
+export interface RemoveRecipeLayerResult {
+  ok: true;
+  layer: GroceryRecipeLayer | null;
+  items_removed: GroceryItem[];
+  items_updated: GroceryItem[];
+  state: GroceryState;
 }
 
 export function fetchGrocery(): Promise<GroceryState> {
@@ -66,4 +102,18 @@ export function setCategoryOrder(order: string[]): Promise<{ ok: true; category_
 
 export function clearCheckedGroceryItems(): Promise<{ ok: true; removed: number }> {
   return apiFetch('/api/grocery/clear-checked', { method: 'POST' });
+}
+
+export function addRecipeToGrocery(
+  recipeId: string,
+  scale = 1.0,
+): Promise<AddRecipeResult> {
+  return apiFetch(`/api/grocery/recipe/${recipeId}`, {
+    method: 'POST',
+    json: { scale },
+  });
+}
+
+export function removeRecipeLayer(recipeId: string): Promise<RemoveRecipeLayerResult> {
+  return apiFetch(`/api/grocery/recipe/${recipeId}`, { method: 'DELETE' });
 }

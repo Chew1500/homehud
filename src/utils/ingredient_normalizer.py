@@ -148,12 +148,18 @@ def normalize_ingredient(raw: dict) -> dict | None:
     if not name:
         return None
 
-    return {
+    out = {
         "name": name,
         "quantity": quantity if quantity not in ("", 0) else None,
         "unit": unit,
         "prep": prep,
     }
+    # Preserve the pantry-staple flag if present on the incoming record —
+    # the normalizer's output is the persisted shape, so dropping the key here
+    # would lose the marker on every storage repair pass.
+    if raw.get("pantry_staple"):
+        out["pantry_staple"] = True
+    return out
 
 
 def normalize_ingredients(raws: list[dict]) -> list[dict]:
