@@ -6,11 +6,13 @@ import json
 import logging
 import re
 import threading
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 from features.base import BaseFeature
+from utils.scheduler import Scheduler
 
 log = logging.getLogger("home-hud.features.reminder")
 
@@ -177,20 +179,26 @@ def _normalize(text: str) -> str:
 class ReminderFeature(BaseFeature):
     """Manages timed reminders with background checking and TTS callbacks."""
 
-    def __init__(self, config: dict, on_due=None):
+    def __init__(
+        self,
+        config: dict,
+        on_due=None,
+        scheduler: Optional[Scheduler] = None,
+    ):
         super().__init__(config)
         self._path = Path(config.get("reminder_file", "data/reminders.json"))
         self._lock = threading.Lock()
         self._on_due = on_due
-        self._check_interval = config.get("reminder_check_interval", 15)
-        self._stop_event = threading.Event()
-        self._checker_thread = None
+        # id -> scheduler entry id, for cancel
+        self._scheduler_ids: dict[str, str] = {}
+        # Provide an owned scheduler when none is passed (tests, ad-hoc use).
+        # Production wires a single shared scheduler from main.py.
+        self._scheduler = scheduler if scheduler is not None else Scheduler()
+        self._owns_scheduler = scheduler is None
 
-        if on_due is not None:
-            self._checker_thread = threading.Thread(
-                target=self._checker_loop, daemon=True
-            )
-            self._checker_thread.start()
+        # Register any existing reminders with the scheduler. Overdue ones
+        # fire on the next loop iteration.
+        self._reschedule_all()
 
     @property
     def name(self) -> str:
@@ -355,13 +363,16 @@ class ReminderFeature(BaseFeature):
 
     def _set(self, task: str, due: datetime) -> str:
         items = self._load()
+        reminder_id = uuid.uuid4().hex
         item = {
+            "id": reminder_id,
             "text": task,
             "due": due.replace(microsecond=0).isoformat(),
             "created": datetime.now().replace(microsecond=0).isoformat(),
         }
         items.append(item)
         self._save(items)
+        self._schedule(item)
         desc = self._describe_due(due)
         return f"I'll remind you to {task} {desc}."
 
@@ -385,18 +396,20 @@ class ReminderFeature(BaseFeature):
         # Try exact match first
         for i, item in enumerate(items):
             if item["text"].lower() == target_lower:
-                items.pop(i)
+                removed = items.pop(i)
                 self._save(items)
-                return f"Cancelled your reminder to {item['text']}."
+                self._unschedule(removed)
+                return f"Cancelled your reminder to {removed['text']}."
 
         # Try substring match
         matches = [(i, item) for i, item in enumerate(items)
                    if target_lower in item["text"].lower()]
         if len(matches) == 1:
             idx, item = matches[0]
-            items.pop(idx)
+            removed = items.pop(idx)
             self._save(items)
-            return f"Cancelled your reminder to {item['text']}."
+            self._unschedule(removed)
+            return f"Cancelled your reminder to {removed['text']}."
         if len(matches) > 1:
             return (
                 f"I found {len(matches)} reminders matching that. "
@@ -406,7 +419,10 @@ class ReminderFeature(BaseFeature):
         return f"I don't see a reminder about {target}."
 
     def _clear(self) -> str:
+        items = self._load()
         self._save([])
+        for item in items:
+            self._unschedule(item)
         return "All reminders have been cleared."
 
     def get_reminders(self) -> list[dict]:
@@ -530,41 +546,77 @@ class ReminderFeature(BaseFeature):
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(items, indent=2) + "\n")
 
-    # -- Background checker --
+    # -- Scheduler integration --
 
-    def _checker_loop(self) -> None:
-        while not self._stop_event.wait(timeout=self._check_interval):
-            self._check_due()
+    def _reschedule_all(self) -> None:
+        """Register all persisted reminders with the scheduler on startup.
 
-    def _check_due(self) -> None:
-        now = datetime.now()
+        Items without an id (legacy rows) are assigned one and rewritten.
+        Overdue items fire on the scheduler's next loop iteration.
+        """
         items = self._load()
-        due_items = []
-        remaining = []
-
+        mutated = False
         for item in items:
-            try:
-                due_time = datetime.fromisoformat(item["due"])
-            except (KeyError, ValueError):
-                remaining.append(item)
-                continue
+            if "id" not in item:
+                item["id"] = uuid.uuid4().hex
+                mutated = True
+            self._schedule(item)
+        if mutated:
+            self._save(items)
 
-            if due_time <= now:
-                due_items.append(item)
+    def _schedule(self, item: dict) -> None:
+        # Nothing to fire if no callback is wired (e.g. display-only mode, unit
+        # tests). The reminder still persists on disk; a subsequent instance
+        # with a callback will pick it up via _reschedule_all.
+        if self._on_due is None:
+            return
+        try:
+            due = datetime.fromisoformat(item["due"])
+        except (KeyError, ValueError):
+            log.warning(f"Reminder has invalid due time, skipping: {item}")
+            return
+        entry_id = self._scheduler.add(
+            due.timestamp(), {"reminder_id": item["id"]}, self._on_scheduler_fire
+        )
+        self._scheduler_ids[item["id"]] = entry_id
+
+    def _unschedule(self, item: dict) -> None:
+        reminder_id = item.get("id")
+        if reminder_id is None:
+            return
+        entry_id = self._scheduler_ids.pop(reminder_id, None)
+        if entry_id is not None:
+            self._scheduler.cancel(entry_id)
+
+    def _on_scheduler_fire(self, payload: dict) -> None:
+        """Called by the Scheduler thread when a reminder is due."""
+        reminder_id = payload.get("reminder_id")
+        if reminder_id is None:
+            return
+        # Clear our scheduler-id mapping; the entry has already been consumed.
+        self._scheduler_ids.pop(reminder_id, None)
+
+        # Remove from on-disk state under lock.
+        items = self._load()
+        fired = None
+        remaining = []
+        for item in items:
+            if item.get("id") == reminder_id:
+                fired = item
             else:
                 remaining.append(item)
+        if fired is None:
+            # Already cancelled between scheduler pop and here — no-op.
+            return
+        self._save(remaining)
 
-        if due_items:
-            self._save(remaining)
-            for item in due_items:
-                log.info(f"Reminder due: {item['text']}")
-                if self._on_due:
-                    try:
-                        self._on_due(item["text"])
-                    except Exception:
-                        log.exception(f"Error firing reminder: {item['text']}")
+        log.info(f"Reminder due: {fired['text']}")
+        if self._on_due is not None:
+            try:
+                self._on_due(fired["text"])
+            except Exception:
+                log.exception(f"Error firing reminder: {fired['text']}")
 
     def close(self) -> None:
-        self._stop_event.set()
-        if self._checker_thread is not None:
-            self._checker_thread.join(timeout=5)
+        if self._owns_scheduler:
+            self._scheduler.close()

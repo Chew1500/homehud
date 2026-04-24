@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -275,6 +276,12 @@ class GroceryFeature(BaseFeature):
     def __init__(self, config: dict):
         super().__init__(config)
         self._path = Path(config.get("grocery_file", "data/grocery.json"))
+        # In-memory trash for undo. Bounded at 20 entries; each entry carries
+        # a monotonic timestamp. A 10-minute window is enforced on restore.
+        # Deliberately not persisted — covers the observed "oops, put those
+        # back" case without adding another file to manage.
+        from collections import deque
+        self._trash: deque = deque(maxlen=20)
 
     @property
     def name(self) -> str:
@@ -302,6 +309,7 @@ class GroceryFeature(BaseFeature):
             "remove": {"item": "str"},
             "list": {},
             "clear": {},
+            "restore": {"item": "str"},
         }
 
     def execute(self, action: str, parameters: dict) -> str:
@@ -315,7 +323,13 @@ class GroceryFeature(BaseFeature):
         if action == "list":
             return self._list()
         if action == "clear":
+            return self._clear_with_confirmation()
+        # Internal action the router replays after the user confirms. Not in
+        # the LLM-facing schema — no way for a stray intent to call it.
+        if action == "clear_confirmed":
             return self._clear()
+        if action == "restore":
+            return self._restore(parameters.get("item"))
         return self._list()
 
     def handle(self, text: str) -> str:
@@ -522,11 +536,12 @@ class GroceryFeature(BaseFeature):
         )
         if idx < 0:
             return f"{item} is not on the grocery list."
-        removed = items.pop(idx)["name"]
+        removed = items.pop(idx)
         self._save_state(state)
+        self._push_trash([removed])
         count = len(items)
         s = "item" if count == 1 else "items"
-        return f"Removed {removed} from the grocery list. You now have {count} {s}."
+        return f"Removed {removed['name']} from the grocery list. You now have {count} {s}."
 
     def _list(self) -> str:
         items = self._load_state()["items"]
@@ -538,11 +553,107 @@ class GroceryFeature(BaseFeature):
         joined = ", ".join(names[:-1]) + f", and {names[-1]}"
         return f"You have {len(names)} items on the grocery list: {joined}."
 
+    def _clear_with_confirmation(self) -> str:
+        """Route `clear` through the router's pending-confirmation primitive.
+
+        Regression guard for Issue B: the user said "remove those ingredients"
+        and the LLM mapped it to `clear()`, wiping the entire list. Now any
+        clear prompts 'say confirm' first. Single-item lists and empty lists
+        skip the gate — no dangerous ambiguity there.
+        """
+        state = self._load_state()
+        count = len(state["items"])
+        if count == 0:
+            return "The grocery list is already empty."
+        if count == 1:
+            # Too trivial to gate — just clear.
+            return self._clear()
+
+        router = getattr(self, "_router", None)
+        if router is None or not hasattr(router, "request_confirmation"):
+            # No router wired (tests, display-only mode) — fall back to
+            # immediate clear. The trash buffer still lets the user undo.
+            return self._clear()
+        item_preview = ", ".join(
+            i.get("name", "") for i in state["items"][:3]
+        )
+        if count > 3:
+            item_preview += f", and {count - 3} more"
+        summary = (
+            f"About to clear {count} items from the grocery list "
+            f"({item_preview}). Say confirm to proceed, or cancel to keep them."
+        )
+        return router.request_confirmation(self, "clear_confirmed", {}, summary)
+
     def _clear(self) -> str:
         state = self._load_state()
+        items = state["items"]
+        if items:
+            self._push_trash(items)
         state["items"] = []
         self._save_state(state)
         return "The grocery list has been cleared."
+
+    def _restore(self, item_hint=None) -> str:
+        """Restore recently-removed items from the trash buffer."""
+        now = time.monotonic()
+        window = 600.0  # 10 minutes
+        fresh = [
+            (ts, it) for ts, it in self._trash
+            if now - ts <= window
+        ]
+        if not fresh:
+            return "I don't have any recently removed items to restore."
+
+        if item_hint:
+            key = _normalize_name(item_hint)
+            match = next(
+                ((ts, it) for ts, it in fresh
+                 if _normalize_name(it.get("name", "")) == key),
+                None,
+            )
+            if match is None:
+                return f"I don't see {item_hint} in the recently removed items."
+            to_restore = [match[1]]
+        else:
+            to_restore = [it for _, it in fresh]
+
+        state = self._load_state()
+        # Re-add restored entries, skipping duplicates by normalized name+unit.
+        existing_keys = {
+            (_normalize_name(it.get("name", "")), it.get("unit"))
+            for it in state["items"]
+        }
+        added = []
+        for it in to_restore:
+            key = (_normalize_name(it.get("name", "")), it.get("unit"))
+            if key in existing_keys:
+                continue
+            state["items"].append(it)
+            existing_keys.add(key)
+            added.append(it.get("name", ""))
+
+        # Drop only the restored entries from trash.
+        restored_names = {_normalize_name(it.get("name", "")) for it in to_restore}
+        self._trash = type(self._trash)(
+            (ts, it) for ts, it in self._trash
+            if _normalize_name(it.get("name", "")) not in restored_names
+        )
+        self._save_state(state)
+
+        if not added:
+            return "Those items are already back on the list."
+        if len(added) == 1:
+            return f"Restored {added[0]} to the grocery list."
+        return f"Restored {len(added)} items: {_join_names(added)}."
+
+    def _push_trash(self, items: list[dict]) -> None:
+        """Record removed items so a subsequent `restore` can undo."""
+        now = time.monotonic()
+        for it in items:
+            # Store a shallow copy so in-place edits in the live list don't
+            # pollute the trash.
+            self._trash.append((now, dict(it)))
 
     def get_items(self) -> list[str]:
         """Return the current grocery list items as formatted strings.

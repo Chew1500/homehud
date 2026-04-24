@@ -385,6 +385,7 @@ class MediaFeature(BaseFeature):
         if not movies:
             return "You don't have any movies being tracked."
         titles = [f"{m['title']} ({m['year']})" for m in movies]
+        self._set_last_list("media", [{"name": t} for t in titles])
         return self._format_title_list(titles, "movie", "movies")
 
     def _list_shows(self) -> str:
@@ -395,6 +396,7 @@ class MediaFeature(BaseFeature):
         if not shows:
             return "You don't have any shows being tracked."
         titles = [f"{s['title']} ({s['year']})" for s in shows]
+        self._set_last_list("media", [{"name": t} for t in titles])
         return self._format_title_list(titles, "show", "shows")
 
     @staticmethod

@@ -213,6 +213,9 @@ class DiscoveryFeature(BaseFeature):
 
         self._rec_index = 0
         self._current_rec = self._active_recs[0]
+        self._set_last_entity(
+            "discovery", {"name": self._current_rec.get("title", "")}
+        )
         return self._format_recommendation(self._current_rec)
 
     def _next_recommendation(self) -> str:
@@ -227,6 +230,9 @@ class DiscoveryFeature(BaseFeature):
             return "That's all the recommendations I have for now."
 
         self._current_rec = self._active_recs[self._rec_index]
+        self._set_last_entity(
+            "discovery", {"name": self._current_rec.get("title", "")}
+        )
         return self._format_recommendation(self._current_rec)
 
     def _add_current(self) -> str:

@@ -3,6 +3,40 @@
 import numpy as np
 
 
+def generate_silence(duration_ms: int, sample_rate: int = 16000) -> bytes:
+    """Return `duration_ms` of silence as PCM bytes."""
+    num_samples = int(sample_rate * duration_ms / 1000)
+    return np.zeros(num_samples, dtype=np.int16).tobytes()
+
+
+def generate_alarm(
+    sample_rate: int = 16000,
+    beep_count: int = 4,
+    beep_freq: int = 1000,
+    beep_duration_ms: int = 220,
+    gap_duration_ms: int = 150,
+    volume: float = 0.55,
+) -> bytes:
+    """Generate a multi-beep alarm pattern for timer fires.
+
+    Four short beeps with gaps — distinct from the single-beep wake ack and
+    long enough to be noticed without being jarring.
+    """
+    beep = generate_tone(
+        freq=beep_freq,
+        duration_ms=beep_duration_ms,
+        sample_rate=sample_rate,
+        volume=volume,
+    )
+    gap = generate_silence(gap_duration_ms, sample_rate)
+    parts: list[bytes] = []
+    for i in range(beep_count):
+        parts.append(beep)
+        if i < beep_count - 1:
+            parts.append(gap)
+    return b"".join(parts)
+
+
 def generate_tone(
     freq: int = 880,
     duration_ms: int = 150,

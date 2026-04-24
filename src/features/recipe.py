@@ -58,7 +58,12 @@ _REFINE_NO = re.compile(
     re.IGNORECASE,
 )
 
-_RECOMMENDATION_TTL = 120  # seconds
+# Tight TTL on the in-feature recommendation state — long-lived pointers
+# caused Issue A (cross-session stale recipe leaking into "it" resolution).
+# The router-level _last_entity (see intent.router.set_last_entity) is the
+# authoritative cross-turn reference; _active_recommendation is only for the
+# YES/NO refinement follow-up inside a single recommendation thread.
+_RECOMMENDATION_TTL = 60  # seconds
 
 # Cap on how many recipe summaries we send to the LLM in one recommend call.
 # Keeps prompt size bounded as the recipe book grows past a few hundred entries.
@@ -71,6 +76,72 @@ _STOPWORDS = frozenset({
     "or", "that", "is", "good", "nice", "today", "tonight", "dinner",
     "lunch", "breakfast",
 })
+
+
+def _parse_scale(raw) -> float:
+    """Interpret a scale parameter. Accepts float, int, or string forms
+    ("2", "2.0", "1/2", "half", "double", "triple"). Returns 1.0 on missing
+    or unrecognized input — scaling is a user-visible change; silently
+    defaulting to 1x is correct when ambiguous."""
+    if raw is None or raw == "":
+        return 1.0
+    if isinstance(raw, (int, float)):
+        return max(0.1, float(raw))
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        synonym = {
+            "half": 0.5, "one half": 0.5,
+            "double": 2.0, "twice": 2.0,
+            "triple": 3.0, "thrice": 3.0,
+            "quarter": 0.25, "one quarter": 0.25,
+        }
+        if s in synonym:
+            return synonym[s]
+        if "/" in s:
+            num, _, den = s.partition("/")
+            try:
+                return max(0.1, float(num) / float(den))
+            except (ValueError, ZeroDivisionError):
+                return 1.0
+        try:
+            return max(0.1, float(s))
+        except ValueError:
+            return 1.0
+    return 1.0
+
+
+def _apply_scale(quantity, scale: float):
+    """Multiply a quantity string/number by `scale`.
+
+    Returns (new_quantity, needs_suffix): needs_suffix is True when the
+    quantity couldn't be parsed numerically and the caller should tack a
+    "×N" suffix onto the ingredient name so the scale is visible.
+    """
+    if scale == 1.0:
+        return quantity, False
+    if quantity is None or quantity == "":
+        return None, True
+    if isinstance(quantity, (int, float)):
+        return _fmt_quantity(float(quantity) * scale), False
+    s = str(quantity).strip()
+    # Simple fraction form "1/2"
+    if "/" in s:
+        num, _, den = s.partition("/")
+        try:
+            return _fmt_quantity(float(num) / float(den) * scale), False
+        except (ValueError, ZeroDivisionError):
+            return s, True
+    try:
+        return _fmt_quantity(float(s) * scale), False
+    except ValueError:
+        return s, True
+
+
+def _fmt_quantity(v: float) -> str:
+    """Format a float as the shortest reasonable string."""
+    if abs(v - round(v)) < 1e-6:
+        return str(int(round(v)))
+    return f"{v:.2f}".rstrip("0").rstrip(".")
 
 
 def _tokenize_preference(text: str) -> list[str]:
@@ -186,6 +257,14 @@ class RecipeFeature(BaseFeature):
 
     def execute(self, action: str, parameters: dict) -> str:
         self._last_interaction = time.time()
+        # Any action that isn't part of the recommendation-refinement flow
+        # invalidates the in-feature recommendation pointer. Prevents Issue A
+        # where a stale _active_recommendation contaminated "add it" / "what
+        # are the ingredients" on unrelated recipes.
+        if action not in {"recommend", "refine_recommendation"}:
+            self._active_recommendation = None
+            self._recommendation_context = None
+
         actions = {
             "list": lambda: self._list(),
             "search": lambda: self._search(parameters.get("query", "")),
@@ -196,7 +275,8 @@ class RecipeFeature(BaseFeature):
                 parameters.get("feedback", "")
             ),
             "add_ingredients_to_grocery": lambda: self._add_to_grocery(
-                parameters.get("recipe_name", "")
+                parameters.get("recipe_name", ""),
+                scale=_parse_scale(parameters.get("scale")),
             ),
             "start_cooking": lambda: self._start_cooking(
                 parameters.get("recipe_name", "")
@@ -274,6 +354,7 @@ class RecipeFeature(BaseFeature):
             )
         names = [r.get("name", "Unnamed") for r in recipes]
         count = len(names)
+        self._set_last_list("recipes", [{"name": n} for n in names])
         if count == 1:
             return f"You have one recipe: {names[0]}."
         joined = ", ".join(names[:-1]) + f", and {names[-1]}"
@@ -288,7 +369,11 @@ class RecipeFeature(BaseFeature):
         if not results:
             return f"No recipes found matching '{query}'."
         names = [r.get("name", "Unnamed") for r in results]
+        self._set_last_list("recipes", [{"name": n} for n in names])
+        # Single search hit is also the clear "last entity" the user now means
+        # when they say "it" — record both.
         if len(names) == 1:
+            self._set_last_entity("recipes", {"name": names[0]})
             return f"Found one recipe: {names[0]}."
         joined = ", ".join(names[:-1]) + f", and {names[-1]}"
         return f"Found {len(names)} recipes: {joined}."
@@ -299,6 +384,7 @@ class RecipeFeature(BaseFeature):
         recipe = self._storage.get_by_name(recipe_name)
         if not recipe:
             return f"I couldn't find a recipe called '{recipe_name}'."
+        self._set_last_entity("recipes", {"name": recipe["name"]})
         ingredients = recipe.get("ingredients", [])
         ing_count = len(ingredients)
         directions = recipe.get("directions", [])
@@ -353,8 +439,15 @@ class RecipeFeature(BaseFeature):
             if r.get("name", "").lower() in response.lower():
                 self._active_recommendation = r
                 self._recommendation_context = preference
+                self._set_last_entity("recipes", {"name": r.get("name", "")})
                 break
 
+        # Populate last_list with the candidates the LLM is choosing among, so
+        # "the second one" / "give me a different one" resolve cleanly next turn.
+        self._set_last_list(
+            "recipes",
+            [{"name": r.get("name", "Unnamed")} for r in candidates],
+        )
         return response
 
     def _refine(self, feedback: str) -> str:
@@ -394,8 +487,13 @@ class RecipeFeature(BaseFeature):
         for r in candidates:
             if r.get("name", "").lower() in response.lower():
                 self._active_recommendation = r
+                self._set_last_entity("recipes", {"name": r.get("name", "")})
                 break
 
+        self._set_last_list(
+            "recipes",
+            [{"name": r.get("name", "Unnamed")} for r in candidates],
+        )
         return response
 
     @staticmethod
@@ -451,7 +549,7 @@ class RecipeFeature(BaseFeature):
             f"Keep to 2-3 sentences for text-to-speech."
         )
 
-    def _add_to_grocery(self, recipe_name: str) -> str:
+    def _add_to_grocery(self, recipe_name: str, scale: float = 1.0) -> str:
         if not self._storage:
             return "Recipe storage is not available."
         if not self._grocery:
@@ -465,15 +563,18 @@ class RecipeFeature(BaseFeature):
         if not ingredients:
             return f"{recipe['name']} has no ingredients listed."
 
+        from utils.ingredient_normalizer import normalize_ingredients
+
         entries = []
-        for ing in ingredients:
-            name = (ing.get("name") or "").strip()
-            if not name:
-                continue
+        for c in normalize_ingredients(ingredients):
+            new_qty, needs_suffix = _apply_scale(c.get("quantity"), scale)
+            name = c["name"]
+            if needs_suffix and scale != 1.0:
+                name = f"{name} ×{_fmt_quantity(scale)}"
             entries.append({
                 "name": name,
-                "quantity": ing.get("quantity"),
-                "unit": ing.get("unit") or None,
+                "quantity": new_qty,
+                "unit": c.get("unit"),
             })
         if not entries:
             return f"No ingredients to add from {recipe['name']}."

@@ -13,12 +13,14 @@ from features.reminder import ReminderFeature, _normalize, _words_to_digits
 
 
 def _make_feature(tmp_path, on_due=None, check_interval=15):
-    """Create a ReminderFeature with a temp JSON file."""
+    """Create a ReminderFeature with a temp JSON file.
+
+    `check_interval` is accepted for back-compat but ignored now that firing
+    is scheduler-driven.
+    """
+    del check_interval  # kept for call-site compatibility
     reminder_file = tmp_path / "reminders.json"
-    config = {
-        "reminder_file": str(reminder_file),
-        "reminder_check_interval": check_interval,
-    }
+    config = {"reminder_file": str(reminder_file)}
     return ReminderFeature(config, on_due=on_due), reminder_file
 
 
@@ -391,46 +393,50 @@ def test_clear_all(tmp_path):
 
 
 def test_checker_fires_due_reminder(tmp_path):
-    """Checker thread should fire callback for due reminders."""
-    fired = []
-    feat, rf = _make_feature(tmp_path, on_due=lambda t: fired.append(t),
-                             check_interval=0.1)
-    try:
-        # Write a reminder that's already due
-        past = (datetime.now() - timedelta(minutes=1)).replace(microsecond=0)
-        items = [{"text": "stretch", "due": past.isoformat(),
-                  "created": past.isoformat()}]
-        rf.parent.mkdir(parents=True, exist_ok=True)
-        rf.write_text(json.dumps(items))
+    """Scheduler should fire callback for due reminders."""
+    reminder_file = tmp_path / "reminders.json"
 
-        # Wait for checker to fire
+    # Write a reminder that's already due BEFORE constructing the feature,
+    # so _reschedule_all picks it up on startup.
+    past = (datetime.now() - timedelta(minutes=1)).replace(microsecond=0)
+    items = [{"text": "stretch", "due": past.isoformat(),
+              "created": past.isoformat()}]
+    reminder_file.parent.mkdir(parents=True, exist_ok=True)
+    reminder_file.write_text(json.dumps(items))
+
+    fired = []
+    feat = ReminderFeature(
+        {"reminder_file": str(reminder_file)}, on_due=lambda t: fired.append(t)
+    )
+    try:
         deadline = time.time() + 3
         while not fired and time.time() < deadline:
-            time.sleep(0.05)
+            time.sleep(0.02)
 
         assert "stretch" in fired
-        # Reminder should be removed from file
-        remaining = json.loads(rf.read_text())
+        remaining = json.loads(reminder_file.read_text())
         assert len(remaining) == 0
     finally:
         feat.close()
 
 
 def test_checker_fires_missed_reminders(tmp_path):
-    """Past-due reminders (service was down) should fire immediately."""
-    fired = []
-    feat, rf = _make_feature(tmp_path, on_due=lambda t: fired.append(t),
-                             check_interval=0.1)
-    try:
-        long_ago = (datetime.now() - timedelta(hours=2)).replace(microsecond=0)
-        items = [{"text": "old task", "due": long_ago.isoformat(),
-                  "created": long_ago.isoformat()}]
-        rf.parent.mkdir(parents=True, exist_ok=True)
-        rf.write_text(json.dumps(items))
+    """Past-due reminders (service was down) should fire on startup."""
+    reminder_file = tmp_path / "reminders.json"
+    long_ago = (datetime.now() - timedelta(hours=2)).replace(microsecond=0)
+    items = [{"text": "old task", "due": long_ago.isoformat(),
+              "created": long_ago.isoformat()}]
+    reminder_file.parent.mkdir(parents=True, exist_ok=True)
+    reminder_file.write_text(json.dumps(items))
 
+    fired = []
+    feat = ReminderFeature(
+        {"reminder_file": str(reminder_file)}, on_due=lambda t: fired.append(t)
+    )
+    try:
         deadline = time.time() + 3
         while not fired and time.time() < deadline:
-            time.sleep(0.05)
+            time.sleep(0.02)
 
         assert "old task" in fired
     finally:
@@ -438,13 +444,13 @@ def test_checker_fires_missed_reminders(tmp_path):
 
 
 def test_close_stops_checker(tmp_path):
-    """close() should stop the checker thread."""
-    feat, _ = _make_feature(tmp_path, on_due=lambda t: None,
-                            check_interval=0.1)
-    assert feat._checker_thread is not None
-    assert feat._checker_thread.is_alive()
+    """close() should stop the owned scheduler thread."""
+    feat, _ = _make_feature(tmp_path, on_due=lambda t: None)
+    thread = feat._scheduler._thread
+    assert thread.is_alive()
     feat.close()
-    assert not feat._checker_thread.is_alive()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
 
 
 # -- fallback --

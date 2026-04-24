@@ -315,6 +315,7 @@ class GardenFeature(BaseFeature):
         statuses = self.get_status()
         if not statuses:
             return "I can't check the garden right now. Weather data is unavailable."
+        self._set_last_list("garden", [{"name": s.zone} for s in statuses])
         return _format_status(statuses)
 
     def _zone_status(self, zone_text: str) -> str:

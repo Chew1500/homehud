@@ -135,6 +135,20 @@ def start_voice_pipeline(
             log.info("Empty transcription, skipping")
             return False
 
+        # Layer 0: Text-pattern noise filter (brackets, short non-Latin).
+        # Runs before confidence gates so rejections record a specific reason.
+        from speech.noise_filter import is_noise
+
+        noise = is_noise(text)
+        if noise.rejected:
+            log.info("Rejected: noise_%s (%r)", noise.reason, text)
+            if exchange is not None:
+                try:
+                    exchange.routing_path = f"rejected_noise_{noise.reason}"
+                except Exception:
+                    pass
+            return False
+
         # Layer 1: STT confidence gate
         if result.no_speech_prob > no_speech_threshold:
             log.info(

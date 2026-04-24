@@ -104,12 +104,21 @@ The Pi serves the Hearth PWA via Tailscale at `https://homehud.tail5593cb.ts.net
 
 ### Telemetry API (admin-only)
 
-Claude Code can access the API via `curl` from the dev machine (do NOT use `WebFetch` — it cannot resolve `.local` addresses):
-  - `curl http://homehud.local:8080/api/stats` — aggregate stats
-  - `curl http://homehud.local:8080/api/sessions?limit=10` — recent sessions
-  - `curl http://homehud.local:8080/api/sessions/<uuid>` — full session detail
-  - `curl http://homehud.local:8080/api/config` — active config settings
-  - `curl http://homehud.local:8080/api/logs?lines=50&level=WARNING` — recent logs
+Port 8080 is **HTTPS-only** (plain `http://` gets a connection reset). The dev machine is not on the Tailnet, so the `.ts.net` hostname does not resolve here — use `homehud.local` (mDNS) for reachability and `-k` to skip cert validation on the Tailscale-issued cert. Do **not** use `WebFetch` — it cannot resolve `.local`.
+
+Two troubleshooting paths, depending on whether the endpoint needs auth:
+
+**Public endpoints** (health only) — curl directly from the dev machine:
+  - `curl -sk https://homehud.local:8080/api/health` — liveness probe
+
+**Admin endpoints** (everything else) — require a bearer token over the wire, but requests originating from `127.0.0.1` on the Pi are auto-authenticated as the `"localhost"` user (`src/telemetry/web.py:94`). So the simplest path is SSH + loopback curl:
+  - `ssh dchew@homehud.local 'curl -sk https://127.0.0.1:8080/api/stats'` — aggregate stats
+  - `ssh dchew@homehud.local 'curl -sk https://127.0.0.1:8080/api/sessions?limit=10'` — recent sessions
+  - `ssh dchew@homehud.local 'curl -sk https://127.0.0.1:8080/api/sessions/<uuid>'` — full session detail
+  - `ssh dchew@homehud.local 'curl -sk https://127.0.0.1:8080/api/config'` — active config settings
+  - `ssh dchew@homehud.local 'curl -sk https://127.0.0.1:8080/api/logs?lines=50&level=WARNING'` — recent logs
+
+For anything the API does not expose, SSH gives direct access to logs (`sudo journalctl -u home-hud -f`) and the on-disk state (`/opt/homehud/data/{sessions.json,auth.json,config.json}`).
 
 ## Conventions
 

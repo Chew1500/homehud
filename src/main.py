@@ -97,6 +97,7 @@ def main():
     router = None
     tts = None
     voice_thread = None
+    scheduler = None
     enphase_client = None
     solar_storage = None
     solar_collector = None
@@ -133,6 +134,7 @@ def main():
             from features.reminder import ReminderFeature
             from features.repeat import RepeatFeature
             from features.solar import SolarFeature
+            from features.timer import TimerFeature
             from features.volume import VolumeFeature
             from intent import get_router
             from jellyfin import get_jellyfin_client
@@ -141,6 +143,7 @@ def main():
             from speech import get_stt, get_tts
             from utils.phrases import DEPLOY_PHRASES, STARTUP_PHRASES, WAKE_PHRASES, pick_phrase
             from utils.prompt_cache import PromptCache
+            from utils.scheduler import Scheduler
             from utils.version import is_new_deploy
             from voice_pipeline import start_voice_pipeline
             from wake import get_wake
@@ -194,7 +197,26 @@ def main():
                 grocery_feature=grocery_feature,
                 cooking_session=cooking_session,
             )
-            reminder_feature = ReminderFeature(config, on_due=on_reminder_due)
+            scheduler = Scheduler()
+            reminder_feature = ReminderFeature(
+                config, on_due=on_reminder_due, scheduler=scheduler,
+            )
+
+            from utils.tone import generate_alarm
+
+            _alarm_pcm = generate_alarm(sample_rate=audio.sample_rate)
+
+            def on_timer_fire(item):
+                label = item.get("label") or ""
+                log.info("Timer fired: %s", label or "(unlabeled)")
+                try:
+                    audio.play(_alarm_pcm)
+                except Exception:
+                    log.exception("Timer alarm playback failed")
+
+            timer_feature = TimerFeature(
+                config, scheduler=scheduler, on_fire=on_timer_fire,
+            )
             discovery_feature = DiscoveryFeature(
                 config, discovery_storage=discovery_storage,
                 sonarr=sonarr_client, radarr=radarr_client,
@@ -223,6 +245,7 @@ def main():
                 cooking_session,
                 recipe_feature,
                 grocery_feature,
+                timer_feature,
                 reminder_feature,
                 SolarFeature(config, solar_storage, llm),
                 MediaFeature(config, sonarr=sonarr_client, radarr=radarr_client, llm=llm),
@@ -396,6 +419,8 @@ def main():
             garden_feature.close()
         if router:
             router.close()  # cascades to features + LLM
+        if scheduler:
+            scheduler.close()
         if telemetry_web:
             telemetry_web.close()
         if telemetry_store:

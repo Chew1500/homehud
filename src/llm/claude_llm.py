@@ -54,11 +54,20 @@ _INTENT_SYSTEM_PROMPT = (
     "Use the route_intent tool to respond. ALWAYS use this tool.\n\n"
     "## Available Features\n\n"
     "### grocery\n"
-    "Actions: add(items), remove(item), list(), clear()\n"
+    "Actions: add(items), remove(item), list(), clear(), restore(item?)\n"
     "`items` is a list of objects {name, quantity?, unit?}. Always extract\n"
     "numeric quantity and unit as separate fields — NEVER embed them in the\n"
     "name string. For \"add another X\", send quantity=1 and the grocery\n"
     "feature will bump the running count.\n"
+    "DESTRUCTIVE ACTION RULES (critical):\n"
+    "- `clear()` wipes the ENTIRE list. Only use when the user explicitly "
+    'says "clear", "empty", "delete all", "wipe", or "the whole list". '
+    "Say 'clear' is the ONLY trigger; never infer it.\n"
+    '- For "remove those ingredients", "remove what you just added", or any '
+    "reference to a subset of items, prefer `remove(item=...)` resolved "
+    "against last_list / last_entity. Do NOT use clear() for these.\n"
+    '- `restore` undoes the most recent removal. Trigger on "put them back", '
+    '"restore the items you removed", "undo that".\n'
     "Examples:\n"
     '- "add eight cantaloupes" → add, '
     '{"items": [{"name": "cantaloupe", "quantity": 8}]}\n'
@@ -68,6 +77,9 @@ _INTENT_SYSTEM_PROMPT = (
     '- "add another nascar" → add, '
     '{"items": [{"name": "nascar", "quantity": 1}]}\n'
     '- "add milk" → add, {"items": [{"name": "milk"}]}\n'
+    '- "remove the eggs" → remove, {"item": "egg"}\n'
+    '- "clear the whole list" → clear, {}\n'
+    '- "restore the items you removed" → restore, {}\n'
     'Example triggers: "add milk to grocery list", "what\'s on the shopping list"\n\n'
     "### reminder\n"
     "Actions: set(task, time), list(), cancel(task), clear()\n"
@@ -75,6 +87,16 @@ _INTENT_SYSTEM_PROMPT = (
     'IMPORTANT: Always use digits for numbers in the "time" parameter '
     '(e.g., "in 15 minutes" not "in fifteen minutes", "at 3pm" not "at three pm").\n'
     'Example triggers: "remind me to call mom in 20 minutes", "remind me at 3pm to..."\n\n'
+    "### timer\n"
+    "Actions: start(duration, label), cancel(label), list(), extend(duration, label)\n"
+    'Use `timer` for short kitchen/exercise countdowns (seconds, minutes, a '
+    'few hours) where the user expects an audible alarm. Use digits for '
+    'numbers in duration ("5 minutes" not "five minutes"). `label` is '
+    "optional. When in doubt between timer and reminder: if the user says "
+    '"timer" or "countdown" → timer. If they say "remind me" with a dated '
+    'task ("at 9am", "tomorrow") → reminder.\n'
+    'Example triggers: "set a timer for 7 minutes", "start a 10 minute '
+    'pasta timer", "cancel the timer", "add 2 minutes to the timer"\n\n'
     "### media\n"
     "Actions: track(title, media_type), list(media_type), check(title),\n"
     "         confirm(), skip(), cancel(), select(index),\n"
@@ -116,7 +138,10 @@ _INTENT_SYSTEM_PROMPT = (
     "### recipes\n"
     "Actions: list(), search(query), detail(recipe_name), delete(recipe_name),\n"
     "         recommend(preference), refine_recommendation(feedback),\n"
-    "         add_ingredients_to_grocery(recipe_name), start_cooking(recipe_name)\n"
+    "         add_ingredients_to_grocery(recipe_name, scale?), start_cooking(recipe_name)\n"
+    "`scale` (optional) is a multiplier on the ingredient quantities. Accepts "
+    'numbers ("2", "1.5", "0.5") or words ("double", "half", "triple"). '
+    'Examples: "double up on the ingredients" → scale=2. "half a batch" → scale=0.5.\n'
     "Use `recommend` for open-ended dietary/cuisine asks ('a vegetarian recipe', "
     "'something with seafood'). Use `search` when the user names a specific "
     "ingredient or keyword ('a recipe with rice', 'something with mushrooms') — "
@@ -163,7 +188,24 @@ _INTENT_SYSTEM_PROMPT = (
     "## Context Priority\n"
     "- When [CONTEXT: ...] is present, ALWAYS prioritize routing to the relevant feature\n"
     "- Partial transcriptions in follow-up should be interpreted in the active context, "
-    "not as standalone statements"
+    "not as standalone statements\n\n"
+    "## Resolving references: last_list and last_entity\n"
+    "- [CONTEXT: last_list(SOURCE, Ns ago): 1=A, 2=B, 3=C] means the user was just shown "
+    "that numbered list. Resolve positional phrases against it:\n"
+    "  - \"add the second to the grocery list\" with last_list(recipes) → "
+    "recipes.add_ingredients_to_grocery(recipe_name=\"B\")\n"
+    "  - \"the one with the most fiber\" / \"which is spiciest\" → conversation about the "
+    "items in the list, not a new action\n"
+    "- [CONTEXT: last_entity(SOURCE, Ns ago): NAME] names the single thing just discussed. "
+    "Resolve \"it\" / \"that\" / \"this one\" / \"the ingredients\" against it:\n"
+    "  - After last_entity(recipes): \"add it to the grocery list\" → "
+    "recipes.add_ingredients_to_grocery(recipe_name=\"NAME\")\n"
+    "  - After last_entity(recipes): \"what are the ingredients\" → "
+    "recipes.detail(recipe_name=\"NAME\")\n"
+    "- If both last_list and last_entity are present, last_entity wins for \"it/that\"; "
+    "last_list wins for positional / comparative references.\n"
+    "- Never invent a recipe_name / title from memory. If no context pointer matches, "
+    "ask for clarification."
 )
 
 _ROUTE_INTENT_TOOL = {
@@ -446,7 +488,17 @@ class ClaudeLLM(BaseLLM):
                 "recipe name, every ingredient with quantity and unit, every "
                 "direction step in order, prep time, cook time, servings, and "
                 "descriptive tags (cuisine, dietary, protein, meal type). "
-                "If a field is not visible, omit it or use a reasonable default."
+                "If a field is not visible, omit it or use a reasonable default.\n\n"
+                "Ingredient rules (critical for downstream grocery-list use): "
+                "Do NOT emit section headers (lines ending in ':' like "
+                "'Dijon Salmon:' or 'For the vinaigrette:') as ingredients — "
+                "skip them entirely. Put units in the `unit` field only, NEVER "
+                "in `name` (wrong: {name: 'tablespoon mustard'}; right: "
+                "{name: 'mustard', quantity: '1', unit: 'tablespoon'}). Put "
+                "prep qualifiers ('melted', 'chopped') after a comma in `name` "
+                "only when they're essential; prefer leaving them out. Skip "
+                "pure phrases like 'to taste', 'as needed', 'for serving' — "
+                "either attach them to the real ingredient or omit."
             )
             messages = [
                 {
@@ -536,6 +588,20 @@ class ClaudeLLM(BaseLLM):
 
             if result:
                 result["source"] = "image_upload"
+                # Post-filter ingredients to reject section headers, lift units
+                # out of names, etc. Prompt guidance is belt; this is suspenders.
+                from utils.ingredient_normalizer import normalize_ingredients
+
+                before = len(result.get("ingredients") or [])
+                result["ingredients"] = normalize_ingredients(
+                    result.get("ingredients") or []
+                )
+                after = len(result["ingredients"])
+                if after != before:
+                    log.info(
+                        "Normalizer dropped %d/%d ingredient rows from parsed recipe",
+                        before - after, before,
+                    )
                 log.info("Parsed recipe from image: %s", result.get("name"))
             return result
 

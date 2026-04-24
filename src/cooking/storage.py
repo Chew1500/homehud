@@ -20,6 +20,31 @@ class RecipeStorage:
 
     def __init__(self, path: Path | str):
         self._path = Path(path)
+        self._repair_ingredients_once()
+
+    def _repair_ingredients_once(self) -> None:
+        """One-shot lazy cleanup: run each recipe's ingredients through the
+        normalizer and rewrite the file if anything changed. Recovers recipes
+        stored before the normalizer existed (e.g. parsed images with section
+        headers like 'Dijon Salmon:' persisted as ingredient rows).
+        """
+        from utils.ingredient_normalizer import normalize_ingredients
+
+        recipes = self._load()
+        if not recipes:
+            return
+        changed = 0
+        for r in recipes:
+            before = r.get("ingredients") or []
+            if not before:
+                continue
+            after = normalize_ingredients(before)
+            if after != before:
+                r["ingredients"] = after
+                changed += 1
+        if changed:
+            self._save(recipes)
+            log.info("Normalizer repaired ingredients in %d recipe(s)", changed)
 
     # -- Read operations --
 

@@ -107,6 +107,20 @@ class BrowserVoiceHandler:
                 self._persist(session)
                 return _pcm_to_wav(b""), metadata
 
+            from speech.noise_filter import is_noise
+
+            noise = is_noise(
+                text,
+                no_speech_prob=result.no_speech_prob,
+                avg_logprob=result.avg_logprob,
+            )
+            if noise.rejected:
+                exchange.routing_path = f"rejected_noise_{noise.reason}"
+                metadata["response_text"] = ""
+                metadata["error"] = f"noise_{noise.reason}"
+                self._persist(session)
+                return _pcm_to_wav(b""), metadata
+
             # --- Routing phase ---
             exchange.start_phase("routing")
             response = self._router.route(text)

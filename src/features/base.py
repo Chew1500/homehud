@@ -99,6 +99,23 @@ class BaseFeature(ABC):
         """
         return None
 
+    # -- Router handoff for cross-turn context --
+    #
+    # The IntentRouter injects itself here so features can record "here's the
+    # list / entity the user just heard" for positional/pronoun resolution on
+    # the next turn. Features call `_set_last_list` / `_set_last_entity`; both
+    # no-op when no router is attached (e.g. in unit tests).
+
+    def _set_last_list(self, source: str, items: list[dict]) -> None:
+        router = getattr(self, "_router", None)
+        if router is not None and hasattr(router, "set_last_list"):
+            router.set_last_list(source, items)
+
+    def _set_last_entity(self, source: str, entity: dict) -> None:
+        router = getattr(self, "_router", None)
+        if router is not None and hasattr(router, "set_last_entity"):
+            router.set_last_entity(source, entity)
+
     def close(self) -> None:
         """Clean up resources. Override if needed."""
         pass
