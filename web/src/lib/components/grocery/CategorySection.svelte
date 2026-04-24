@@ -2,15 +2,16 @@
   Category section — a header with item count, a drag-reorderable list
   of items, and an optional collapsed state.
 
-  Drag behaviour (via svelte-dnd-action):
-    - Long-press or click-and-hold any row to start dragging
+  Drag behaviour (via svelte-dnd-action's dragHandleZone):
+    - Drag is initiated only from the grip-icon handle on each row,
+      so finger-scrolling the list never accidentally lifts a row.
     - Move within the list to reorder
     - Move into a different category section to change category
     - Release to commit; the store debounces the server round-trip
 -->
 <script lang="ts">
   import { ChevronRight } from 'lucide-svelte';
-  import { dndzone, type DndEvent } from 'svelte-dnd-action';
+  import { dragHandleZone, type DndEvent } from 'svelte-dnd-action';
   import { flip } from 'svelte/animate';
   import type { GroceryItem } from '$lib/api/grocery';
   import GroceryRow from './GroceryRow.svelte';
@@ -58,7 +59,7 @@
   {#if !collapsed}
     <ul
       class="min-h-[2rem] px-2 pb-1"
-      use:dndzone={{
+      use:dragHandleZone={{
         items,
         flipDurationMs: FLIP_MS,
         dropTargetStyle: {},

@@ -105,6 +105,7 @@ class TestRecipeFeature:
         assert "list" in schema
         assert "search" in schema
         assert "detail" in schema
+        assert "list_ingredients" in schema
         assert "delete" in schema
         assert "recommend" in schema
         assert "add_ingredients_to_grocery" in schema
@@ -163,6 +164,63 @@ class TestRecipeFeature:
         result = feat.execute("delete", {"recipe_name": "To Delete"})
         assert "Deleted" in result
         assert storage.count() == 0
+
+    def test_execute_list_ingredients(self, tmp_path):
+        feat, storage = self._make(tmp_path)
+        storage.add(_sample_recipe("Test Recipe"))
+        result = feat.execute(
+            "list_ingredients", {"recipe_name": "Test Recipe"}
+        )
+        # Names should be present, "and" should join the last item, the
+        # closing nudge should mention the grocery list.
+        assert "flour" in result
+        assert "sugar" in result
+        assert "eggs" in result
+        assert "3 ingredients" in result
+        assert "and eggs" in result
+        assert "grocery list" in result.lower()
+
+    def test_execute_list_ingredients_overflow(self, tmp_path):
+        feat, storage = self._make(tmp_path)
+        many = _sample_recipe("Big Recipe")
+        many["ingredients"] = [
+            {"name": f"item{i}", "quantity": "1", "unit": ""}
+            for i in range(25)
+        ]
+        storage.add(many)
+        result = feat.execute(
+            "list_ingredients", {"recipe_name": "Big Recipe"}
+        )
+        # Should mention the total and truncate with "and N more".
+        assert "25 ingredients" in result
+        assert "and 5 more" in result
+        # The 21st (item20) and beyond should not be spelled out.
+        assert "item24" not in result
+
+    def test_execute_list_ingredients_not_found(self, tmp_path):
+        feat, _ = self._make(tmp_path)
+        result = feat.execute(
+            "list_ingredients", {"recipe_name": "Nonexistent"}
+        )
+        assert "couldn't find" in result.lower()
+
+    def test_fuzzy_recipe_name_resolves(self, tmp_path):
+        # The original bug: the LLM extracted "shakshuka" but the only
+        # matching recipe was "Shakshuka for Two".
+        feat, storage = self._make(tmp_path)
+        storage.add(_sample_recipe("Shakshuka for Two"))
+        result = feat.execute("detail", {"recipe_name": "shakshuka"})
+        assert "Shakshuka for Two" in result
+        assert "couldn't find" not in result.lower()
+
+    def test_ambiguous_recipe_name_offers_disambiguation(self, tmp_path):
+        feat, storage = self._make(tmp_path)
+        storage.add(_sample_recipe("Shakshuka for Two"))
+        storage.add(_sample_recipe("Green Shakshuka"))
+        result = feat.execute("detail", {"recipe_name": "shakshuka"})
+        assert "Did you mean" in result
+        assert "Shakshuka for Two" in result
+        assert "Green Shakshuka" in result
 
     def test_matches_recipe_keywords(self, tmp_path):
         feat, _ = self._make(tmp_path)

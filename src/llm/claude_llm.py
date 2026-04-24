@@ -136,7 +136,8 @@ _INTENT_SYSTEM_PROMPT = (
     "Actions: query()\n"
     'Example triggers: "what\'s my IP", "what\'s my IP address", "network info"\n\n'
     "### recipes\n"
-    "Actions: list(), search(query), detail(recipe_name), delete(recipe_name),\n"
+    "Actions: list(), search(query), detail(recipe_name),\n"
+    "         list_ingredients(recipe_name), delete(recipe_name),\n"
     "         recommend(preference), refine_recommendation(feedback),\n"
     "         add_ingredients_to_grocery(recipe_name, scale?), start_cooking(recipe_name)\n"
     "`scale` (optional) is a multiplier on the ingredient quantities. Accepts "
@@ -147,12 +148,18 @@ _INTENT_SYSTEM_PROMPT = (
     "ingredient or keyword ('a recipe with rice', 'something with mushrooms') — "
     "extract just the ingredient/keyword as `query`. Use `refine_recommendation` "
     "for follow-up asks like 'a different one' while a recommendation is active.\n"
+    "Use `list_ingredients` when the user asks WHAT is in a recipe (the ingredient "
+    "list itself). Use `detail` for an overview / summary of a recipe (servings, "
+    "time, ingredient count).\n"
     'Example triggers: "show my recipes", "find a spicy recipe",\n'
     '  "give me a vegetarian recipe", "a seafood recipe",\n'
     '  "a recipe with rice" → search(query="rice"),\n'
     '  "something with mushrooms" → search(query="mushrooms"),\n'
     '  "recommend something healthy", "what should I cook",\n'
     '  "give me a different recipe" (during follow-up),\n'
+    '  "tell me about the shakshuka recipe" → detail(recipe_name="shakshuka"),\n'
+    '  "what are the ingredients for shakshuka" → list_ingredients(recipe_name="shakshuka"),\n'
+    '  "what\'s in the tikka masala recipe" → list_ingredients(recipe_name="tikka masala"),\n'
     '  "add ingredients for tikka masala to grocery list",\n'
     '  "let\'s cook the pasta recipe"\n\n'
     "### cooking_session\n"
@@ -200,7 +207,9 @@ _INTENT_SYSTEM_PROMPT = (
     "Resolve \"it\" / \"that\" / \"this one\" / \"the ingredients\" against it:\n"
     "  - After last_entity(recipes): \"add it to the grocery list\" → "
     "recipes.add_ingredients_to_grocery(recipe_name=\"NAME\")\n"
-    "  - After last_entity(recipes): \"what are the ingredients\" → "
+    "  - After last_entity(recipes): \"what are the ingredients\" / \"what's in it\" → "
+    "recipes.list_ingredients(recipe_name=\"NAME\")\n"
+    "  - After last_entity(recipes): \"tell me more about it\" / \"show the recipe\" → "
     "recipes.detail(recipe_name=\"NAME\")\n"
     "- If both last_list and last_entity are present, last_entity wins for \"it/that\"; "
     "last_list wins for positional / comparative references.\n"

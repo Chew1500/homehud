@@ -56,6 +56,58 @@ class TestRecipeStorage:
         assert storage.get_by_name("CHICKEN TIKKA") is not None
         assert storage.get_by_name("nonexistent") is None
 
+    def test_find_matches_exact(self, tmp_path):
+        storage = self._make(tmp_path)
+        storage.add(self._sample_recipe("Shakshuka for Two"))
+        storage.add(self._sample_recipe("Pasta"))
+        matches = storage.find_matches("Shakshuka for Two")
+        assert len(matches) == 1
+        assert matches[0]["name"] == "Shakshuka for Two"
+
+    def test_find_matches_fuzzy_query_substring_of_name(self, tmp_path):
+        storage = self._make(tmp_path)
+        storage.add(self._sample_recipe("Shakshuka for Two"))
+        storage.add(self._sample_recipe("Pasta"))
+        # Voice flow: LLM dropped the "for two" qualifier — single substring
+        # hit should resolve to the only shakshuka recipe.
+        matches = storage.find_matches("shakshuka")
+        assert len(matches) == 1
+        assert matches[0]["name"] == "Shakshuka for Two"
+
+    def test_find_matches_fuzzy_name_substring_of_query(self, tmp_path):
+        storage = self._make(tmp_path)
+        storage.add(self._sample_recipe("Shakshuka for Two"))
+        # User added qualifiers the recipe name doesn't have.
+        matches = storage.find_matches("shakshuka for two extra spicy")
+        assert len(matches) == 1
+        assert matches[0]["name"] == "Shakshuka for Two"
+
+    def test_find_matches_ambiguous(self, tmp_path):
+        storage = self._make(tmp_path)
+        storage.add(self._sample_recipe("Shakshuka for Two"))
+        storage.add(self._sample_recipe("Green Shakshuka"))
+        matches = storage.find_matches("shakshuka")
+        assert len(matches) == 2
+        names = {m["name"] for m in matches}
+        assert names == {"Shakshuka for Two", "Green Shakshuka"}
+
+    def test_find_matches_exact_wins_over_substring(self, tmp_path):
+        storage = self._make(tmp_path)
+        storage.add(self._sample_recipe("Shakshuka"))
+        storage.add(self._sample_recipe("Shakshuka for Two"))
+        # "Shakshuka" exists as an exact match, so we should pick it
+        # outright rather than offering a disambiguation prompt.
+        matches = storage.find_matches("shakshuka")
+        assert len(matches) == 1
+        assert matches[0]["name"] == "Shakshuka"
+
+    def test_find_matches_empty_or_no_hit(self, tmp_path):
+        storage = self._make(tmp_path)
+        storage.add(self._sample_recipe("Pasta"))
+        assert storage.find_matches("") == []
+        assert storage.find_matches("   ") == []
+        assert storage.find_matches("sushi") == []
+
     def test_search(self, tmp_path):
         storage = self._make(tmp_path)
         storage.add(self._sample_recipe("Spicy Tacos", ["mexican", "spicy"]))

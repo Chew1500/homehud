@@ -69,6 +69,12 @@ _RECOMMENDATION_TTL = 60  # seconds
 # Keeps prompt size bounded as the recipe book grows past a few hundred entries.
 MAX_CANDIDATES = 25
 
+# Cap on how many ingredient names to read out in `_list_ingredients`. Long
+# recipes (20+ ingredients) become a tedious TTS monologue; past the cap we
+# truncate and append "and N more" so the user can fall back to the grocery
+# list path for the full set.
+_INGREDIENT_TTS_CAP = 20
+
 _STOPWORDS = frozenset({
     "a", "an", "the", "give", "me", "some", "any", "with", "for",
     "something", "anything", "recipe", "recipes", "please", "i", "want",
@@ -237,6 +243,7 @@ class RecipeFeature(BaseFeature):
             "list": {},
             "search": {"query": "str"},
             "detail": {"recipe_name": "str"},
+            "list_ingredients": {"recipe_name": "str"},
             "delete": {"recipe_name": "str"},
             "recommend": {"preference": "str"},
             "refine_recommendation": {"feedback": "str"},
@@ -269,6 +276,9 @@ class RecipeFeature(BaseFeature):
             "list": lambda: self._list(),
             "search": lambda: self._search(parameters.get("query", "")),
             "detail": lambda: self._detail(parameters.get("recipe_name", "")),
+            "list_ingredients": lambda: self._list_ingredients(
+                parameters.get("recipe_name", "")
+            ),
             "delete": lambda: self._delete(parameters.get("recipe_name", "")),
             "recommend": lambda: self._recommend(parameters.get("preference", "")),
             "refine_recommendation": lambda: self._refine(
@@ -343,6 +353,29 @@ class RecipeFeature(BaseFeature):
 
     # -- Actions --
 
+    def _resolve(self, recipe_name: str) -> tuple[dict | None, str | None]:
+        """Resolve a user-supplied recipe name to a single recipe.
+
+        Returns `(recipe, error)`: on a single match, `error` is None. On
+        zero matches, returns the "couldn't find" error. On multiple, returns
+        a "did you mean" prompt and populates `last_list` so the user can
+        respond positionally ("the second one").
+        """
+        if not self._storage:
+            return None, "Recipe storage is not available."
+        matches = self._storage.find_matches(recipe_name)
+        if not matches:
+            return None, f"I couldn't find a recipe called '{recipe_name}'."
+        if len(matches) == 1:
+            return matches[0], None
+        names = [m.get("name", "Unnamed") for m in matches]
+        self._set_last_list("recipes", [{"name": n} for n in names])
+        if len(names) == 2:
+            joined = f"{names[0]} or {names[1]}"
+        else:
+            joined = ", ".join(names[:-1]) + f", or {names[-1]}"
+        return None, f"I found multiple matches. Did you mean {joined}?"
+
     def _list(self) -> str:
         if not self._storage:
             return "Recipe storage is not available."
@@ -379,11 +412,9 @@ class RecipeFeature(BaseFeature):
         return f"Found {len(names)} recipes: {joined}."
 
     def _detail(self, recipe_name: str) -> str:
-        if not self._storage:
-            return "Recipe storage is not available."
-        recipe = self._storage.get_by_name(recipe_name)
-        if not recipe:
-            return f"I couldn't find a recipe called '{recipe_name}'."
+        recipe, err = self._resolve(recipe_name)
+        if err:
+            return err
         self._set_last_entity("recipes", {"name": recipe["name"]})
         ingredients = recipe.get("ingredients", [])
         ing_count = len(ingredients)
@@ -407,12 +438,46 @@ class RecipeFeature(BaseFeature):
 
         return ". ".join(parts) + ". Say 'let's cook it' to start, or ask me for more details."
 
+    def _list_ingredients(self, recipe_name: str) -> str:
+        """Read out the ingredient names for a recipe.
+
+        Skips quantities — they get noisy in TTS, and the grocery-list path
+        is the right place to surface them. Truncates past
+        ``_INGREDIENT_TTS_CAP`` and appends "and N more" so very long
+        recipes don't turn into a monologue.
+        """
+        recipe, err = self._resolve(recipe_name)
+        if err:
+            return err
+        self._set_last_entity("recipes", {"name": recipe["name"]})
+        ingredients = recipe.get("ingredients") or []
+        names = [
+            (i.get("name") or "").strip()
+            for i in ingredients if isinstance(i, dict)
+        ]
+        names = [n for n in names if n]
+        total = len(names)
+        if total == 0:
+            return f"{recipe['name']} has no ingredients listed."
+        if total > _INGREDIENT_TTS_CAP:
+            head = names[:_INGREDIENT_TTS_CAP]
+            joined = ", ".join(head) + f", and {total - _INGREDIENT_TTS_CAP} more"
+        elif total == 1:
+            joined = names[0]
+        elif total == 2:
+            joined = f"{names[0]} and {names[1]}"
+        else:
+            joined = ", ".join(names[:-1]) + f", and {names[-1]}"
+        plural = "ingredient" if total == 1 else "ingredients"
+        return (
+            f"{recipe['name']} has {total} {plural}: {joined}. "
+            f"Say 'add it to the grocery list' for the full list with quantities."
+        )
+
     def _delete(self, recipe_name: str) -> str:
-        if not self._storage:
-            return "Recipe storage is not available."
-        recipe = self._storage.get_by_name(recipe_name)
-        if not recipe:
-            return f"I couldn't find a recipe called '{recipe_name}'."
+        recipe, err = self._resolve(recipe_name)
+        if err:
+            return err
         self._storage.delete(recipe["id"])
         return f"Deleted {recipe['name']} from your recipe book."
 
@@ -550,14 +615,12 @@ class RecipeFeature(BaseFeature):
         )
 
     def _add_to_grocery(self, recipe_name: str, scale: float = 1.0) -> str:
-        if not self._storage:
-            return "Recipe storage is not available."
         if not self._grocery:
             return "Grocery list is not available."
 
-        recipe = self._storage.get_by_name(recipe_name)
-        if not recipe:
-            return f"I couldn't find a recipe called '{recipe_name}'."
+        recipe, err = self._resolve(recipe_name)
+        if err:
+            return err
 
         result = self.add_recipe_to_grocery(recipe, scale=scale)
         if "error" in result:
@@ -658,14 +721,12 @@ class RecipeFeature(BaseFeature):
         }
 
     def _start_cooking(self, recipe_name: str) -> str:
-        if not self._storage:
-            return "Recipe storage is not available."
         if not self._cooking_session:
             return "Cooking session is not available."
 
-        recipe = self._storage.get_by_name(recipe_name)
-        if not recipe:
-            return f"I couldn't find a recipe called '{recipe_name}'."
+        recipe, err = self._resolve(recipe_name)
+        if err:
+            return err
 
         directions = recipe.get("directions", [])
         if not directions:

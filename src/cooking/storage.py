@@ -67,6 +67,28 @@ class RecipeStorage:
                 return r
         return None
 
+    def find_matches(self, name: str) -> list[dict]:
+        """Resolve a user-supplied recipe name to candidate recipes.
+
+        Exact case-insensitive equality wins outright (returned as a 1-element
+        list). Otherwise, fall back to substring containment in either
+        direction — handles both "shakshuka" → "Shakshuka for Two" (query is
+        substring of name) and "shakshuka for two extra spicy" → "Shakshuka
+        for Two" (name is substring of query). Empty queries return [].
+        """
+        target = (name or "").lower().strip()
+        if not target:
+            return []
+        recipes = self._load()
+        for r in recipes:
+            if r.get("name", "").lower() == target:
+                return [r]
+        return [
+            r for r in recipes
+            if target in r.get("name", "").lower()
+            or r.get("name", "").lower() in target
+        ]
+
     def search(self, query: str) -> list[dict]:
         """Search recipes by name, tags, and ingredient names (case-insensitive substring)."""
         q = query.lower().strip()

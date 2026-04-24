@@ -1,12 +1,15 @@
 <!--
   Single grocery item row.
 
-  Checkbox + formatted label + drag affordance + delete button. Parent
-  wraps this in the <li> that svelte-dnd-action tracks; we render a
-  plain <div> here so the row isn't double-nested.
+  Checkbox + formatted label + drag handle + delete button. Parent wraps
+  this in the <li> that svelte-dnd-action's dragHandleZone tracks; we
+  render a plain <div> here so the row isn't double-nested. Drag is only
+  initiated from the GripVertical handle, leaving the rest of the row
+  free for taps and finger-scrolling.
 -->
 <script lang="ts">
   import { Trash2, Check, GripVertical } from 'lucide-svelte';
+  import { dragHandle } from 'svelte-dnd-action';
   import type { GroceryItem } from '$lib/api/grocery';
   import { formatGroceryItem } from '$lib/grocery/parser';
   import { deleteItem, toggleChecked } from '$lib/grocery/store';
@@ -53,11 +56,13 @@
     {formatGroceryItem(item)}
   </span>
 
-  <!-- Drag grip — the whole row is draggable, but the grip makes the
-       affordance explicit so users don't have to guess. -->
+  <!-- Drag handle — the only element that initiates a drag. ``touch-none``
+       opts out of the browser's default scroll/pan gesture so a long-press
+       here lifts the row instead of scrolling the page. -->
   <span
-    aria-hidden="true"
-    class="flex size-6 shrink-0 cursor-grab items-center justify-center text-fg-muted/70 active:cursor-grabbing"
+    use:dragHandle
+    aria-label="Reorder {item.name}"
+    class="flex size-9 shrink-0 cursor-grab touch-none items-center justify-center text-fg-muted/70 active:cursor-grabbing"
   >
     <GripVertical class="size-4" />
   </span>
